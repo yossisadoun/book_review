@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Search, 
   Star, 
@@ -58,6 +58,7 @@ interface BookWithRatings extends Omit<Book, 'rating_writing' | 'rating_insight'
     insight: number | null;
     flow: number | null;
   };
+  author_facts?: string[]; // Fun facts about the author
 }
 
 // --- API Helpers ---
@@ -129,6 +130,53 @@ async function getGeminiSuggestions(query: string): Promise<string[]> {
     });
     return JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text || '{"suggestions":[]}').suggestions;
   } catch (err) {
+    return [];
+  }
+}
+
+// Get author fun facts from Gemini
+async function getAuthorFacts(bookTitle: string, author: string): Promise<string[]> {
+  if (!apiKey) return [];
+  
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+  
+  const systemPrompt = `You are a literary expert. Generate exactly 10 interesting, fun facts about the author "${author}" specifically in the context of their book "${bookTitle}".
+  
+  Requirements:
+  - Return exactly 10 facts
+  - Each fact should be concise (1-2 sentences max)
+  - Focus on interesting, lesser-known details
+  - Connect facts to the book when possible
+  - Make facts engaging and fun
+  - Format as a JSON array of strings
+  
+  Format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 10"] }`;
+
+  const payload = {
+    contents: [{ parts: [{ text: `Book: ${bookTitle} by ${author}` }] }],
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "OBJECT",
+        properties: {
+          facts: { type: "ARRAY", items: { type: "STRING" } }
+        },
+        required: ["facts"]
+      }
+    }
+  };
+
+  try {
+    const data = await fetchWithRetry(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const result = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text || '{"facts":[]}');
+    return result.facts || [];
+  } catch (err) {
+    console.error('Error fetching author facts:', err);
     return [];
   }
 }
@@ -225,6 +273,7 @@ function convertBookToApp(book: Book): BookWithRatings {
       insight: book.rating_insight ?? null,
       flow: book.rating_flow ?? null,
     },
+    author_facts: undefined, // Will be populated when fetched
   };
 }
 
@@ -253,6 +302,63 @@ function getGradient(id: string): string {
 }
 
 // --- UI Components ---
+
+interface AuthorFactsTooltipsProps {
+  facts: string[];
+  bookId: string; // To reset when book changes
+}
+
+function AuthorFactsTooltips({ facts, bookId }: AuthorFactsTooltipsProps) {
+  const [visibleFacts, setVisibleFacts] = useState<string[]>([]);
+
+  useEffect(() => {
+    // Reset when book changes
+    setVisibleFacts([]);
+    
+    if (facts.length === 0) return;
+
+    // Show facts one by one in FIFO order
+    const timeouts: NodeJS.Timeout[] = [];
+    facts.forEach((fact, index) => {
+      const timeout = setTimeout(() => {
+        setVisibleFacts(prev => [...prev, fact]);
+      }, index * 800); // 800ms delay between each fact
+      timeouts.push(timeout);
+    });
+
+    return () => {
+      timeouts.forEach(clearTimeout);
+    };
+  }, [facts, bookId]);
+
+  if (facts.length === 0 || visibleFacts.length === 0) return null;
+
+  return (
+    <div className="absolute bottom-4 left-4 right-4 z-20 flex flex-col gap-2 max-h-[35%] overflow-y-auto scrollbar-hide">
+      <AnimatePresence mode="popLayout">
+        {visibleFacts.map((fact, index) => (
+          <motion.div
+            key={`${fact}-${index}`}
+            layout
+            initial={{ opacity: 0, y: 20, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9, y: -10 }}
+            transition={{ 
+              duration: 0.4, 
+              ease: "easeOut",
+              layout: { duration: 0.3 }
+            }}
+            className="bg-white/95 backdrop-blur-md rounded-xl p-3 shadow-xl border border-white/40"
+          >
+            <p className="text-xs font-medium text-slate-800 leading-relaxed">
+              💡 {fact}
+            </p>
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+}
 
 interface RatingStarsProps {
   value: number | null;
@@ -305,6 +411,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleSearch(titleToSearch = query) {
     if (!titleToSearch.trim()) return;
@@ -339,6 +446,34 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
     handleSearch(s);
   }
 
+  // Focus input and scroll into view when sheet opens
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      // Small delay to ensure the sheet animation has started
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          // For mobile: scroll input into view so it's visible above keyboard
+          // Use 'start' to position input at top of visible area
+          setTimeout(() => {
+            inputRef.current?.scrollIntoView({ 
+              behavior: 'smooth', 
+              block: 'start',
+              inline: 'nearest'
+            });
+            // Additional scroll adjustment for mobile keyboards
+            if (window.visualViewport) {
+              window.scrollTo({
+                top: window.scrollY + 100,
+                behavior: 'smooth'
+              });
+            }
+          }, 150);
+        }
+      }, 350);
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const isQueryHebrew = isHebrew(query);
@@ -358,8 +493,9 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
         <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }} className="space-y-4">
           <div className="relative">
             <input 
-              autoFocus 
+              ref={inputRef}
               type="text" 
+              inputMode="search"
               placeholder={isQueryHebrew ? "חפש ספר..." : "Search for a book..."}
               value={query} 
               onChange={e => setQuery(e.target.value)}
@@ -501,6 +637,21 @@ export default function App() {
       const newBooks = [newBook, ...books];
       setBooks(newBooks);
       setSelectedIndex(0);
+
+      // Fetch author facts asynchronously after book is added
+      if (meta.title && meta.author) {
+        getAuthorFacts(meta.title, meta.author).then(facts => {
+          if (facts.length > 0) {
+            setBooks(prev => prev.map(book => 
+              book.id === newBook.id 
+                ? { ...book, author_facts: facts }
+                : book
+            ));
+          }
+        }).catch(err => {
+          console.error('Error fetching author facts:', err);
+        });
+      }
     } catch (err) {
       console.error('Error adding book:', err);
     }
@@ -613,6 +764,11 @@ export default function App() {
                   )}
                 </motion.div>
               </AnimatePresence>
+
+              {/* Author Facts Tooltips - Show only when not rating */}
+              {activeBook.author_facts && activeBook.author_facts.length > 0 && !showRatingOverlay && (
+                <AuthorFactsTooltips facts={activeBook.author_facts} bookId={activeBook.id} />
+              )}
 
               <div className="absolute top-4 left-4 z-30 max-w-[80%]">
                 <motion.div 
