@@ -56,9 +56,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   async function signInWithGoogle() {
-    // Get base path for GitHub Pages
+    // Get base path for GitHub Pages (e.g., /book_review)
     const basePath = window.location.pathname.split('/').slice(0, 2).join('/') || '';
+    // Use the current origin and path to ensure it works in both dev and production
     const redirectTo = `${window.location.origin}${basePath}/auth/callback`;
+    
+    console.log('OAuth redirect URL:', redirectTo);
+    
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
