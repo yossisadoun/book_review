@@ -63,12 +63,28 @@ interface BookWithRatings extends Omit<Book, 'rating_writing' | 'rating_insight'
 
 // --- API Helpers ---
 
-async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 5, delay = 1000): Promise<any> {
+async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 3, delay = 2000): Promise<any> {
   for (let i = 0; i < retries; i++) {
     try {
       const res = await fetch(url, options);
       if (res.ok) return await res.json();
-      if (res.status === 401 || res.status === 403 || res.status === 429 || res.status >= 500) {
+      
+      // Handle rate limiting (429) with exponential backoff
+      if (res.status === 429) {
+        const retryAfter = res.headers.get('Retry-After');
+        const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : delay * Math.pow(2, i);
+        
+        if (i === retries - 1) {
+          console.warn('Rate limit exceeded. Please try again later.');
+          throw new Error('Rate limit exceeded');
+        }
+        
+        console.log(`Rate limited. Waiting ${waitTime}ms before retry ${i + 1}/${retries}...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+      
+      if (res.status === 401 || res.status === 403 || res.status >= 500) {
         if (i === retries - 1) throw new Error(`HTTP ${res.status}`);
         await new Promise(resolve => setTimeout(resolve, delay));
         delay *= 2;
@@ -97,6 +113,9 @@ function isHebrew(text: string): boolean {
 
 async function getGeminiSuggestions(query: string): Promise<string[]> {
   if (!apiKey) return [];
+  
+  // Add a small delay to avoid hitting rate limits
+  await new Promise(resolve => setTimeout(resolve, 500));
   
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
   
@@ -130,6 +149,7 @@ async function getGeminiSuggestions(query: string): Promise<string[]> {
     });
     return JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text || '{"suggestions":[]}').suggestions;
   } catch (err) {
+    console.warn('Gemini suggestions unavailable:', err);
     return [];
   }
 }
@@ -137,6 +157,9 @@ async function getGeminiSuggestions(query: string): Promise<string[]> {
 // Get author fun facts from Gemini
 async function getAuthorFacts(bookTitle: string, author: string): Promise<string[]> {
   if (!apiKey) return [];
+  
+  // Add a longer delay for author facts to avoid rate limits (this is a secondary feature)
+  await new Promise(resolve => setTimeout(resolve, 2000));
   
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
   
@@ -172,11 +195,12 @@ async function getAuthorFacts(bookTitle: string, author: string): Promise<string
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
-    });
+    }, 2, 3000); // Fewer retries and longer delay for author facts
     const result = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text || '{"facts":[]}');
     return result.facts || [];
   } catch (err) {
-    console.error('Error fetching author facts:', err);
+    // Silently fail for author facts - it's a nice-to-have feature
+    console.warn('Author facts unavailable (rate limited):', err);
     return [];
   }
 }
@@ -309,52 +333,64 @@ interface AuthorFactsTooltipsProps {
 }
 
 function AuthorFactsTooltips({ facts, bookId }: AuthorFactsTooltipsProps) {
-  const [visibleFacts, setVisibleFacts] = useState<string[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
     // Reset when book changes
-    setVisibleFacts([]);
+    setCurrentIndex(0);
+    setIsVisible(false);
     
     if (facts.length === 0) return;
 
-    // Show facts one by one in FIFO order
-    const timeouts: NodeJS.Timeout[] = [];
-    facts.forEach((fact, index) => {
-      const timeout = setTimeout(() => {
-        setVisibleFacts(prev => [...prev, fact]);
-      }, index * 800); // 800ms delay between each fact
-      timeouts.push(timeout);
-    });
+    // Show first fact after a short delay
+    const timeout = setTimeout(() => {
+      setIsVisible(true);
+    }, 1000);
 
-    return () => {
-      timeouts.forEach(clearTimeout);
-    };
+    return () => clearTimeout(timeout);
   }, [facts, bookId]);
 
-  if (facts.length === 0 || visibleFacts.length === 0) return null;
+  function handleNext() {
+    if (currentIndex < facts.length - 1) {
+      setIsVisible(false);
+      // Wait for fade out, then show next
+      setTimeout(() => {
+        setCurrentIndex(prev => prev + 1);
+        setIsVisible(true);
+      }, 300);
+    }
+  }
+
+  if (facts.length === 0 || currentIndex >= facts.length) return null;
+
+  const currentFact = facts[currentIndex];
 
   return (
-    <div className="absolute bottom-4 left-4 right-4 z-20 flex flex-col gap-2 max-h-[35%] overflow-y-auto scrollbar-hide">
-      <AnimatePresence mode="popLayout">
-        {visibleFacts.map((fact, index) => (
+    <div
+      onClick={handleNext}
+      className="w-full cursor-pointer"
+    >
+      <AnimatePresence mode="wait">
+        {isVisible && (
           <motion.div
-            key={`${fact}-${index}`}
-            layout
-            initial={{ opacity: 0, y: 20, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9, y: -10 }}
-            transition={{ 
-              duration: 0.4, 
-              ease: "easeOut",
-              layout: { duration: 0.3 }
-            }}
-            className="bg-white/95 backdrop-blur-md rounded-xl p-3 shadow-xl border border-white/40"
+            key={`${currentFact}-${currentIndex}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="bg-white/95 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/40"
           >
-            <p className="text-xs font-medium text-slate-800 leading-relaxed">
-              💡 {fact}
+            <p className="text-xs font-medium text-slate-800 leading-relaxed text-center">
+              💡 {currentFact}
             </p>
+            {currentIndex < facts.length - 1 && (
+              <p className="text-[10px] text-slate-400 text-center mt-2 font-bold uppercase tracking-wider">
+                Tap for next ({currentIndex + 1}/{facts.length})
+              </p>
+            )}
           </motion.div>
-        ))}
+        )}
       </AnimatePresence>
     </div>
   );
@@ -751,7 +787,7 @@ export default function App() {
             <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-4"><BookOpen size={40} className="text-white opacity-90" /></div>
           </div>
         ) : (
-          <div className="w-full max-w-[340px] flex flex-col items-center">
+          <div className="w-full max-w-[340px] flex flex-col items-center gap-6">
             <div className="relative w-full aspect-[2/3] rounded-3xl shadow-2xl border border-white/50 overflow-hidden group">
               <AnimatePresence mode='wait'>
                 <motion.div key={activeBook.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="w-full h-full">
@@ -765,10 +801,6 @@ export default function App() {
                 </motion.div>
               </AnimatePresence>
 
-              {/* Author Facts Tooltips - Show only when not rating */}
-              {activeBook.author_facts && activeBook.author_facts.length > 0 && !showRatingOverlay && (
-                <AuthorFactsTooltips facts={activeBook.author_facts} bookId={activeBook.id} />
-              )}
 
               <div className="absolute top-4 left-4 z-30 max-w-[80%]">
                 <motion.div 
@@ -865,6 +897,11 @@ export default function App() {
                 </>
               )}
             </div>
+            
+            {/* Author Facts Tooltips - Show below cover with spacing */}
+            {activeBook.author_facts && activeBook.author_facts.length > 0 && !showRatingOverlay && (
+              <AuthorFactsTooltips facts={activeBook.author_facts} bookId={activeBook.id} />
+            )}
           </div>
         )}
       </main>
