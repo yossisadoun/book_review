@@ -352,14 +352,12 @@ function AuthorFactsTooltips({ facts, bookId }: AuthorFactsTooltipsProps) {
   }, [facts, bookId]);
 
   function handleNext() {
-    if (currentIndex < facts.length - 1) {
-      setIsVisible(false);
-      // Wait for fade out, then show next
-      setTimeout(() => {
-        setCurrentIndex(prev => prev + 1);
-        setIsVisible(true);
-      }, 300);
-    }
+    setIsVisible(false);
+    // Wait for fade out, then show next (or loop back to first)
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev + 1) % facts.length);
+      setIsVisible(true);
+    }, 300);
   }
 
   if (facts.length === 0 || currentIndex >= facts.length) return null;
@@ -384,11 +382,9 @@ function AuthorFactsTooltips({ facts, bookId }: AuthorFactsTooltipsProps) {
             <p className="text-xs font-medium text-slate-800 leading-relaxed text-center">
               💡 {currentFact}
             </p>
-            {currentIndex < facts.length - 1 && (
-              <p className="text-[10px] text-slate-400 text-center mt-2 font-bold uppercase tracking-wider">
-                Tap for next ({currentIndex + 1}/{facts.length})
-              </p>
-            )}
+            <p className="text-[10px] text-slate-400 text-center mt-2 font-bold uppercase tracking-wider">
+              Tap for next ({currentIndex + 1}/{facts.length})
+            </p>
           </motion.div>
         )}
       </AnimatePresence>
