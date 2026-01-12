@@ -78,6 +78,13 @@ on public.books for delete
 using (auth.uid() = user_id);
 ```
 
+**Migration for existing tables:** If you already have the `books` table, run this to add the `author_facts` column:
+
+```sql
+ALTER TABLE public.books 
+ADD COLUMN IF NOT EXISTS author_facts jsonb;
+```
+
 4. Get your Supabase credentials:
    - Go to Project Settings → API
    - Copy your Project URL and anon/public key
