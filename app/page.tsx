@@ -636,6 +636,20 @@ export default function App() {
     loadBooks();
   }, [user, authLoading]);
 
+  // All hooks must be called before any conditional returns
+  const activeBook = books[selectedIndex] || null;
+  const [editingDimension, setEditingDimension] = useState<string | null>(null);
+  
+  // When editing, show the first dimension that needs rating, or first dimension if all are rated
+  const currentEditingDimension = useMemo(() => {
+    if (!activeBook || !isEditing) return null;
+    if (editingDimension) return editingDimension;
+    // Find first unrated dimension, or default to first dimension
+    return RATING_DIMENSIONS.find(d => activeBook.ratings[d] === null) || RATING_DIMENSIONS[0];
+  }, [activeBook, isEditing, editingDimension]);
+  
+  const showRatingOverlay = activeBook && isEditing;
+
   useEffect(() => {
     setIsEditing(false);
     setIsConfirmingDelete(false);
@@ -651,24 +665,29 @@ export default function App() {
 
   // Fetch author facts for existing books when they're selected (if missing)
   useEffect(() => {
-    if (!activeBook || activeBook.author_facts || !activeBook.title || !activeBook.author) return;
+    const currentBook = books[selectedIndex];
+    if (!currentBook || currentBook.author_facts || !currentBook.title || !currentBook.author) return;
 
     // Add a delay to avoid rate limits when scrolling through books
     const fetchTimer = setTimeout(() => {
-      getAuthorFacts(activeBook.title, activeBook.author).then(async (facts) => {
+      const bookId = currentBook.id;
+      const bookTitle = currentBook.title;
+      const bookAuthor = currentBook.author;
+      
+      getAuthorFacts(bookTitle, bookAuthor).then(async (facts) => {
         if (facts.length > 0) {
           // Save to database
           try {
             const { error: updateError } = await supabase
               .from('books')
               .update({ author_facts: facts, updated_at: new Date().toISOString() })
-              .eq('id', activeBook.id);
+              .eq('id', bookId);
             
             if (updateError) throw updateError;
             
             // Update local state
             setBooks(prev => prev.map(book => 
-              book.id === activeBook.id 
+              book.id === bookId 
                 ? { ...book, author_facts: facts }
                 : book
             ));
@@ -676,7 +695,7 @@ export default function App() {
             console.error('Error saving author facts to database:', err);
             // Still update local state even if DB save fails
             setBooks(prev => prev.map(book => 
-              book.id === activeBook.id 
+              book.id === bookId 
                 ? { ...book, author_facts: facts }
                 : book
             ));
@@ -688,7 +707,7 @@ export default function App() {
     }, 1500); // Delay to avoid rate limits when scrolling
 
     return () => clearTimeout(fetchTimer);
-  }, [activeBook?.id]); // Only depend on book ID to avoid infinite loops
+  }, [selectedIndex, books]); // Depend on selectedIndex and books array
 
   async function handleAddBook(meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>) {
     if (!user) return;
@@ -796,20 +815,6 @@ export default function App() {
       ));
     }
   }
-
-  // All hooks must be called before any conditional returns
-  const activeBook = books[selectedIndex] || null;
-  const [editingDimension, setEditingDimension] = useState<string | null>(null);
-  
-  // When editing, show the first dimension that needs rating, or first dimension if all are rated
-  const currentEditingDimension = useMemo(() => {
-    if (!activeBook || !isEditing) return null;
-    if (editingDimension) return editingDimension;
-    // Find first unrated dimension, or default to first dimension
-    return RATING_DIMENSIONS.find(d => activeBook.ratings[d] === null) || RATING_DIMENSIONS[0];
-  }, [activeBook, isEditing, editingDimension]);
-  
-  const showRatingOverlay = activeBook && isEditing;
 
   async function handleDelete() {
     if (!activeBook) return;
