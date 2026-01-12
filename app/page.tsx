@@ -47,6 +47,7 @@ interface Book {
   rating_writing?: number | null;
   rating_insight?: number | null;
   rating_flow?: number | null;
+  author_facts?: string[] | null; // JSON array of author facts
   created_at: string;
   updated_at: string;
 }
@@ -298,7 +299,7 @@ function convertBookToApp(book: Book): BookWithRatings {
       insight: book.rating_insight ?? null,
       flow: book.rating_flow ?? null,
     },
-    author_facts: undefined, // Will be populated when fetched
+    author_facts: book.author_facts || undefined, // Load from database
   };
 }
 
@@ -648,6 +649,47 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [selectedIndex]);
 
+  // Fetch author facts for existing books when they're selected (if missing)
+  useEffect(() => {
+    if (!activeBook || activeBook.author_facts || !activeBook.title || !activeBook.author) return;
+
+    // Add a delay to avoid rate limits when scrolling through books
+    const fetchTimer = setTimeout(() => {
+      getAuthorFacts(activeBook.title, activeBook.author).then(async (facts) => {
+        if (facts.length > 0) {
+          // Save to database
+          try {
+            const { error: updateError } = await supabase
+              .from('books')
+              .update({ author_facts: facts, updated_at: new Date().toISOString() })
+              .eq('id', activeBook.id);
+            
+            if (updateError) throw updateError;
+            
+            // Update local state
+            setBooks(prev => prev.map(book => 
+              book.id === activeBook.id 
+                ? { ...book, author_facts: facts }
+                : book
+            ));
+          } catch (err) {
+            console.error('Error saving author facts to database:', err);
+            // Still update local state even if DB save fails
+            setBooks(prev => prev.map(book => 
+              book.id === activeBook.id 
+                ? { ...book, author_facts: facts }
+                : book
+            ));
+          }
+        }
+      }).catch(err => {
+        console.error('Error fetching author facts:', err);
+      });
+    }, 1500); // Delay to avoid rate limits when scrolling
+
+    return () => clearTimeout(fetchTimer);
+  }, [activeBook?.id]); // Only depend on book ID to avoid infinite loops
+
   async function handleAddBook(meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>) {
     if (!user) return;
 
@@ -674,15 +716,34 @@ export default function App() {
       setBooks(newBooks);
       setSelectedIndex(0);
 
-      // Fetch author facts asynchronously after book is added
+      // Fetch author facts asynchronously after book is added and save to DB
       if (meta.title && meta.author) {
-        getAuthorFacts(meta.title, meta.author).then(facts => {
+        getAuthorFacts(meta.title, meta.author).then(async (facts) => {
           if (facts.length > 0) {
-            setBooks(prev => prev.map(book => 
-              book.id === newBook.id 
-                ? { ...book, author_facts: facts }
-                : book
-            ));
+            // Save to database
+            try {
+              const { error: updateError } = await supabase
+                .from('books')
+                .update({ author_facts: facts, updated_at: new Date().toISOString() })
+                .eq('id', newBook.id);
+              
+              if (updateError) throw updateError;
+              
+              // Update local state
+              setBooks(prev => prev.map(book => 
+                book.id === newBook.id 
+                  ? { ...book, author_facts: facts }
+                  : book
+              ));
+            } catch (err) {
+              console.error('Error saving author facts to database:', err);
+              // Still update local state even if DB save fails
+              setBooks(prev => prev.map(book => 
+                book.id === newBook.id 
+                  ? { ...book, author_facts: facts }
+                  : book
+              ));
+            }
           }
         }).catch(err => {
           console.error('Error fetching author facts:', err);

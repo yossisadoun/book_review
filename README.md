@@ -46,6 +46,7 @@ create table public.books (
   rating_writing int check (rating_writing between 1 and 5),
   rating_insight int check (rating_insight between 1 and 5),
   rating_flow int check (rating_flow between 1 and 5),
+  author_facts jsonb,
 
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
