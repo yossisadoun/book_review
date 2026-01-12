@@ -121,10 +121,11 @@ async function getGeminiSuggestions(query: string): Promise<string[]> {
   
   const systemPrompt = `You are a book title expert. The user is searching for a book with a potentially misspelled or partial title.
   Analyze the query: "${query}"
-  Return a JSON array of the top 3 most likely real book titles. 
+  Return a JSON array of the top 3 most likely real book titles with their authors. 
+  Format each suggestion as "Book Title/Author Name" (use forward slash as separator).
   Keep the titles exact so they work well in a Wikipedia search.
   If the input is Hebrew, suggest Hebrew titles.
-  Format: { "suggestions": ["Title 1", "Title 2", "Title 3"] }`;
+  Format: { "suggestions": ["Title 1/Author 1", "Title 2/Author 2", "Title 3/Author 3"] }`;
 
   const payload = {
     contents: [{ parts: [{ text: `Search query: ${query}` }] }],
@@ -474,8 +475,10 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
   }
 
   function handleSuggestionClick(s: string) {
-    setQuery(s);
-    handleSearch(s);
+    // Extract just the book title (before the slash) for searching
+    const bookTitle = s.split('/')[0].trim();
+    setQuery(bookTitle);
+    handleSearch(bookTitle);
   }
 
   // Focus input and scroll into view when sheet opens
@@ -635,6 +638,7 @@ export default function App() {
   useEffect(() => {
     setIsEditing(false);
     setIsConfirmingDelete(false);
+    setEditingDimension(null);
     
     setIsMetaExpanded(true);
     const timer = setTimeout(() => {
@@ -706,6 +710,21 @@ export default function App() {
         .eq('id', id);
 
       if (error) throw error;
+      
+      // After rating, move to next dimension or close if all done
+      if (value !== null && activeBook) {
+        const currentIndex = RATING_DIMENSIONS.indexOf(dimension as typeof RATING_DIMENSIONS[number]);
+        const nextIndex = currentIndex + 1;
+        if (nextIndex < RATING_DIMENSIONS.length) {
+          setEditingDimension(RATING_DIMENSIONS[nextIndex]);
+        } else {
+          // All dimensions rated, close after a brief moment
+          setTimeout(() => {
+            setIsEditing(false);
+            setEditingDimension(null);
+          }, 500);
+        }
+      }
     } catch (err) {
       console.error('Error updating rating:', err);
       // Revert on error
@@ -719,8 +738,17 @@ export default function App() {
 
   // All hooks must be called before any conditional returns
   const activeBook = books[selectedIndex] || null;
-  const nextDimension = useMemo(() => activeBook ? RATING_DIMENSIONS.find(d => activeBook.ratings[d] === null) : null, [activeBook]);
-  const showRatingOverlay = activeBook && (!!nextDimension || isEditing);
+  const [editingDimension, setEditingDimension] = useState<string | null>(null);
+  
+  // When editing, show the first dimension that needs rating, or first dimension if all are rated
+  const currentEditingDimension = useMemo(() => {
+    if (!activeBook || !isEditing) return null;
+    if (editingDimension) return editingDimension;
+    // Find first unrated dimension, or default to first dimension
+    return RATING_DIMENSIONS.find(d => activeBook.ratings[d] === null) || RATING_DIMENSIONS[0];
+  }, [activeBook, isEditing, editingDimension]);
+  
+  const showRatingOverlay = activeBook && isEditing;
 
   async function handleDelete() {
     if (!activeBook) return;
@@ -852,39 +880,72 @@ export default function App() {
               </AnimatePresence>
 
               <AnimatePresence>
-                {showRatingOverlay && !isConfirmingDelete && (
-                  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className="absolute bottom-16 left-4 right-4 z-40 bg-white/85 backdrop-blur-xl flex flex-col items-center justify-center p-4 rounded-2xl border border-white/20 shadow-2xl overflow-hidden">
-                    {nextDimension ? (
-                      <motion.div key={nextDimension} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="w-full">
-                        <RatingStars dimension={nextDimension} value={activeBook.ratings[nextDimension]} onRate={(dim, val) => handleRate(activeBook.id, dim, val)} />
-                      </motion.div>
-                    ) : (
-                      <div className="flex flex-col items-center gap-3 py-2 text-center">
-                        <div className="p-2 bg-green-100 text-green-600 rounded-full"><CheckCircle2 size={24} /></div>
-                        <p className="font-bold text-slate-900 text-sm">Rating Saved</p>
-                        <div className="flex gap-2">
-                          <button onClick={() => setIsEditing(false)} className="px-5 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold active:scale-95 transition-transform">Close</button>
-                          <button onClick={() => {
-                            handleRate(activeBook.id, 'writing', null);
-                            handleRate(activeBook.id, 'insight', null);
-                            handleRate(activeBook.id, 'flow', null);
-                          }} className="px-5 py-2 bg-slate-100 text-slate-500 rounded-lg text-xs font-bold active:scale-95 transition-transform">Reset</button>
-                        </div>
-                      </div>
-                    )}
+                {showRatingOverlay && !isConfirmingDelete && currentEditingDimension && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 20 }} 
+                    animate={{ opacity: 1, y: 0 }} 
+                    exit={{ opacity: 0, y: 20 }} 
+                    className="absolute bottom-16 left-4 right-4 z-40 bg-white/80 backdrop-blur-xl flex flex-col items-center justify-center p-4 rounded-2xl border border-white/20 shadow-2xl overflow-hidden"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <motion.div 
+                      key={currentEditingDimension} 
+                      initial={{ opacity: 0, scale: 0.9 }} 
+                      animate={{ opacity: 1, scale: 1 }} 
+                      exit={{ opacity: 0, scale: 0.9 }} 
+                      className="w-full"
+                    >
+                      <RatingStars 
+                        dimension={currentEditingDimension} 
+                        value={activeBook.ratings[currentEditingDimension]} 
+                        onRate={(dim, val) => handleRate(activeBook.id, dim, val)} 
+                      />
+                    </motion.div>
+                    {/* Navigation dots */}
+                    <div className="flex gap-1.5 mt-3">
+                      {RATING_DIMENSIONS.map((dim, idx) => (
+                        <button
+                          key={dim}
+                          onClick={() => setEditingDimension(dim)}
+                          className={`w-2 h-2 rounded-full transition-all ${
+                            dim === currentEditingDimension 
+                              ? 'bg-blue-500 w-6' 
+                              : 'bg-slate-300'
+                          }`}
+                        />
+                      ))}
+                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>
+              
+              {/* Click outside to close rating overlay */}
+              {showRatingOverlay && (
+                <div 
+                  className="fixed inset-0 z-30"
+                  onClick={() => {
+                    setIsEditing(false);
+                    setEditingDimension(null);
+                  }}
+                />
+              )}
 
               <button onClick={() => setIsConfirmingDelete(true)} className="absolute top-4 right-4 z-30 bg-white/95 backdrop-blur p-2.5 rounded-full shadow-lg text-slate-400 hover:text-red-500 active:scale-90 transition-all border border-white/20">
                 <Trash2 size={20} />
               </button>
 
-              {calculateAvg(activeBook.ratings) && (
-                <button onClick={() => setIsEditing(true)} className="absolute bottom-4 left-4 z-30 bg-white/95 backdrop-blur px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1 active:scale-90 transition-transform border border-white/20">
-                  <Star size={14} className="fill-amber-400 text-amber-400" /><span className="font-black text-sm text-slate-800">{calculateAvg(activeBook.ratings)}</span>
-                </button>
-              )}
+              <button 
+                onClick={() => {
+                  setIsEditing(true);
+                  setEditingDimension(null); // Will default to first unrated or first dimension
+                }} 
+                className="absolute bottom-4 left-4 z-30 bg-white/95 backdrop-blur px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1 active:scale-90 transition-transform border border-white/20"
+              >
+                <Star size={14} className="fill-amber-400 text-amber-400" />
+                <span className="font-black text-sm text-slate-800">
+                  {calculateAvg(activeBook.ratings) || 'Rate'}
+                </span>
+              </button>
 
               {books.length > 1 && (
                 <>
