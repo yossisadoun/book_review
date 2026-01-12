@@ -1,4 +1,4 @@
-# Wiki Shelf - Book Review App
+# BOOK - Book Review App
 
 A mobile-first, clean and simple book review app powered by Wikipedia, AI, and Supabase.
 
