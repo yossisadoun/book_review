@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AuthProvider } from "@/contexts/AuthContext";
 
 export const metadata: Metadata = {
-  title: "Wiki Shelf - Book Review App",
+  title: "BOOK - Book Review App",
   description: "A mobile-first book review app powered by Wikipedia",
 };
 
@@ -13,7 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }

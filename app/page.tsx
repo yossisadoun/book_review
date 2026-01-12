@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Plus, 
   Search, 
   Star, 
   ChevronLeft, 
@@ -15,14 +14,17 @@ import {
   AlertCircle,
   Library,
   Info,
-  Sparkles
+  Sparkles,
+  LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '@/contexts/AuthContext';
+import { LoginScreen } from '@/components/LoginScreen';
+import { supabase } from '@/lib/supabase';
 
 // --- Types & Constants ---
-const STORAGE_KEY = 'quick_book_ratings_v1';
 const RATING_DIMENSIONS = ['writing', 'insight', 'flow'] as const;
-const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || ""; // Provided by environment
+const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
 
 const GRADIENTS = [
   'from-rose-500 to-pink-600',
@@ -33,15 +35,24 @@ const GRADIENTS = [
   'from-cyan-500 to-blue-500',
 ] as const;
 
+// Supabase database schema interface
 interface Book {
   id: string;
+  user_id: string;
   title: string;
   author: string;
-  publishYear?: number;
-  coverUrl?: string | null;
-  wikipediaUrl?: string;
-  pageTitle?: string;
-  createdAt: number;
+  publish_year?: number | null;
+  cover_url?: string | null;
+  wikipedia_url?: string | null;
+  rating_writing?: number | null;
+  rating_insight?: number | null;
+  rating_flow?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Local app interface (for easier manipulation)
+interface BookWithRatings extends Omit<Book, 'rating_writing' | 'rating_insight' | 'rating_flow'> {
   ratings: {
     writing: number | null;
     insight: number | null;
@@ -84,6 +95,8 @@ function isHebrew(text: string): boolean {
 // --- Gemini Suggestions Pipeline ---
 
 async function getGeminiSuggestions(query: string): Promise<string[]> {
+  if (!apiKey) return [];
+  
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
   
   const systemPrompt = `You are a book title expert. The user is searching for a book with a potentially misspelled or partial title.
@@ -158,7 +171,7 @@ async function getAuthorAndYearFromWikidata(qid: string, lang = 'en'): Promise<{
   return { author, publishYear };
 }
 
-async function lookupBookOnWikipedia(query: string): Promise<Book | null> {
+async function lookupBookOnWikipedia(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null> {
   const lang = isHebrew(query) ? 'he' : 'en';
   const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*`;
   const searchData = await fetchWithRetry(searchUrl);
@@ -194,21 +207,41 @@ async function lookupBookOnWikipedia(query: string): Promise<Book | null> {
   }
 
   return {
-    id: '',
     title: summaryData.title || pageTitle,
     author: author,
-    publishYear: publishYear,
-    coverUrl: summaryData.thumbnail?.source || summaryData.originalimage?.source || null,
-    wikipediaUrl: summaryData.content_urls?.desktop?.page,
-    pageTitle: pageTitle,
-    createdAt: Date.now(),
-    ratings: { writing: null, insight: null, flow: null }
+    publish_year: publishYear,
+    cover_url: summaryData.thumbnail?.source || summaryData.originalimage?.source || null,
+    wikipedia_url: summaryData.content_urls?.desktop?.page || null,
   };
 }
 
 // --- Utilities ---
 
-function calculateAvg(ratings: Book['ratings']): string | null {
+function convertBookToApp(book: Book): BookWithRatings {
+  return {
+    ...book,
+    ratings: {
+      writing: book.rating_writing ?? null,
+      insight: book.rating_insight ?? null,
+      flow: book.rating_flow ?? null,
+    },
+  };
+}
+
+function convertBookToDb(book: BookWithRatings): Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at'> {
+  return {
+    title: book.title,
+    author: book.author,
+    publish_year: book.publish_year,
+    cover_url: book.cover_url,
+    wikipedia_url: book.wikipedia_url,
+    rating_writing: book.ratings.writing,
+    rating_insight: book.ratings.insight,
+    rating_flow: book.ratings.flow,
+  };
+}
+
+function calculateAvg(ratings: BookWithRatings['ratings']): string | null {
   const values = Object.values(ratings).filter(v => v != null) as number[];
   if (values.length === 0) return null;
   return (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
@@ -264,7 +297,7 @@ function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
 interface AddBookSheetProps {
   isOpen: boolean;
   onClose: () => void;
-  onAdd: (book: Book) => void;
+  onAdd: (book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>) => void;
 }
 
 function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
@@ -278,7 +311,6 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
     setLoading(true);
     setError('');
     
-    // Run both in parallel
     const wikiPromise = lookupBookOnWikipedia(titleToSearch);
     const geminiPromise = getGeminiSuggestions(titleToSearch);
 
@@ -288,13 +320,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
       setSuggestions(gems);
 
       if (meta) {
-        const newBook: Book = {
-          ...meta,
-          id: crypto.randomUUID(),
-          createdAt: Date.now(),
-          ratings: { writing: null, insight: null, flow: null }
-        };
-        onAdd(newBook);
+        onAdd(meta);
         setQuery('');
         setSuggestions([]);
         onClose();
@@ -349,7 +375,6 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
             </button>
           </div>
           
-          {/* Gemini "Did you mean?" Suggestions */}
           <AnimatePresence>
             {suggestions.length > 0 && (
               <motion.div 
@@ -384,7 +409,8 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
 }
 
 export default function App() {
-  const [books, setBooks] = useState<Book[]>([]);
+  const { user, loading: authLoading, signOut } = useAuth();
+  const [books, setBooks] = useState<BookWithRatings[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isAdding, setIsAdding] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -392,17 +418,51 @@ export default function App() {
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isMetaExpanded, setIsMetaExpanded] = useState(true);
 
+  // Load books from Supabase
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try { setBooks(JSON.parse(saved)); } catch (e) {}
-    }
-    setIsLoaded(true);
-  }, []);
+    if (authLoading) return;
 
-  useEffect(() => {
-    if (isLoaded) localStorage.setItem(STORAGE_KEY, JSON.stringify(books));
-  }, [books, isLoaded]);
+    // If no user, mark as loaded so we can show login screen
+    if (!user) {
+      setIsLoaded(true);
+      return;
+    }
+
+    async function loadBooks() {
+      try {
+        // Verify we have a session
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          console.error('No session found when loading books');
+          setIsLoaded(true);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('books')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error('Supabase error loading books:', error);
+          console.error('Error details:', JSON.stringify(error, null, 2));
+          throw error;
+        }
+
+        const appBooks = (data || []).map(convertBookToApp);
+        setBooks(appBooks);
+        if (appBooks.length > 0 && selectedIndex >= appBooks.length) {
+          setSelectedIndex(0);
+        }
+      } catch (err) {
+        console.error('Error loading books:', err);
+      } finally {
+        setIsLoaded(true);
+      }
+    }
+
+    loadBooks();
+  }, [user, authLoading]);
 
   useEffect(() => {
     setIsEditing(false);
@@ -416,33 +476,124 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [selectedIndex]);
 
-  function handleAddBook(meta: Book) {
-    const newBook: Book = { ...meta, id: crypto.randomUUID(), createdAt: Date.now(), ratings: { writing: null, insight: null, flow: null } };
-    const newBooks = [...books, newBook];
-    setBooks(newBooks);
-    setSelectedIndex(newBooks.length - 1);
+  async function handleAddBook(meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>) {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('books')
+        .insert({
+          ...meta,
+          user_id: user.id,
+          rating_writing: null,
+          rating_insight: null,
+          rating_flow: null,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+
+      const newBook = convertBookToApp(data);
+      const newBooks = [newBook, ...books];
+      setBooks(newBooks);
+      setSelectedIndex(0);
+    } catch (err) {
+      console.error('Error adding book:', err);
+    }
   }
 
-  function handleRate(id: string, dimension: string, value: number | null) {
-    setBooks(prev => prev.map(book => book.id === id ? { ...book, ratings: { ...book.ratings, [dimension]: value } } : book));
+  async function handleRate(id: string, dimension: string, value: number | null) {
+    const ratingField = `rating_${dimension}` as 'rating_writing' | 'rating_insight' | 'rating_flow';
+    
+    // Optimistic update
+    setBooks(prev => prev.map(book => 
+      book.id === id 
+        ? { ...book, ratings: { ...book.ratings, [dimension]: value } }
+        : book
+    ));
+
+    try {
+      const { error } = await supabase
+        .from('books')
+        .update({ [ratingField]: value, updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+      if (error) throw error;
+    } catch (err) {
+      console.error('Error updating rating:', err);
+      // Revert on error
+      setBooks(prev => prev.map(book => 
+        book.id === id 
+          ? { ...book, ratings: { ...book.ratings, [dimension]: null } }
+          : book
+      ));
+    }
   }
 
-  function handleDelete() {
-    const newBooks = books.filter(b => b.id !== activeBook.id);
-    const nextIndex = selectedIndex > 0 ? selectedIndex - 1 : 0;
-    setIsConfirmingDelete(false);
-    setSelectedIndex(newBooks.length > 0 ? nextIndex : 0);
-    setBooks(newBooks);
-  }
-
-  const activeBook = books[selectedIndex];
+  // All hooks must be called before any conditional returns
+  const activeBook = books[selectedIndex] || null;
   const nextDimension = useMemo(() => activeBook ? RATING_DIMENSIONS.find(d => activeBook.ratings[d] === null) : null, [activeBook]);
   const showRatingOverlay = activeBook && (!!nextDimension || isEditing);
 
-  if (!isLoaded) return null;
+  async function handleDelete() {
+    if (!activeBook) return;
+
+    try {
+      const { error } = await supabase
+        .from('books')
+        .delete()
+        .eq('id', activeBook.id);
+
+      if (error) throw error;
+
+      const newBooks = books.filter(b => b.id !== activeBook.id);
+      const nextIndex = selectedIndex > 0 ? selectedIndex - 1 : 0;
+      setIsConfirmingDelete(false);
+      setSelectedIndex(newBooks.length > 0 ? nextIndex : 0);
+      setBooks(newBooks);
+    } catch (err) {
+      console.error('Error deleting book:', err);
+    }
+  }
+
+  // Show loading spinner while checking auth
+  if (authLoading) {
+    return (
+      <div className="fixed inset-0 bg-slate-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Show login screen if not authenticated
+  if (!user) {
+    return <LoginScreen />;
+  }
+
+  // Show loading spinner while loading books (only if user is authenticated)
+  if (!isLoaded) {
+    return (
+      <div className="fixed inset-0 bg-slate-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-slate-50 text-slate-900 font-sans select-none overflow-hidden flex flex-col">
+      {/* Sign out button */}
+      <button
+        onClick={signOut}
+        className="absolute top-4 right-4 z-50 bg-white/95 backdrop-blur p-2 rounded-full shadow-lg text-slate-600 hover:text-slate-900 active:scale-90 transition-all border border-white/20"
+        title="Sign out"
+      >
+        <LogOut size={18} />
+      </button>
+
       <main className="flex-1 flex flex-col items-center justify-start p-4 relative pt-4">
         {books.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
@@ -451,11 +602,10 @@ export default function App() {
         ) : (
           <div className="w-full max-w-[340px] flex flex-col items-center">
             <div className="relative w-full aspect-[2/3] rounded-3xl shadow-2xl border border-white/50 overflow-hidden group">
-              {/* Cover View */}
               <AnimatePresence mode='wait'>
                 <motion.div key={activeBook.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="w-full h-full">
-                  {activeBook.coverUrl ? (
-                    <img src={activeBook.coverUrl} alt={activeBook.title} className="w-full h-full object-cover" />
+                  {activeBook.cover_url ? (
+                    <img src={activeBook.cover_url} alt={activeBook.title} className="w-full h-full object-cover" />
                   ) : (
                     <div className={`w-full h-full flex flex-col items-center justify-center p-8 text-center bg-gradient-to-br ${getGradient(activeBook.id)} text-white`}>
                       <BookOpen size={48} className="mb-4 opacity-30" />
@@ -464,7 +614,6 @@ export default function App() {
                 </motion.div>
               </AnimatePresence>
 
-              {/* Collapsible Metadata (Top Left) */}
               <div className="absolute top-4 left-4 z-30 max-w-[80%]">
                 <motion.div 
                   initial={false}
@@ -484,13 +633,13 @@ export default function App() {
                         <div className="flex flex-col gap-1">
                           <p className="text-[10px] font-bold text-slate-600 truncate">{activeBook.author}</p>
                           <div className="flex items-center gap-2">
-                            {activeBook.publishYear && (
+                            {activeBook.publish_year && (
                               <span className="bg-slate-200/80 px-1.5 py-0.5 rounded text-[8px] uppercase font-bold tracking-wider text-slate-700">
-                                {activeBook.publishYear}
+                                {activeBook.publish_year}
                               </span>
                             )}
-                            {activeBook.wikipediaUrl && (
-                              <a href={activeBook.wikipediaUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[8px] text-blue-600 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline">
+                            {activeBook.wikipedia_url && (
+                              <a href={activeBook.wikipedia_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[8px] text-blue-600 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline">
                                 Source <ExternalLink size={8} />
                               </a>
                             )}
@@ -506,7 +655,6 @@ export default function App() {
                 </motion.div>
               </div>
 
-              {/* Actions & Navigation */}
               <AnimatePresence>
                 {isConfirmingDelete && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[60] bg-red-600/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white">
@@ -565,7 +713,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Peaking Bottom Bar */}
       <div className="fixed bottom-0 left-0 right-0 z-[50] flex justify-center px-4 pb-0 pointer-events-none">
         <motion.div 
           initial={{ y: 45 }}
