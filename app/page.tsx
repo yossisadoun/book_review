@@ -15,7 +15,8 @@ import {
   Library,
   Info,
   Sparkles,
-  LogOut
+  LogOut,
+  Headphones
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -35,6 +36,17 @@ const GRADIENTS = [
   'from-cyan-500 to-blue-500',
 ] as const;
 
+// Podcast episode interface
+interface PodcastEpisode {
+  title: string;
+  length?: string;
+  air_date?: string;
+  url: string;
+  platform: string;
+  episode_summary: string;
+  podcast_summary: string;
+}
+
 // Supabase database schema interface
 interface Book {
   id: string;
@@ -48,6 +60,7 @@ interface Book {
   rating_insight?: number | null;
   rating_flow?: number | null;
   author_facts?: string[] | null; // JSON array of author facts
+  podcast_episodes?: PodcastEpisode[] | null; // JSON array of podcast episodes
   created_at: string;
   updated_at: string;
 }
@@ -60,6 +73,7 @@ interface BookWithRatings extends Omit<Book, 'rating_writing' | 'rating_insight'
     flow: number | null;
   };
   author_facts?: string[]; // Fun facts about the author
+  podcast_episodes?: PodcastEpisode[]; // Podcast episodes about the book
 }
 
 // --- API Helpers ---
@@ -237,6 +251,68 @@ async function getAuthorFacts(bookTitle: string, author: string): Promise<string
   return getGrokAuthorFacts(bookTitle, author);
 }
 
+// Get podcast episodes from Grok
+async function getGrokPodcastEpisodes(bookTitle: string, author: string): Promise<PodcastEpisode[]> {
+  if (!grokApiKey) {
+    console.warn('[getGrokPodcastEpisodes] API key is missing!');
+    return [];
+  }
+  
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  
+  const url = 'https://api.x.ai/v1/chat/completions';
+  
+  const prompt = `Find me podcast episodes for the book "${bookTitle}" by ${author}.
+I want the response to be only the list of results in JSON format.
+Very very concise with minimal description. Include: title, length, air_date, url, platform, episode_summary (short summary of the podcast episode), podcast_summary (short summary of the podcast itself).
+Prioritize podcasts that specialize on book reviews / book club type analysis or discussion / deep interviews with author on the book in question.
+Return ONLY valid JSON in this format: { "episodes": [{"title": "...", "length": "...", "air_date": "...", "url": "...", "platform": "...", "episode_summary": "...", "podcast_summary": "..."}, ...] }`;
+
+  const payload = {
+    messages: [
+      {
+        role: "user",
+        content: prompt
+      }
+    ],
+    model: "grok-4-1-fast-non-reasoning",
+    stream: false,
+    temperature: 0.7
+  };
+
+  try {
+    console.log(`[getGrokPodcastEpisodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${author}...`);
+    const data = await fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`
+      },
+      body: JSON.stringify(payload)
+    }, 2, 3000);
+    const content = data.choices?.[0]?.message?.content || '{"episodes":[]}';
+    // Try to extract JSON from the response (Grok might wrap it in markdown)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    const result = JSON.parse(jsonStr);
+    const episodes = result.episodes || [];
+    console.log(`[getGrokPodcastEpisodes] ✅ Received ${episodes.length} podcast episodes for "${bookTitle}"`);
+    return episodes;
+  } catch (err: any) {
+    console.error('[getGrokPodcastEpisodes] ❌ Error:', err);
+    console.error('[getGrokPodcastEpisodes] Error details:', err.message, err.stack);
+    if (err.message?.includes('403')) {
+      console.error('Grok API returned 403 - check your API key permissions');
+    }
+    return [];
+  }
+}
+
+async function getPodcastEpisodes(bookTitle: string, author: string): Promise<PodcastEpisode[]> {
+  console.log(`[getPodcastEpisodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${author}`);
+  return getGrokPodcastEpisodes(bookTitle, author);
+}
+
 // --- Wikipedia/Wikidata Pipeline ---
 
 async function getWikidataItemForTitle(pageTitle: string, lang = 'en'): Promise<string | null> {
@@ -330,6 +406,7 @@ function convertBookToApp(book: Book): BookWithRatings {
       flow: book.rating_flow ?? null,
     },
     author_facts: book.author_facts || undefined, // Load from database
+    podcast_episodes: book.podcast_episodes || undefined, // Load from database
   };
 }
 
@@ -395,11 +472,16 @@ function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTo
 
   if (isLoading) {
     return (
-      <div className="w-full flex items-center justify-center py-4">
-        <div className="flex flex-col items-center gap-2">
-          <Loader2 size={20} className="text-slate-400 animate-spin" />
-          <span className="text-xs text-slate-500">Loading author facts...</span>
-        </div>
+      <div className="w-full">
+        <motion.div
+          animate={{ opacity: [0.5, 0.8, 0.5] }}
+          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+          className="bg-white/95 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/40"
+        >
+          <div className="h-12 flex items-center justify-center">
+            <div className="w-full h-4 bg-slate-200/60 rounded animate-pulse" />
+          </div>
+        </motion.div>
       </div>
     );
   }
@@ -428,6 +510,118 @@ function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTo
             </p>
             <p className="text-[10px] text-slate-400 text-center mt-2 font-bold uppercase tracking-wider">
               Tap for next ({currentIndex + 1}/{facts.length})
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+interface PodcastEpisodesProps {
+  episodes: PodcastEpisode[];
+  bookId: string;
+  isLoading?: boolean;
+}
+
+function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisodesProps) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    // Reset when book changes
+    setCurrentIndex(0);
+    setIsVisible(false);
+    
+    if (episodes.length === 0) return;
+
+    // Show first episode after a short delay
+    const timeout = setTimeout(() => {
+      setIsVisible(true);
+    }, 1000);
+
+    return () => clearTimeout(timeout);
+  }, [episodes, bookId]);
+
+  function handleNext() {
+    setIsVisible(false);
+    // Wait for fade out, then show next (or loop back to first)
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev + 1) % episodes.length);
+      setIsVisible(true);
+    }, 300);
+  }
+
+  if (isLoading) {
+    return (
+      <div className="w-full">
+        <motion.div
+          animate={{ opacity: [0.5, 0.8, 0.5] }}
+          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+          className="bg-white/95 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/40"
+        >
+          <div className="space-y-3">
+            <div className="h-4 bg-slate-200/60 rounded animate-pulse" />
+            <div className="h-3 bg-slate-200/60 rounded w-3/4 animate-pulse" />
+            <div className="h-3 bg-slate-200/60 rounded w-2/3 animate-pulse" />
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (episodes.length === 0 || currentIndex >= episodes.length) return null;
+
+  const currentEpisode = episodes[currentIndex];
+
+  return (
+    <div
+      onClick={handleNext}
+      className="w-full cursor-pointer"
+    >
+      <AnimatePresence mode="wait">
+        {isVisible && (
+          <motion.div
+            key={`${currentEpisode.url}-${currentIndex}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="bg-white/95 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/40"
+          >
+            <div className="flex items-start gap-2 mb-2">
+              <Headphones size={16} className="text-blue-500 mt-0.5 flex-shrink-0" />
+              <a 
+                href={currentEpisode.url} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline flex-1"
+              >
+                {currentEpisode.title}
+              </a>
+            </div>
+            <div className="text-[10px] text-slate-500 space-y-1 mb-2">
+              {currentEpisode.platform && (
+                <div className="font-semibold">{currentEpisode.platform}</div>
+              )}
+              {(currentEpisode.length || currentEpisode.air_date) && (
+                <div className="flex gap-2">
+                  {currentEpisode.length && <span>{currentEpisode.length}</span>}
+                  {currentEpisode.air_date && <span>• {currentEpisode.air_date}</span>}
+                </div>
+              )}
+            </div>
+            <p className="text-[10px] font-medium text-slate-700 leading-relaxed mb-1">
+              {currentEpisode.episode_summary}
+            </p>
+            {currentEpisode.podcast_summary && (
+              <p className="text-[9px] text-slate-500 italic">
+                {currentEpisode.podcast_summary}
+              </p>
+            )}
+            <p className="text-[10px] text-slate-400 text-center mt-2 font-bold uppercase tracking-wider">
+              Tap for next ({currentIndex + 1}/{episodes.length})
             </p>
           </motion.div>
         )}
@@ -632,6 +826,7 @@ export default function App() {
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isMetaExpanded, setIsMetaExpanded] = useState(true);
   const [loadingFactsForBookId, setLoadingFactsForBookId] = useState<string | null>(null);
+  const [loadingPodcastsForBookId, setLoadingPodcastsForBookId] = useState<string | null>(null);
 
   // Load books from Supabase
   useEffect(() => {
@@ -787,6 +982,92 @@ export default function App() {
     };
   }, [selectedIndex, books]); // Depend on selectedIndex and books
 
+  // Fetch podcast episodes for existing books when they're selected (if missing)
+  useEffect(() => {
+    const currentBook = books[selectedIndex];
+    if (!currentBook || !currentBook.title || !currentBook.author) {
+      setLoadingPodcastsForBookId(null);
+      return;
+    }
+
+    // Check if podcasts already exist in database
+    if (currentBook.podcast_episodes && currentBook.podcast_episodes.length > 0) {
+      console.log(`[Podcast Episodes] ✅ Loaded from database for "${currentBook.title}" by ${currentBook.author}: ${currentBook.podcast_episodes.length} episodes`);
+      setLoadingPodcastsForBookId(null);
+      return;
+    }
+
+    let cancelled = false;
+    const bookId = currentBook.id;
+
+    // Set loading state
+    setLoadingPodcastsForBookId(bookId);
+
+    // Add a delay to avoid rate limits when scrolling through books
+    const fetchTimer = setTimeout(() => {
+      if (cancelled) return;
+      
+      const bookTitle = currentBook.title;
+      const bookAuthor = currentBook.author;
+      
+      console.log(`[Podcast Episodes] 🔄 Fetching from Grok API for "${bookTitle}" by ${bookAuthor}...`);
+      getPodcastEpisodes(bookTitle, bookAuthor).then(async (episodes) => {
+        if (cancelled) return;
+        
+        // Clear loading state
+        setLoadingPodcastsForBookId(null);
+        
+        if (episodes.length > 0) {
+          console.log(`[Podcast Episodes] ✅ Received ${episodes.length} episodes from Grok API for "${bookTitle}"`);
+          // Save to database
+          try {
+            const { error: updateError } = await supabase
+              .from('books')
+              .update({ podcast_episodes: episodes, updated_at: new Date().toISOString() })
+              .eq('id', bookId);
+            
+            if (updateError) throw updateError;
+            
+            console.log(`[Podcast Episodes] 💾 Saved ${episodes.length} episodes to database for "${bookTitle}"`);
+            
+            // Update local state
+            setBooks(prev => prev.map(book => 
+              book.id === bookId 
+                ? { ...book, podcast_episodes: episodes }
+                : book
+            ));
+          } catch (err: any) {
+            console.error('[Podcast Episodes] ❌ Error saving to database:', err);
+            console.error('[Podcast Episodes] Error details:', err.message, err.code, err.details);
+            if (err.code === '42703' || err.message?.includes('column') || err.message?.includes('podcast_episodes')) {
+              console.error('[Podcast Episodes] ⚠️ Database column "podcast_episodes" may not exist. Run this SQL in Supabase:');
+              console.error('ALTER TABLE public.books ADD COLUMN IF NOT EXISTS podcast_episodes jsonb;');
+            }
+            // Still update local state even if DB save fails
+            setBooks(prev => prev.map(book => 
+              book.id === bookId 
+                ? { ...book, podcast_episodes: episodes }
+                : book
+            ));
+          }
+        } else {
+          console.log(`[Podcast Episodes] ⚠️ No episodes received from Grok API for "${bookTitle}"`);
+        }
+      }).catch(err => {
+        if (!cancelled) {
+          setLoadingPodcastsForBookId(null);
+          console.error('Error fetching podcast episodes:', err);
+        }
+      });
+    }, 2000); // Delay to avoid rate limits when scrolling
+
+    return () => {
+      cancelled = true;
+      setLoadingPodcastsForBookId(null);
+      clearTimeout(fetchTimer);
+    };
+  }, [selectedIndex, books]); // Depend on selectedIndex and books
+
   async function handleAddBook(meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>) {
     if (!user) return;
 
@@ -813,8 +1094,9 @@ export default function App() {
       setBooks(newBooks);
       setSelectedIndex(0);
 
-      // Fetch author facts asynchronously after book is added and save to DB
+      // Fetch author facts and podcast episodes asynchronously after book is added and save to DB
       if (meta.title && meta.author) {
+        // Fetch author facts
         console.log(`[Author Facts] 🔄 Fetching from Grok API for new book "${meta.title}" by ${meta.author}...`);
         setLoadingFactsForBookId(newBook.id);
         getAuthorFacts(meta.title, meta.author).then(async (facts) => {
@@ -853,6 +1135,52 @@ export default function App() {
         }).catch(err => {
           setLoadingFactsForBookId(null);
           console.error(`[Author Facts] ❌ Error fetching from Grok API for "${meta.title}":`, err);
+        });
+
+        // Fetch podcast episodes
+        console.log(`[Podcast Episodes] 🔄 Fetching from Grok API for new book "${meta.title}" by ${meta.author}...`);
+        setLoadingPodcastsForBookId(newBook.id);
+        getPodcastEpisodes(meta.title, meta.author).then(async (episodes) => {
+          setLoadingPodcastsForBookId(null);
+          if (episodes.length > 0) {
+            console.log(`[Podcast Episodes] ✅ Received ${episodes.length} episodes from Grok API for "${meta.title}"`);
+            // Save to database
+            try {
+              const { error: updateError } = await supabase
+                .from('books')
+                .update({ podcast_episodes: episodes, updated_at: new Date().toISOString() })
+                .eq('id', newBook.id);
+              
+              if (updateError) throw updateError;
+              
+              console.log(`[Podcast Episodes] 💾 Saved ${episodes.length} episodes to database for "${meta.title}"`);
+              
+              // Update local state
+              setBooks(prev => prev.map(book => 
+                book.id === newBook.id 
+                  ? { ...book, podcast_episodes: episodes }
+                  : book
+              ));
+            } catch (err: any) {
+              console.error('[Podcast Episodes] ❌ Error saving to database:', err);
+              console.error('[Podcast Episodes] Error details:', err.message, err.code, err.details);
+              if (err.code === '42703' || err.message?.includes('column') || err.message?.includes('podcast_episodes')) {
+                console.error('[Podcast Episodes] ⚠️ Database column "podcast_episodes" may not exist. Run this SQL in Supabase:');
+                console.error('ALTER TABLE public.books ADD COLUMN IF NOT EXISTS podcast_episodes jsonb;');
+              }
+              // Still update local state even if DB save fails
+              setBooks(prev => prev.map(book => 
+                book.id === newBook.id 
+                  ? { ...book, podcast_episodes: episodes }
+                  : book
+              ));
+            }
+          } else {
+            console.log(`[Podcast Episodes] ⚠️ No episodes received from Grok API for "${meta.title}"`);
+          }
+        }).catch(err => {
+          setLoadingPodcastsForBookId(null);
+          console.error(`[Podcast Episodes] ❌ Error fetching from Grok API for "${meta.title}":`, err);
         });
       }
     } catch (err) {
@@ -973,13 +1301,13 @@ export default function App() {
         </div>
       </div>
 
-      <main className="flex-1 flex flex-col items-center justify-start p-4 relative pt-4 overflow-y-auto">
+      <main className="flex-1 flex flex-col items-center justify-start p-4 relative pt-4 overflow-y-auto pb-20">
         {books.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
             <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-4"><BookOpen size={40} className="text-white opacity-90" /></div>
           </div>
         ) : (
-          <div className="w-full max-w-[340px] flex flex-col items-center gap-6">
+          <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">
             <div className="relative w-full aspect-[2/3] rounded-3xl shadow-2xl border border-white/50 overflow-hidden group">
               <AnimatePresence mode='wait'>
                 <motion.div key={activeBook.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="w-full h-full">
@@ -1098,7 +1426,7 @@ export default function App() {
                 />
               )}
 
-              <button onClick={() => setIsConfirmingDelete(true)} className="absolute top-4 right-4 z-30 bg-white/95 backdrop-blur p-2.5 rounded-full shadow-lg text-slate-400 hover:text-red-500 active:scale-90 transition-all border border-white/20">
+              <button onClick={() => setIsConfirmingDelete(true)} className="absolute bottom-4 right-4 z-30 bg-white/95 backdrop-blur p-2.5 rounded-full shadow-lg text-slate-400 hover:text-red-500 active:scale-90 transition-all border border-white/20">
                 <Trash2 size={20} />
               </button>
 
@@ -1125,11 +1453,22 @@ export default function App() {
             
             {/* Author Facts Tooltips - Show below cover with spacing */}
             {!showRatingOverlay && (
-              <AuthorFactsTooltips 
-                facts={activeBook.author_facts || []} 
-                bookId={activeBook.id}
-                isLoading={loadingFactsForBookId === activeBook.id && !activeBook.author_facts}
-              />
+              <>
+                <AuthorFactsTooltips 
+                  facts={activeBook.author_facts || []} 
+                  bookId={activeBook.id}
+                  isLoading={loadingFactsForBookId === activeBook.id && !activeBook.author_facts}
+                />
+                {/* Podcast Episodes - Show below author facts */}
+                {(activeBook.podcast_episodes && activeBook.podcast_episodes.length > 0) || 
+                 (loadingPodcastsForBookId === activeBook.id && !activeBook.podcast_episodes) ? (
+                  <PodcastEpisodes 
+                    episodes={activeBook.podcast_episodes || []} 
+                    bookId={activeBook.id}
+                    isLoading={loadingPodcastsForBookId === activeBook.id && !activeBook.podcast_episodes}
+                  />
+                ) : null}
+              </>
             )}
           </div>
         )}
