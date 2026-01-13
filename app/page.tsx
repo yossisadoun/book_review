@@ -24,7 +24,7 @@ import { supabase } from '@/lib/supabase';
 
 // --- Types & Constants ---
 const RATING_DIMENSIONS = ['writing', 'insight', 'flow'] as const;
-const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY || "";
+const grokApiKey = process.env.NEXT_PUBLIC_GROK_API_KEY || "";
 
 const GRADIENTS = [
   'from-rose-500 to-pink-600',
@@ -110,101 +110,120 @@ function isHebrew(text: string): boolean {
   return /[\u0590-\u05FF]/.test(text);
 }
 
-// --- Gemini Suggestions Pipeline ---
-
-async function getGeminiSuggestions(query: string): Promise<string[]> {
-  if (!apiKey) return [];
+// --- AI Functions (using Grok) ---
+async function getGrokSuggestions(query: string): Promise<string[]> {
+  if (!grokApiKey) return [];
   
-  // Add a small delay to avoid hitting rate limits
   await new Promise(resolve => setTimeout(resolve, 500));
   
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+  const url = 'https://api.x.ai/v1/chat/completions';
   
-  const systemPrompt = `You are a book title expert. The user is searching for a book with a potentially misspelled or partial title.
-  Analyze the query: "${query}"
-  Return a JSON array of the top 3 most likely real book titles with their authors. 
-  Format each suggestion as "Book Title/Author Name" (use forward slash as separator).
-  Keep the titles exact so they work well in a Wikipedia search.
-  If the input is Hebrew, suggest Hebrew titles.
-  Format: { "suggestions": ["Title 1/Author 1", "Title 2/Author 2", "Title 3/Author 3"] }`;
+  const prompt = `You are a book title expert. The user is searching for a book with a potentially misspelled or partial title.
+Analyze the query: "${query}"
+Return a JSON object with a "suggestions" array containing the top 3 most likely real book titles with their authors.
+Format each suggestion as "Book Title/Author Name" (use forward slash as separator).
+Keep the titles exact so they work well in a Wikipedia search.
+If the input is Hebrew, suggest Hebrew titles.
+Return ONLY valid JSON in this format: { "suggestions": ["Title 1/Author 1", "Title 2/Author 2", "Title 3/Author 3"] }`;
 
   const payload = {
-    contents: [{ parts: [{ text: `Search query: ${query}` }] }],
-    systemInstruction: { parts: [{ text: systemPrompt }] },
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: "OBJECT",
-        properties: {
-          suggestions: { type: "ARRAY", items: { type: "STRING" } }
-        },
-        required: ["suggestions"]
+    messages: [
+      {
+        role: "user",
+        content: prompt
       }
-    }
+    ],
+    model: "grok-4-1-fast-non-reasoning",
+    stream: false,
+    temperature: 0.7
   };
 
   try {
     const data = await fetchWithRetry(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`
+      },
       body: JSON.stringify(payload)
     });
-    return JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text || '{"suggestions":[]}').suggestions;
-  } catch (err) {
-    console.warn('Gemini suggestions unavailable:', err);
+    const content = data.choices?.[0]?.message?.content || '{"suggestions":[]}';
+    // Try to extract JSON from the response (Grok might wrap it in markdown)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    return JSON.parse(jsonStr).suggestions || [];
+  } catch (err: any) {
+    console.error('Grok suggestions error:', err);
+    console.error('Error details:', err.message, err.stack);
+    if (err.message?.includes('403')) {
+      console.error('Grok API returned 403 - check your API key permissions');
+    }
     return [];
   }
 }
 
-// Get author fun facts from Gemini
-async function getAuthorFacts(bookTitle: string, author: string): Promise<string[]> {
-  if (!apiKey) return [];
+async function getGrokAuthorFacts(bookTitle: string, author: string): Promise<string[]> {
+  if (!grokApiKey) return [];
   
-  // Add a longer delay for author facts to avoid rate limits (this is a secondary feature)
   await new Promise(resolve => setTimeout(resolve, 2000));
   
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+  const url = 'https://api.x.ai/v1/chat/completions';
   
-  const systemPrompt = `You are a literary expert. Generate exactly 10 interesting, fun facts about the author "${author}" specifically in the context of their book "${bookTitle}".
-  
-  Requirements:
-  - Return exactly 10 facts
-  - Each fact should be concise (1-2 sentences max)
-  - Focus on interesting, lesser-known details
-  - Connect facts to the book when possible
-  - Make facts engaging and fun
-  - Format as a JSON array of strings
-  
-  Format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 10"] }`;
+  const prompt = `You are a literary expert. Generate exactly 10 interesting, fun facts about the author "${author}" specifically in the context of their book "${bookTitle}".
+
+Requirements:
+- Return exactly 10 facts
+- Each fact should be concise (1-2 sentences max)
+- Focus on interesting, lesser-known details
+- Connect facts to the book when possible
+- Make facts engaging and fun
+- Return ONLY valid JSON in this format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 10"] }`;
 
   const payload = {
-    contents: [{ parts: [{ text: `Book: ${bookTitle} by ${author}` }] }],
-    systemInstruction: { parts: [{ text: systemPrompt }] },
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: "OBJECT",
-        properties: {
-          facts: { type: "ARRAY", items: { type: "STRING" } }
-        },
-        required: ["facts"]
+    messages: [
+      {
+        role: "user",
+        content: prompt
       }
-    }
+    ],
+    model: "grok-4-1-fast-non-reasoning",
+    stream: false,
+    temperature: 0.7
   };
 
   try {
     const data = await fetchWithRetry(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`
+      },
       body: JSON.stringify(payload)
-    }, 2, 3000); // Fewer retries and longer delay for author facts
-    const result = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text || '{"facts":[]}');
+    }, 2, 3000);
+    const content = data.choices?.[0]?.message?.content || '{"facts":[]}';
+    // Try to extract JSON from the response (Grok might wrap it in markdown)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    const result = JSON.parse(jsonStr);
     return result.facts || [];
-  } catch (err) {
-    // Silently fail for author facts - it's a nice-to-have feature
-    console.warn('Author facts unavailable (rate limited):', err);
+  } catch (err: any) {
+    console.error('Grok author facts error:', err);
+    console.error('Error details:', err.message, err.stack);
+    // Don't silently fail - show the error
+    if (err.message?.includes('403')) {
+      console.error('Grok API returned 403 - check your API key permissions');
+    }
     return [];
   }
+}
+
+// AI functions (using Grok)
+async function getAISuggestions(query: string): Promise<string[]> {
+  return getGrokSuggestions(query);
+}
+
+async function getAuthorFacts(bookTitle: string, author: string): Promise<string[]> {
+  return getGrokAuthorFacts(bookTitle, author);
 }
 
 // --- Wikipedia/Wikidata Pipeline ---
@@ -453,12 +472,12 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
     setError('');
     
     const wikiPromise = lookupBookOnWikipedia(titleToSearch);
-    const geminiPromise = getGeminiSuggestions(titleToSearch);
+    const aiPromise = getAISuggestions(titleToSearch);
 
     try {
-      const [meta, gems] = await Promise.all([wikiPromise, geminiPromise]);
+      const [meta, aiSuggestions] = await Promise.all([wikiPromise, aiPromise]);
       
-      setSuggestions(gems);
+      setSuggestions(aiSuggestions);
 
       if (meta) {
         onAdd(meta);
@@ -668,13 +687,19 @@ export default function App() {
     const currentBook = books[selectedIndex];
     if (!currentBook || currentBook.author_facts || !currentBook.title || !currentBook.author) return;
 
+    let cancelled = false;
+
     // Add a delay to avoid rate limits when scrolling through books
     const fetchTimer = setTimeout(() => {
+      if (cancelled) return;
+      
       const bookId = currentBook.id;
       const bookTitle = currentBook.title;
       const bookAuthor = currentBook.author;
       
       getAuthorFacts(bookTitle, bookAuthor).then(async (facts) => {
+        if (cancelled) return;
+        
         if (facts.length > 0) {
           // Save to database
           try {
@@ -702,12 +727,17 @@ export default function App() {
           }
         }
       }).catch(err => {
-        console.error('Error fetching author facts:', err);
+        if (!cancelled) {
+          console.error('Error fetching author facts:', err);
+        }
       });
     }, 1500); // Delay to avoid rate limits when scrolling
 
-    return () => clearTimeout(fetchTimer);
-  }, [selectedIndex, books]); // Depend on selectedIndex and books array
+    return () => {
+      cancelled = true;
+      clearTimeout(fetchTimer);
+    };
+  }, [selectedIndex, books]); // Depend on selectedIndex and books
 
   async function handleAddBook(meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>) {
     if (!user) return;
@@ -1050,7 +1080,7 @@ export default function App() {
           <AddBookSheet 
             isOpen={isAdding} 
             onClose={() => setIsAdding(false)} 
-            onAdd={handleAddBook} 
+            onAdd={handleAddBook}
           />
         )}
       </AnimatePresence>

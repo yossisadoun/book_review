@@ -11,7 +11,7 @@ A mobile-first, clean and simple book review app powered by Wikipedia, AI, and S
 - Cloud database persistence with Supabase
 - Row-level security (RLS) - each user only sees their own books
 - Support for both English and Hebrew books
-- AI-powered book title suggestions (Gemini)
+- AI-powered book title suggestions and author facts (Gemini or Grok - toggleable)
 
 ## Getting Started
 
@@ -97,10 +97,13 @@ Create a `.env.local` file in the root directory:
 NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 NEXT_PUBLIC_GEMINI_API_KEY=your_gemini_api_key
+NEXT_PUBLIC_GROK_API_KEY=your_grok_api_key
 ```
 
 - Get Supabase credentials from: https://supabase.com/dashboard/project/_/settings/api
 - Get Gemini API key from: https://makersuite.google.com/app/apikey (optional, for AI suggestions)
+- Get Grok API key from: https://x.ai/api (optional, for AI suggestions)
+- **Note**: The app includes a toggle in the top-left corner to switch between Gemini and Grok for AI-powered features
 
 ### 4. Configure Supabase Auth URLs:
 
