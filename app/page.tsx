@@ -163,11 +163,18 @@ Return ONLY valid JSON in this format: { "suggestions": ["Title 1/Author 1", "Ti
 }
 
 async function getGrokAuthorFacts(bookTitle: string, author: string): Promise<string[]> {
-  if (!grokApiKey) return [];
+  console.log('[getGrokAuthorFacts] Called for:', bookTitle, 'by', author);
   
+  if (!grokApiKey) {
+    console.warn('[getGrokAuthorFacts] API key is missing! Check NEXT_PUBLIC_GROK_API_KEY environment variable');
+    return [];
+  }
+  
+  console.log('[getGrokAuthorFacts] API key found, waiting 2s before request...');
   await new Promise(resolve => setTimeout(resolve, 2000));
   
   const url = 'https://api.x.ai/v1/chat/completions';
+  console.log('[getGrokAuthorFacts] Making request to Grok API...');
   
   const prompt = `You are a literary expert. Generate exactly 10 interesting, fun facts about the author "${author}" specifically in the context of their book "${bookTitle}".
 
@@ -192,6 +199,7 @@ Requirements:
   };
 
   try {
+    console.log('[getGrokAuthorFacts] Sending request with payload:', JSON.stringify(payload, null, 2));
     const data = await fetchWithRetry(url, {
       method: "POST",
       headers: {
@@ -200,15 +208,17 @@ Requirements:
       },
       body: JSON.stringify(payload)
     }, 2, 3000);
+    console.log('[getGrokAuthorFacts] Received response:', data);
     const content = data.choices?.[0]?.message?.content || '{"facts":[]}';
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? jsonMatch[0] : content;
     const result = JSON.parse(jsonStr);
+    console.log('[getGrokAuthorFacts] Parsed facts:', result.facts?.length || 0, 'facts');
     return result.facts || [];
   } catch (err: any) {
-    console.error('Grok author facts error:', err);
-    console.error('Error details:', err.message, err.stack);
+    console.error('[getGrokAuthorFacts] Error:', err);
+    console.error('[getGrokAuthorFacts] Error details:', err.message, err.stack);
     // Don't silently fail - show the error
     if (err.message?.includes('403')) {
       console.error('Grok API returned 403 - check your API key permissions');
@@ -223,6 +233,7 @@ async function getAISuggestions(query: string): Promise<string[]> {
 }
 
 async function getAuthorFacts(bookTitle: string, author: string): Promise<string[]> {
+  console.log(`[getAuthorFacts] 🔄 Fetching from Grok API for "${bookTitle}" by ${author}`);
   return getGrokAuthorFacts(bookTitle, author);
 }
 
@@ -351,9 +362,10 @@ function getGradient(id: string): string {
 interface AuthorFactsTooltipsProps {
   facts: string[];
   bookId: string; // To reset when book changes
+  isLoading?: boolean;
 }
 
-function AuthorFactsTooltips({ facts, bookId }: AuthorFactsTooltipsProps) {
+function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTooltipsProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
 
@@ -379,6 +391,17 @@ function AuthorFactsTooltips({ facts, bookId }: AuthorFactsTooltipsProps) {
       setCurrentIndex(prev => (prev + 1) % facts.length);
       setIsVisible(true);
     }, 300);
+  }
+
+  if (isLoading) {
+    return (
+      <div className="w-full flex items-center justify-center py-4">
+        <div className="flex flex-col items-center gap-2">
+          <Loader2 size={20} className="text-slate-400 animate-spin" />
+          <span className="text-xs text-slate-500">Loading author facts...</span>
+        </div>
+      </div>
+    );
   }
 
   if (facts.length === 0 || currentIndex >= facts.length) return null;
@@ -608,6 +631,7 @@ export default function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isMetaExpanded, setIsMetaExpanded] = useState(true);
+  const [loadingFactsForBookId, setLoadingFactsForBookId] = useState<string | null>(null);
 
   // Load books from Supabase
   useEffect(() => {
@@ -685,22 +709,40 @@ export default function App() {
   // Fetch author facts for existing books when they're selected (if missing)
   useEffect(() => {
     const currentBook = books[selectedIndex];
-    if (!currentBook || currentBook.author_facts || !currentBook.title || !currentBook.author) return;
+    if (!currentBook || !currentBook.title || !currentBook.author) {
+      setLoadingFactsForBookId(null);
+      return;
+    }
+
+    // Check if facts already exist in database
+    if (currentBook.author_facts && currentBook.author_facts.length > 0) {
+      console.log(`[Author Facts] ✅ Loaded from database for "${currentBook.title}" by ${currentBook.author}: ${currentBook.author_facts.length} facts`);
+      setLoadingFactsForBookId(null);
+      return;
+    }
 
     let cancelled = false;
+    const bookId = currentBook.id;
+
+    // Set loading state
+    setLoadingFactsForBookId(bookId);
 
     // Add a delay to avoid rate limits when scrolling through books
     const fetchTimer = setTimeout(() => {
       if (cancelled) return;
       
-      const bookId = currentBook.id;
       const bookTitle = currentBook.title;
       const bookAuthor = currentBook.author;
       
+      console.log(`[Author Facts] 🔄 Fetching from Grok API for "${bookTitle}" by ${bookAuthor}...`);
       getAuthorFacts(bookTitle, bookAuthor).then(async (facts) => {
         if (cancelled) return;
         
+        // Clear loading state
+        setLoadingFactsForBookId(null);
+        
         if (facts.length > 0) {
+          console.log(`[Author Facts] ✅ Received ${facts.length} facts from Grok API for "${bookTitle}"`);
           // Save to database
           try {
             const { error: updateError } = await supabase
@@ -709,6 +751,8 @@ export default function App() {
               .eq('id', bookId);
             
             if (updateError) throw updateError;
+            
+            console.log(`[Author Facts] 💾 Saved ${facts.length} facts to database for "${bookTitle}"`);
             
             // Update local state
             setBooks(prev => prev.map(book => 
@@ -725,9 +769,12 @@ export default function App() {
                 : book
             ));
           }
+        } else {
+          console.log(`[Author Facts] ⚠️ No facts received from Grok API for "${bookTitle}"`);
         }
       }).catch(err => {
         if (!cancelled) {
+          setLoadingFactsForBookId(null);
           console.error('Error fetching author facts:', err);
         }
       });
@@ -735,6 +782,7 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      setLoadingFactsForBookId(null);
       clearTimeout(fetchTimer);
     };
   }, [selectedIndex, books]); // Depend on selectedIndex and books
@@ -767,8 +815,12 @@ export default function App() {
 
       // Fetch author facts asynchronously after book is added and save to DB
       if (meta.title && meta.author) {
+        console.log(`[Author Facts] 🔄 Fetching from Grok API for new book "${meta.title}" by ${meta.author}...`);
+        setLoadingFactsForBookId(newBook.id);
         getAuthorFacts(meta.title, meta.author).then(async (facts) => {
+          setLoadingFactsForBookId(null);
           if (facts.length > 0) {
+            console.log(`[Author Facts] ✅ Received ${facts.length} facts from Grok API for "${meta.title}"`);
             // Save to database
             try {
               const { error: updateError } = await supabase
@@ -777,6 +829,8 @@ export default function App() {
                 .eq('id', newBook.id);
               
               if (updateError) throw updateError;
+              
+              console.log(`[Author Facts] 💾 Saved ${facts.length} facts to database for "${meta.title}"`);
               
               // Update local state
               setBooks(prev => prev.map(book => 
@@ -793,9 +847,12 @@ export default function App() {
                   : book
               ));
             }
+          } else {
+            console.log(`[Author Facts] ⚠️ No facts received from Grok API for "${meta.title}"`);
           }
         }).catch(err => {
-          console.error('Error fetching author facts:', err);
+          setLoadingFactsForBookId(null);
+          console.error(`[Author Facts] ❌ Error fetching from Grok API for "${meta.title}":`, err);
         });
       }
     } catch (err) {
@@ -890,18 +947,33 @@ export default function App() {
     );
   }
 
+  const userEmail = user?.email || user?.user_metadata?.email || 'User';
+  const userName = user?.user_metadata?.full_name || userEmail.split('@')[0];
+
   return (
     <div className="fixed inset-0 bg-slate-50 text-slate-900 font-sans select-none overflow-hidden flex flex-col">
-      {/* Sign out button */}
-      <button
-        onClick={signOut}
-        className="absolute top-4 right-4 z-50 bg-white/95 backdrop-blur p-2 rounded-full shadow-lg text-slate-600 hover:text-slate-900 active:scale-90 transition-all border border-white/20"
-        title="Sign out"
-      >
-        <LogOut size={18} />
-      </button>
+      {/* Persistent menu bar */}
+      <div className="w-full z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/50 shadow-sm">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Signed in as</span>
+              <span className="text-sm font-semibold text-slate-900 truncate max-w-[200px] sm:max-w-none">
+                {userEmail}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={signOut}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 rounded-lg font-medium text-sm active:scale-95 transition-all"
+          >
+            <LogOut size={16} />
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </div>
 
-      <main className="flex-1 flex flex-col items-center justify-start p-4 relative pt-4">
+      <main className="flex-1 flex flex-col items-center justify-start p-4 relative pt-4 overflow-y-auto">
         {books.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
             <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-4"><BookOpen size={40} className="text-white opacity-90" /></div>
@@ -1052,8 +1124,12 @@ export default function App() {
             </div>
             
             {/* Author Facts Tooltips - Show below cover with spacing */}
-            {activeBook.author_facts && activeBook.author_facts.length > 0 && !showRatingOverlay && (
-              <AuthorFactsTooltips facts={activeBook.author_facts} bookId={activeBook.id} />
+            {!showRatingOverlay && (
+              <AuthorFactsTooltips 
+                facts={activeBook.author_facts || []} 
+                bookId={activeBook.id}
+                isLoading={loadingFactsForBookId === activeBook.id && !activeBook.author_facts}
+              />
             )}
           </div>
         )}
