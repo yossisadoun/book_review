@@ -681,10 +681,10 @@ export default function App() {
 
   // All hooks must be called before any conditional returns
   const activeBook = books[selectedIndex] || null;
-  const [editingDimension, setEditingDimension] = useState<string | null>(null);
+  const [editingDimension, setEditingDimension] = useState<typeof RATING_DIMENSIONS[number] | null>(null);
   
   // When editing, show the first dimension that needs rating, or first dimension if all are rated
-  const currentEditingDimension = useMemo(() => {
+  const currentEditingDimension = useMemo((): typeof RATING_DIMENSIONS[number] | null => {
     if (!activeBook || !isEditing) return null;
     if (editingDimension) return editingDimension;
     // Find first unrated dimension, or default to first dimension
