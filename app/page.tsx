@@ -1378,9 +1378,10 @@ export default function App() {
     if (currentBook.author_facts && currentBook.author_facts.length > 0) {
       // Show loading state briefly even when loading from DB for consistent UX
       const bookId = currentBook.id;
+      const factsCount = currentBook.author_facts.length;
       setLoadingFactsForBookId(bookId);
       setTimeout(() => {
-        console.log(`[Author Facts] ✅ Loaded from database for "${currentBook.title}" by ${currentBook.author}: ${currentBook.author_facts.length} facts`);
+        console.log(`[Author Facts] ✅ Loaded from database for "${currentBook.title}" by ${currentBook.author}: ${factsCount} facts`);
         setLoadingFactsForBookId(null);
       }, 800); // Brief delay to show loading animation
       return;
