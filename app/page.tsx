@@ -1280,6 +1280,7 @@ export default function App() {
   const [isMetaExpanded, setIsMetaExpanded] = useState(true);
   const [loadingFactsForBookId, setLoadingFactsForBookId] = useState<string | null>(null);
   const [loadingPodcastsForBookId, setLoadingPodcastsForBookId] = useState<string | null>(null);
+  const [scrollY, setScrollY] = useState(0);
   const [podcastSource, setPodcastSource] = useState<'grok' | 'apple' | 'curated'>(() => {
     if (typeof window !== 'undefined') {
       return (localStorage.getItem('podcastSource') as 'grok' | 'apple' | 'curated') || 'curated';
@@ -1845,8 +1846,16 @@ export default function App() {
 
   return (
     <div className="fixed inset-0 bg-slate-50 text-slate-900 font-sans select-none overflow-hidden flex flex-col">
-      {/* Persistent menu bar */}
-      <div className="w-full z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/50 shadow-sm">
+      {/* Persistent menu bar - hides on scroll */}
+      <motion.div 
+        className="w-full z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/50 shadow-sm"
+        animate={{ 
+          opacity: scrollY > 50 ? 0 : 1,
+          y: scrollY > 50 ? -100 : 0,
+          pointerEvents: scrollY > 50 ? 'none' : 'auto'
+        }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
+      >
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="flex flex-col">
@@ -1864,9 +1873,15 @@ export default function App() {
             <span>Sign Out</span>
           </button>
         </div>
-      </div>
+      </motion.div>
 
-      <main className="flex-1 flex flex-col items-center justify-start p-4 relative pt-4 overflow-y-auto pb-20">
+      <main 
+        className="flex-1 flex flex-col items-center justify-start p-4 relative pt-4 overflow-y-auto pb-20"
+        onScroll={(e) => {
+          const target = e.currentTarget;
+          setScrollY(target.scrollTop);
+        }}
+      >
         {books.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
             <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-4"><BookOpen size={40} className="text-white opacity-90" /></div>
@@ -2025,11 +2040,21 @@ export default function App() {
             {/* Author Facts Tooltips - Show below cover with spacing */}
             {!showRatingOverlay && (
               <>
-                <AuthorFactsTooltips 
-                  facts={activeBook.author_facts || []} 
-                  bookId={activeBook.id}
-                  isLoading={loadingFactsForBookId === activeBook.id && !activeBook.author_facts}
-                />
+                {/* Facts: Only show loading if we don't have facts yet. Once loaded, always show. */}
+                {(() => {
+                  const hasFacts = activeBook.author_facts && activeBook.author_facts.length > 0;
+                  const isLoadingFacts = loadingFactsForBookId === activeBook.id && !hasFacts;
+                  
+                  // Always render the component - it will handle showing loading or facts
+                  return (
+                    <AuthorFactsTooltips 
+                      facts={activeBook.author_facts || []} 
+                      bookId={activeBook.id}
+                      isLoading={isLoadingFacts}
+                    />
+                  );
+                })()}
+                
                 {/* Podcast Episodes - Show below author facts */}
                 {(() => {
                   // Get episodes for the selected source
@@ -2041,7 +2066,8 @@ export default function App() {
                   // Fallback to legacy podcast_episodes if source-specific doesn't exist
                   const episodes = sourceEpisodes || activeBook.podcast_episodes || [];
                   const hasEpisodes = episodes.length > 0;
-                  const isLoading = loadingPodcastsForBookId === activeBook.id;
+                  // Only show loading if we don't have episodes yet. Once loaded, always show.
+                  const isLoading = loadingPodcastsForBookId === activeBook.id && !hasEpisodes;
                   
                   // Always show the podcast section
                   return (
@@ -2086,7 +2112,7 @@ export default function App() {
                           </div>
                         </motion.div>
                       ) : hasEpisodes ? (
-                        // Show episodes
+                        // Show episodes - once loaded, always show
                         <PodcastEpisodes 
                           episodes={episodes} 
                           bookId={activeBook.id}
