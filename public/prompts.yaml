@@ -1,0 +1,49 @@
+book_suggestions:
+  prompt: |
+    You are a book title expert. The user is searching for a book with a potentially misspelled or partial title.
+    Analyze the query: "{query}"
+    Return a JSON object with a "suggestions" array containing the top 3 most likely real book titles with their authors.
+    Format each suggestion as "Book Title/Author Name" (use forward slash as separator).
+    Keep the titles exact so they work well in a Wikipedia search.
+    If the input is Hebrew, suggest Hebrew titles.
+    Return ONLY valid JSON in this format: { "suggestions": ["Title 1/Author 1", "Title 2/Author 2", "Title 3/Author 3"] }
+
+author_facts:
+  prompt: |
+    You are a literary expert. Generate exactly 10 interesting, fun facts about the author "{author}" specifically in the context of their book "{bookTitle}".
+
+    Requirements:
+    - Return exactly 10 facts
+    - Each fact should be concise (1-2 sentences max)
+    - Focus on interesting, lesser-known details
+    - Connect facts to the book when possible
+    - Make facts engaging and fun
+    - Return ONLY valid JSON in this format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 10"] }
+
+podcast_episodes:
+  prompt: |
+    Find me podcast episodes for the book "{bookTitle}" by {author}.
+    I want the response to be only the list of results in JSON format.
+    Very very concise with minimal description. Include: title, length, air_date, url, platform, podcast_name, episode_summary (short summary of the podcast episode), podcast_summary (short summary of the podcast itself).
+    
+    PRIORITIZE episodes from these top book podcasts first (in order of preference):
+    1. The Book Club Review (https://podcasts.apple.com/us/podcast/the-book-club-review/id1215730246) - thoughtful discussions & book club style deep dives
+    2. The Book Review by The New York Times (https://podcasts.apple.com/ie/podcast/the-book-review/id120315179) - expert roundtable reviews and commentary
+    3. Book Riot - The Podcast (https://podcasts.apple.com/us/podcast/book-riot-the-podcast/id1330436321) - weekly book news, trends, and lively discussions
+    4. Overdue (https://podcasts.apple.com/us/podcast/overdue/id1098078103) - two friends take on books with smart, entertaining review and analysis
+    5. Backlisted (https://podcasts.apple.com/us/podcast/backlisted/id892817183) - gives new life to great books from the past with intelligent conversation
+    6. If Books Could Kill (https://podcasts.apple.com/us/podcast/if-books-could-kill/id1660908304) - sharp critique of bestselling nonfiction with humor and cultural insight
+    7. World Book Club BBC (https://podcasts.apple.com/us/podcast/world-book-club/id309595551) - author interviews & discussions about noteworthy novels
+    8. Book Club with Michael Smerconish (https://podcasts.apple.com/us/podcast/book-club-with-michael-smerconish/id1522088009) - in-depth conversations about books
+    9. New Books Network (https://podcasts.apple.com/us/podcast/new-books-network/id150548015) - academic-leaning deep dives across many genres
+    10. Reading Glasses (https://podcasts.apple.com/us/podcast/reading-glasses/id1393888875) - two librarians discuss reading habits, books, and library life
+    
+    Additional recommended podcasts to consider:
+    - Literary Disco (https://podcasts.apple.com/us/podcast/literary-disco/id926207844) - informal, fun discussions about books
+    - What Should I Read Next? (https://podcasts.apple.com/us/podcast/what-should-i-read-next/id695413960) - book recommendations framed by listener preferences
+    
+    After checking these prioritized podcasts, you may include episodes from other book review / book club type podcasts or deep interviews with the author about the book.
+    Only include podcasts from Apple Podcasts.
+    IMPORTANT: Include COMPLETE, FULL URLs without truncation. URLs must be complete and functional.
+    Verify the links are working and are not broken.
+    Return ONLY valid JSON in this format: { "episodes": [{"title": "...", "length": "...", "air_date": "...", "url": "https://complete-full-url-here", "platform": "...", "podcast_name": "...", "episode_summary": "...", "podcast_summary": "..."}, ...] }

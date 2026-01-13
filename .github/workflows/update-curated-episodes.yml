@@ -1,0 +1,31 @@
+name: Update Curated Podcast Episodes
+
+on:
+  schedule:
+    - cron: '0 * * * *' # Run every hour
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update-episodes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Supabase Edge Function
+        run: |
+          response=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Content-Type: application/json" \
+            https://nuhpfsbjjqoikwszlphr.supabase.co/functions/v1/smart-responder)
+          
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | sed '$d')
+          
+          if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]; then
+            echo "✅ Successfully updated curated episodes"
+            echo "$body"
+          else
+            echo "❌ Failed to update curated episodes (HTTP $http_code)"
+            echo "$body"
+            exit 1
+          fi
+        env:
+          SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}

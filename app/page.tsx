@@ -16,12 +16,14 @@ import {
   Info,
   Sparkles,
   LogOut,
-  Headphones
+  Headphones,
+  Play,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginScreen } from '@/components/LoginScreen';
 import { supabase } from '@/lib/supabase';
+import { loadPrompts, formatPrompt } from '@/lib/prompts';
 
 // --- Types & Constants ---
 const RATING_DIMENSIONS = ['writing', 'insight', 'flow'] as const;
@@ -42,7 +44,9 @@ interface PodcastEpisode {
   length?: string;
   air_date?: string;
   url: string;
+  audioUrl?: string; // Direct audio URL for playback (from Apple Podcasts episodeUrl)
   platform: string;
+  podcast_name?: string; // Name of the podcast show
   episode_summary: string;
   podcast_summary: string;
 }
@@ -56,11 +60,15 @@ interface Book {
   publish_year?: number | null;
   cover_url?: string | null;
   wikipedia_url?: string | null;
+  google_books_url?: string | null;
   rating_writing?: number | null;
   rating_insight?: number | null;
   rating_flow?: number | null;
   author_facts?: string[] | null; // JSON array of author facts
-  podcast_episodes?: PodcastEpisode[] | null; // JSON array of podcast episodes
+  podcast_episodes?: PodcastEpisode[] | null; // JSON array of podcast episodes (deprecated - use source-specific columns)
+  podcast_episodes_grok?: PodcastEpisode[] | null; // JSON array of podcast episodes from Grok
+  podcast_episodes_apple?: PodcastEpisode[] | null; // JSON array of podcast episodes from Apple Podcasts
+  podcast_episodes_curated?: PodcastEpisode[] | null; // JSON array of podcast episodes from curated source
   created_at: string;
   updated_at: string;
 }
@@ -73,7 +81,10 @@ interface BookWithRatings extends Omit<Book, 'rating_writing' | 'rating_insight'
     flow: number | null;
   };
   author_facts?: string[]; // Fun facts about the author
-  podcast_episodes?: PodcastEpisode[]; // Podcast episodes about the book
+  podcast_episodes?: PodcastEpisode[]; // Podcast episodes about the book (deprecated - use source-specific)
+  podcast_episodes_grok?: PodcastEpisode[]; // Podcast episodes from Grok
+  podcast_episodes_apple?: PodcastEpisode[]; // Podcast episodes from Apple Podcasts
+  podcast_episodes_curated?: PodcastEpisode[]; // Podcast episodes from curated source
 }
 
 // --- API Helpers ---
@@ -132,13 +143,8 @@ async function getGrokSuggestions(query: string): Promise<string[]> {
   
   const url = 'https://api.x.ai/v1/chat/completions';
   
-  const prompt = `You are a book title expert. The user is searching for a book with a potentially misspelled or partial title.
-Analyze the query: "${query}"
-Return a JSON object with a "suggestions" array containing the top 3 most likely real book titles with their authors.
-Format each suggestion as "Book Title/Author Name" (use forward slash as separator).
-Keep the titles exact so they work well in a Wikipedia search.
-If the input is Hebrew, suggest Hebrew titles.
-Return ONLY valid JSON in this format: { "suggestions": ["Title 1/Author 1", "Title 2/Author 2", "Title 3/Author 3"] }`;
+  const prompts = await loadPrompts();
+  const prompt = formatPrompt(prompts.book_suggestions.prompt, { query });
 
   const payload = {
     messages: [
@@ -152,6 +158,9 @@ Return ONLY valid JSON in this format: { "suggestions": ["Title 1/Author 1", "Ti
     temperature: 0.7
   };
 
+  console.log('[getGrokSuggestions] 🔵 RAW GROK REQUEST URL:', url);
+  console.log('[getGrokSuggestions] 🔵 RAW GROK REQUEST PAYLOAD:', JSON.stringify(payload, null, 2));
+
   try {
     const data = await fetchWithRetry(url, {
       method: "POST",
@@ -161,11 +170,15 @@ Return ONLY valid JSON in this format: { "suggestions": ["Title 1/Author 1", "Ti
       },
       body: JSON.stringify(payload)
     });
+    console.log('[getGrokSuggestions] 🔵 RAW GROK RESPONSE:', JSON.stringify(data, null, 2));
     const content = data.choices?.[0]?.message?.content || '{"suggestions":[]}';
+    console.log('[getGrokSuggestions] 🔵 RAW CONTENT:', content);
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? jsonMatch[0] : content;
-    return JSON.parse(jsonStr).suggestions || [];
+    const parsed = JSON.parse(jsonStr);
+    console.log('[getGrokSuggestions] 🔵 PARSED JSON:', parsed);
+    return parsed.suggestions || [];
   } catch (err: any) {
     console.error('Grok suggestions error:', err);
     console.error('Error details:', err.message, err.stack);
@@ -188,17 +201,9 @@ async function getGrokAuthorFacts(bookTitle: string, author: string): Promise<st
   await new Promise(resolve => setTimeout(resolve, 2000));
   
   const url = 'https://api.x.ai/v1/chat/completions';
-  console.log('[getGrokAuthorFacts] Making request to Grok API...');
   
-  const prompt = `You are a literary expert. Generate exactly 10 interesting, fun facts about the author "${author}" specifically in the context of their book "${bookTitle}".
-
-Requirements:
-- Return exactly 10 facts
-- Each fact should be concise (1-2 sentences max)
-- Focus on interesting, lesser-known details
-- Connect facts to the book when possible
-- Make facts engaging and fun
-- Return ONLY valid JSON in this format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 10"] }`;
+  const prompts = await loadPrompts();
+  const prompt = formatPrompt(prompts.author_facts.prompt, { author, bookTitle });
 
   const payload = {
     messages: [
@@ -212,8 +217,12 @@ Requirements:
     temperature: 0.7
   };
 
+  console.log('[getGrokAuthorFacts] 🔵 RAW GROK REQUEST URL:', url);
+  console.log('[getGrokAuthorFacts] 🔵 RAW GROK REQUEST PAYLOAD:', JSON.stringify(payload, null, 2));
+  console.log('[getGrokAuthorFacts] 🔵 FORMATTED PROMPT:', prompt);
+
   try {
-    console.log('[getGrokAuthorFacts] Sending request with payload:', JSON.stringify(payload, null, 2));
+    console.log('[getGrokAuthorFacts] Making request to Grok API...');
     const data = await fetchWithRetry(url, {
       method: "POST",
       headers: {
@@ -222,12 +231,14 @@ Requirements:
       },
       body: JSON.stringify(payload)
     }, 2, 3000);
-    console.log('[getGrokAuthorFacts] Received response:', data);
+    console.log('[getGrokAuthorFacts] 🔵 RAW GROK RESPONSE:', JSON.stringify(data, null, 2));
     const content = data.choices?.[0]?.message?.content || '{"facts":[]}';
+    console.log('[getGrokAuthorFacts] 🔵 RAW CONTENT:', content);
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? jsonMatch[0] : content;
     const result = JSON.parse(jsonStr);
+    console.log('[getGrokAuthorFacts] 🔵 PARSED JSON:', result);
     console.log('[getGrokAuthorFacts] Parsed facts:', result.facts?.length || 0, 'facts');
     return result.facts || [];
   } catch (err: any) {
@@ -262,11 +273,8 @@ async function getGrokPodcastEpisodes(bookTitle: string, author: string): Promis
   
   const url = 'https://api.x.ai/v1/chat/completions';
   
-  const prompt = `Find me podcast episodes for the book "${bookTitle}" by ${author}.
-I want the response to be only the list of results in JSON format.
-Very very concise with minimal description. Include: title, length, air_date, url, platform, episode_summary (short summary of the podcast episode), podcast_summary (short summary of the podcast itself).
-Prioritize podcasts that specialize on book reviews / book club type analysis or discussion / deep interviews with author on the book in question.
-Return ONLY valid JSON in this format: { "episodes": [{"title": "...", "length": "...", "air_date": "...", "url": "...", "platform": "...", "episode_summary": "...", "podcast_summary": "..."}, ...] }`;
+  const prompts = await loadPrompts();
+  const prompt = formatPrompt(prompts.podcast_episodes.prompt, { bookTitle, author });
 
   const payload = {
     messages: [
@@ -280,6 +288,10 @@ Return ONLY valid JSON in this format: { "episodes": [{"title": "...", "length":
     temperature: 0.7
   };
 
+  console.log('[getGrokPodcastEpisodes] 🔵 RAW GROK REQUEST URL:', url);
+  console.log('[getGrokPodcastEpisodes] 🔵 RAW GROK REQUEST PAYLOAD:', JSON.stringify(payload, null, 2));
+  console.log('[getGrokPodcastEpisodes] 🔵 FORMATTED PROMPT:', prompt);
+
   try {
     console.log(`[getGrokPodcastEpisodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${author}...`);
     const data = await fetchWithRetry(url, {
@@ -290,12 +302,24 @@ Return ONLY valid JSON in this format: { "episodes": [{"title": "...", "length":
       },
       body: JSON.stringify(payload)
     }, 2, 3000);
+    console.log('[getGrokPodcastEpisodes] 🔵 RAW GROK RESPONSE:', JSON.stringify(data, null, 2));
     const content = data.choices?.[0]?.message?.content || '{"episodes":[]}';
+    console.log('[getGrokPodcastEpisodes] 🔵 RAW CONTENT:', content);
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? jsonMatch[0] : content;
     const result = JSON.parse(jsonStr);
+    console.log('[getGrokPodcastEpisodes] 🔵 PARSED JSON:', result);
     const episodes = result.episodes || [];
+    
+    // Log URLs to check for truncation
+    episodes.forEach((ep: PodcastEpisode, idx: number) => {
+      console.log(`[getGrokPodcastEpisodes] Episode ${idx + 1} URL (length: ${ep.url?.length}):`, ep.url);
+      if (ep.url && ep.url.length < 20) {
+        console.warn(`[getGrokPodcastEpisodes] ⚠️ Episode ${idx + 1} URL seems truncated:`, ep.url);
+      }
+    });
+    
     console.log(`[getGrokPodcastEpisodes] ✅ Received ${episodes.length} podcast episodes for "${bookTitle}"`);
     return episodes;
   } catch (err: any) {
@@ -308,9 +332,270 @@ Return ONLY valid JSON in this format: { "episodes": [{"title": "...", "length":
   }
 }
 
-async function getPodcastEpisodes(bookTitle: string, author: string): Promise<PodcastEpisode[]> {
-  console.log(`[getPodcastEpisodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${author}`);
+// --- Apple Podcasts API ---
+
+// Prioritized book podcast shows (collectionId)
+const PRIORITIZED_PODCAST_SHOWS: Record<string, number> = {
+  "The Book Club Review": 1215730246,
+  "The Book Review (by The New York Times)": 120315179,
+  "Book Riot – The Podcast (All the Books!)": 993284374,
+  "Overdue": 602003021,
+  "Backlisted": 892817183,
+  "If Books Could Kill": 1660908304,
+  "World Book Club": 309595551,
+  "Book Club with Michael Smerconish": 1522088009,
+  "New Books Network": 150548015,
+  "Reading Glasses": 1393888875,
+};
+
+// Create a Set of prioritized collectionIds for fast lookup
+const PRIORITIZED_COLLECTION_IDS = new Set(Object.values(PRIORITIZED_PODCAST_SHOWS));
+
+async function getApplePodcastEpisodes(bookTitle: string, author: string): Promise<PodcastEpisode[]> {
+  try {
+    console.log(`[getApplePodcastEpisodes] 🔄 Searching Apple Podcasts for episodes about "${bookTitle}" by ${author}...`);
+    
+    // Search directly for podcast episodes - fetch top 20
+    const searchTerm = `${bookTitle} ${author}`;
+    const searchUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&media=podcast&entity=podcastEpisode&limit=20`;
+    
+    const searchData = await fetchWithRetry(searchUrl);
+    console.log('[getApplePodcastEpisodes] 🍎 RAW APPLE PODCASTS EPISODES SEARCH RESPONSE:', JSON.stringify(searchData, null, 2));
+    const episodes = searchData?.results || [];
+    
+    if (episodes.length === 0) {
+      console.log(`[getApplePodcastEpisodes] ⚠️ No episodes found for "${bookTitle}"`);
+      return [];
+    }
+    
+    const bookTitleLower = bookTitle.toLowerCase();
+    const authorLower = author.toLowerCase();
+    
+    // Process episodes while preserving Apple's original order
+    const prioritizedEpisodes: PodcastEpisode[] = [];
+    const otherEpisodes: PodcastEpisode[] = [];
+    
+    for (const ep of episodes) {
+      // Filter episodes that mention the book title or author in the title or description
+      const episodeTitle = (ep.trackName || '').toLowerCase();
+      const episodeDescription = (ep.description || '').toLowerCase();
+      
+      // Check if episode title or description mentions the book or author
+      const mentionsBook = episodeTitle.includes(bookTitleLower) || episodeDescription.includes(bookTitleLower);
+      const mentionsAuthor = episodeTitle.includes(authorLower) || episodeDescription.includes(authorLower);
+      
+      if (mentionsBook || mentionsAuthor) {
+        // Convert duration from milliseconds to minutes
+        const durationMs = ep.trackTimeMillis || 0;
+        const durationMinutes = Math.round(durationMs / 60000);
+        const length = durationMinutes > 0 ? `${durationMinutes} min` : undefined;
+        
+        // Format release date
+        let airDate: string | undefined = undefined;
+        if (ep.releaseDate) {
+          try {
+            const date = new Date(ep.releaseDate);
+            airDate = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+          } catch (e) {
+            airDate = ep.releaseDate;
+          }
+        }
+        
+        const episode: PodcastEpisode = {
+          title: ep.trackName || 'Untitled Episode',
+          length: length,
+          air_date: airDate,
+          url: ep.trackViewUrl || ep.episodeUrl || '',
+          audioUrl: ep.episodeUrl || undefined, // Direct audio URL for playback
+          platform: 'Apple Podcasts',
+          podcast_name: ep.collectionName || undefined,
+          episode_summary: ep.description || `Episode about ${bookTitle} by ${author}`,
+          podcast_summary: ep.collectionName || 'Podcast',
+        };
+        
+        // Check if this episode is from a prioritized show
+        const collectionId = ep.collectionId;
+        const isPrioritized = collectionId && PRIORITIZED_COLLECTION_IDS.has(collectionId);
+        
+        if (isPrioritized) {
+          prioritizedEpisodes.push(episode);
+        } else {
+          otherEpisodes.push(episode);
+        }
+      }
+    }
+    
+    // Remove duplicates based on URL (preserving order)
+    const seenUrls = new Set<string>();
+    const uniquePrioritized = prioritizedEpisodes.filter(ep => {
+      if (seenUrls.has(ep.url)) return false;
+      seenUrls.add(ep.url);
+      return true;
+    });
+    
+    const uniqueOther = otherEpisodes.filter(ep => {
+      if (seenUrls.has(ep.url)) return false;
+      seenUrls.add(ep.url);
+      return true;
+    });
+    
+    // Combine: prioritized first (in Apple's original order), then others (in Apple's original order)
+    const finalEpisodes = [...uniquePrioritized, ...uniqueOther].slice(0, 10);
+    
+    console.log(`[getApplePodcastEpisodes] ✅ Found ${finalEpisodes.length} episodes for "${bookTitle}" (${uniquePrioritized.length} from prioritized shows, ${uniqueOther.length} others)`);
+    return finalEpisodes;
+  } catch (err: any) {
+    console.error('[getApplePodcastEpisodes] ❌ Error:', err);
+    return [];
+  }
+}
+
+// --- Curated Podcast Episodes (from Supabase) ---
+async function getCuratedPodcastEpisodes(bookTitle: string, author: string): Promise<PodcastEpisode[]> {
+  try {
+    console.log(`[getCuratedPodcastEpisodes] 🔄 Searching curated episodes for "${bookTitle}" by ${author}...`);
+    
+    // Call the PostgreSQL function for fuzzy matching
+    const { data, error } = await supabase.rpc('search_curated_episodes', {
+      search_title: bookTitle,
+      search_author: author
+    });
+
+    if (error) {
+      console.error('[getCuratedPodcastEpisodes] Supabase error:', error);
+      // If function doesn't exist, fall back to simple search
+      if (error.message?.includes('function') || error.code === '42883') {
+        console.warn('[getCuratedPodcastEpisodes] Function not found, using fallback search');
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('curated_podcast_episodes')
+          .select('*')
+          .or(`book_title.ilike.%${bookTitle}%,book_author.ilike.%${author}%,episode_title.ilike.%${bookTitle}%,episode_title.ilike.%${author}%`)
+          .order('air_date', { ascending: false })
+          .limit(10);
+        
+        if (fallbackError) throw fallbackError;
+        if (!fallbackData || fallbackData.length === 0) {
+          console.log(`[getCuratedPodcastEpisodes] ⚠️ No curated episodes found for "${bookTitle}"`);
+          return [];
+        }
+        
+        const episodes: PodcastEpisode[] = fallbackData.map(ep => ({
+          title: ep.episode_title || 'Untitled Episode',
+          length: ep.length_minutes ? `${ep.length_minutes} min` : undefined,
+          air_date: ep.air_date ? new Date(ep.air_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : undefined,
+          url: ep.episode_url || '',
+          audioUrl: ep.audio_url || undefined,
+          platform: 'Curated',
+          podcast_name: ep.podcast_name || undefined,
+          episode_summary: ep.episode_summary || `Episode about ${bookTitle} by ${author}`,
+          podcast_summary: ep.podcast_summary || ep.podcast_name || 'Podcast',
+        }));
+        
+        console.log(`[getCuratedPodcastEpisodes] ✅ Found ${episodes.length} curated episodes for "${bookTitle}" (fallback mode)`);
+        return episodes;
+      }
+      throw error;
+    }
+
+    if (!data || data.length === 0) {
+      console.log(`[getCuratedPodcastEpisodes] ⚠️ No curated episodes found for "${bookTitle}"`);
+      return [];
+    }
+
+    const episodes: PodcastEpisode[] = data.map(ep => ({
+      title: ep.episode_title || 'Untitled Episode',
+      length: ep.length_minutes ? `${ep.length_minutes} min` : undefined,
+      air_date: ep.air_date ? new Date(ep.air_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : undefined,
+      url: ep.episode_url || '',
+      audioUrl: ep.audio_url || undefined,
+      platform: 'Curated',
+      podcast_name: ep.podcast_name || undefined,
+      episode_summary: ep.episode_summary || `Episode about ${bookTitle} by ${author}`,
+      podcast_summary: ep.podcast_summary || ep.podcast_name || 'Podcast',
+    }));
+
+    const topScore = data[0]?.relevance_score || 0;
+    console.log(`[getCuratedPodcastEpisodes] ✅ Found ${episodes.length} curated episodes for "${bookTitle}" (top relevance score: ${topScore.toFixed(2)})`);
+    return episodes;
+  } catch (err: any) {
+    console.error('[getCuratedPodcastEpisodes] ❌ Error:', err);
+    return [];
+  }
+}
+
+async function getPodcastEpisodes(bookTitle: string, author: string, source: 'grok' | 'apple' | 'curated' = 'curated'): Promise<PodcastEpisode[]> {
+  console.log(`[getPodcastEpisodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${author} from ${source}`);
+  if (source === 'curated') {
+    return getCuratedPodcastEpisodes(bookTitle, author);
+  }
+  if (source === 'apple') {
+    return getApplePodcastEpisodes(bookTitle, author);
+  }
   return getGrokPodcastEpisodes(bookTitle, author);
+}
+
+// --- Google Books API ---
+
+async function lookupBookOnGoogleBooks(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null> {
+  try {
+    const searchUrl = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5&langRestrict=${isHebrew(query) ? 'he' : 'en'}`;
+    const data = await fetchWithRetry(searchUrl);
+    
+    if (!data.items || data.items.length === 0) return null;
+    
+    // Find the best match (prioritize exact title matches)
+    const queryLower = query.toLowerCase();
+    let bestMatch = data.items.find((item: any) => 
+      item.volumeInfo.title?.toLowerCase() === queryLower
+    );
+    
+    if (!bestMatch) {
+      // Look for close matches
+      bestMatch = data.items.find((item: any) => 
+        item.volumeInfo.title?.toLowerCase().includes(queryLower) ||
+        queryLower.includes(item.volumeInfo.title?.toLowerCase() || '')
+      );
+    }
+    
+    if (!bestMatch) bestMatch = data.items[0];
+    
+    const volumeInfo = bestMatch.volumeInfo;
+    const authors = volumeInfo.authors || [];
+    const author = authors.length > 0 ? authors.join(', ') : 'Unknown Author';
+    
+    // Extract publish year
+    let publishYear: number | undefined = undefined;
+    if (volumeInfo.publishedDate) {
+      const yearMatch = volumeInfo.publishedDate.match(/\d{4}/);
+      if (yearMatch) {
+        publishYear = parseInt(yearMatch[0]);
+      }
+    }
+    
+    // Get cover image (prefer thumbnail, fallback to smallThumbnail)
+    const coverUrl = volumeInfo.imageLinks?.thumbnail?.replace('http://', 'https://') || 
+                     volumeInfo.imageLinks?.smallThumbnail?.replace('http://', 'https://') || 
+                     null;
+    
+    // Get Google Books URL - canonicalVolumeLink is on the item, not volumeInfo
+    const googleBooksUrl = bestMatch.volumeInfo?.canonicalVolumeLink || 
+                          bestMatch.volumeInfo?.infoLink || 
+                          bestMatch.selfLink || 
+                          `https://books.google.com/books?id=${bestMatch.id}` ||
+                          null;
+
+    return {
+      title: volumeInfo.title || query,
+      author: author,
+      publish_year: publishYear,
+      cover_url: coverUrl,
+      wikipedia_url: null, // Google Books doesn't provide Wikipedia URL
+      google_books_url: googleBooksUrl,
+    };
+  } catch (err) {
+    console.error('Error searching Google Books:', err);
+    return null;
+  }
 }
 
 // --- Wikipedia/Wikidata Pipeline ---
@@ -406,7 +691,10 @@ function convertBookToApp(book: Book): BookWithRatings {
       flow: book.rating_flow ?? null,
     },
     author_facts: book.author_facts || undefined, // Load from database
-    podcast_episodes: book.podcast_episodes || undefined, // Load from database
+    podcast_episodes: book.podcast_episodes || undefined, // Load from database (legacy)
+    podcast_episodes_grok: book.podcast_episodes_grok || undefined, // Load from database
+    podcast_episodes_apple: book.podcast_episodes_apple || undefined, // Load from database
+    podcast_episodes_curated: book.podcast_episodes_curated || undefined, // Load from database
   };
 }
 
@@ -417,6 +705,7 @@ function convertBookToDb(book: BookWithRatings): Omit<Book, 'id' | 'user_id' | '
     publish_year: book.publish_year,
     cover_url: book.cover_url,
     wikipedia_url: book.wikipedia_url,
+    google_books_url: book.google_books_url,
     rating_writing: book.ratings.writing,
     rating_insight: book.ratings.insight,
     rating_flow: book.ratings.flow,
@@ -527,11 +816,19 @@ interface PodcastEpisodesProps {
 function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisodesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
+  const [playingAudioUrl, setPlayingAudioUrl] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     // Reset when book changes
     setCurrentIndex(0);
     setIsVisible(false);
+    
+    // Pause any playing audio when book changes
+    if (audioRef.current) {
+      audioRef.current.pause();
+      setPlayingAudioUrl(null);
+    }
     
     if (episodes.length === 0) return;
 
@@ -543,6 +840,14 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
     return () => clearTimeout(timeout);
   }, [episodes, bookId]);
 
+  // Pause audio when switching to a different episode card
+  useEffect(() => {
+    if (audioRef.current && playingAudioUrl) {
+      audioRef.current.pause();
+      setPlayingAudioUrl(null);
+    }
+  }, [currentIndex]);
+
   function handleNext() {
     setIsVisible(false);
     // Wait for fade out, then show next (or loop back to first)
@@ -551,6 +856,75 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
       setIsVisible(true);
     }, 300);
   }
+
+  function handlePlay(e: React.MouseEvent, episode: PodcastEpisode) {
+    e.stopPropagation(); // Prevent card tap navigation
+    
+    // Use audioUrl if available, otherwise try to use the URL directly if it's an audio file
+    const audioUrl = episode.audioUrl || (episode.url && episode.url.match(/\.(mp3|m4a|wav|ogg|aac)(\?|$)/i) ? episode.url : null);
+    const playableUrl = audioUrl || episode.url;
+    
+    if (audioUrl) {
+      // If we have a direct audio URL, use HTML5 audio player
+      if (playingAudioUrl === audioUrl) {
+        // If already playing, pause it
+        if (audioRef.current) {
+          audioRef.current.pause();
+          setPlayingAudioUrl(null);
+        }
+      } else {
+        // Stop any currently playing audio
+        if (audioRef.current) {
+          audioRef.current.pause();
+        }
+        
+        // Play new audio
+        setPlayingAudioUrl(audioUrl);
+        // Create new audio element for each episode
+        audioRef.current = new Audio(audioUrl);
+        audioRef.current.addEventListener('ended', () => {
+          setPlayingAudioUrl(null);
+        });
+        audioRef.current.addEventListener('error', () => {
+          // If audio fails, fall back to opening URL
+          console.error('[PodcastEpisodes] Audio playback failed, opening URL:', episode.url);
+          window.open(episode.url, '_blank');
+          setPlayingAudioUrl(null);
+        });
+        audioRef.current.play();
+      }
+    } else {
+      // No direct audio URL (e.g., Grok podcasts with web page URLs)
+      // Toggle: if already "playing" (opened), close it; otherwise open in new tab
+      if (playingAudioUrl === episode.url) {
+        // Already opened, just clear the state
+        setPlayingAudioUrl(null);
+      } else {
+        // Stop any currently playing audio
+        if (audioRef.current) {
+          audioRef.current.pause();
+          setPlayingAudioUrl(null);
+        }
+        // Open URL in new tab and mark as "playing" so button shows pause state
+        setPlayingAudioUrl(episode.url);
+        window.open(episode.url, '_blank');
+        // Clear after a short delay since we can't actually pause an opened tab
+        setTimeout(() => {
+          setPlayingAudioUrl(null);
+        }, 1000);
+      }
+    }
+  }
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
   if (isLoading) {
     return (
@@ -591,17 +965,46 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
           >
             <div className="flex items-start gap-2 mb-2">
               <Headphones size={16} className="text-blue-500 mt-0.5 flex-shrink-0" />
-              <a 
-                href={currentEpisode.url} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline flex-1"
-              >
-                {currentEpisode.title}
-              </a>
+              <div className="flex-1 min-w-0">
+                <a 
+                  href={currentEpisode.url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline block"
+                >
+                  {currentEpisode.title}
+                </a>
+              </div>
+              {/* Play button - show for all podcast episodes */}
+              {(() => {
+                const audioUrl = currentEpisode.audioUrl || (currentEpisode.url && currentEpisode.url.match(/\.(mp3|m4a|wav|ogg|aac)(\?|$)/i) ? currentEpisode.url : null);
+                const isPlaying = playingAudioUrl === (audioUrl || currentEpisode.url);
+                return (
+                  <button
+                    onClick={(e) => handlePlay(e, currentEpisode)}
+                    className="flex-shrink-0 p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-all active:scale-95 shadow-lg"
+                    aria-label="Play episode"
+                  >
+                    <Play 
+                      size={14} 
+                      className={isPlaying ? 'hidden' : 'block'} 
+                      fill="currentColor"
+                    />
+                    {isPlaying && (
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                        <rect x="6" y="4" width="4" height="16" />
+                        <rect x="14" y="4" width="4" height="16" />
+                      </svg>
+                    )}
+                  </button>
+                );
+              })()}
             </div>
             <div className="text-[10px] text-slate-500 space-y-1 mb-2">
+              {currentEpisode.podcast_name && (
+                <div className="font-bold text-slate-700">{currentEpisode.podcast_name}</div>
+              )}
               {currentEpisode.platform && (
                 <div className="font-semibold">{currentEpisode.platform}</div>
               )}
@@ -681,18 +1084,32 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [searchSource, setSearchSource] = useState<'wikipedia' | 'google_books'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('searchSource') as 'wikipedia' | 'google_books') || 'wikipedia';
+    }
+    return 'wikipedia';
+  });
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('searchSource', searchSource);
+    }
+  }, [searchSource]);
 
   async function handleSearch(titleToSearch = query) {
     if (!titleToSearch.trim()) return;
     setLoading(true);
     setError('');
     
-    const wikiPromise = lookupBookOnWikipedia(titleToSearch);
+    const searchPromise = searchSource === 'google_books' 
+      ? lookupBookOnGoogleBooks(titleToSearch)
+      : lookupBookOnWikipedia(titleToSearch);
     const aiPromise = getAISuggestions(titleToSearch);
 
     try {
-      const [meta, aiSuggestions] = await Promise.all([wikiPromise, aiPromise]);
+      const [meta, aiSuggestions] = await Promise.all([searchPromise, aiPromise]);
       
       setSuggestions(aiSuggestions);
 
@@ -702,7 +1119,8 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
         setSuggestions([]);
         onClose();
       } else {
-        setError(`Couldn't find an exact match on Wikipedia.`);
+        const sourceName = searchSource === 'google_books' ? 'Google Books' : 'Wikipedia';
+        setError(`Couldn't find an exact match on ${sourceName}.`);
       }
     } catch (err) {
       setError("Search failed. Please try a different title.");
@@ -762,6 +1180,24 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
         className="w-full max-w-md bg-white rounded-t-3xl p-3 shadow-2xl pb-5"
         onClick={e => e.stopPropagation()}
       >
+        {/* Search Source Toggle */}
+        <div className="mb-3 flex items-center justify-center gap-2">
+          <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Source:</span>
+          <button
+            type="button"
+            onClick={() => setSearchSource(prev => prev === 'wikipedia' ? 'google_books' : 'wikipedia')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 active:scale-95 transition-all"
+          >
+            <span className={`text-[10px] font-bold transition-colors ${searchSource === 'wikipedia' ? 'text-blue-600' : 'text-slate-400'}`}>
+              Wikipedia
+            </span>
+            <span className="text-[10px] font-bold text-slate-300">/</span>
+            <span className={`text-[10px] font-bold transition-colors ${searchSource === 'google_books' ? 'text-blue-600' : 'text-slate-400'}`}>
+              Google Books
+            </span>
+          </button>
+        </div>
+
         <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }} className="space-y-4">
           <div className="relative">
             <input 
@@ -809,7 +1245,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
           {error && <p className="text-red-500 text-sm px-2 font-medium">{error}</p>}
         </form>
         <p className="mt-4 text-center text-xs text-slate-400 font-medium flex items-center justify-center gap-1.5 uppercase tracking-wider">
-          <Library size={12} /> Powered by Wikipedia & AI
+          <Library size={12} /> Powered by {searchSource === 'google_books' ? 'Google Books' : 'Wikipedia'} & AI
         </p>
       </motion.div>
     </motion.div>
@@ -827,6 +1263,18 @@ export default function App() {
   const [isMetaExpanded, setIsMetaExpanded] = useState(true);
   const [loadingFactsForBookId, setLoadingFactsForBookId] = useState<string | null>(null);
   const [loadingPodcastsForBookId, setLoadingPodcastsForBookId] = useState<string | null>(null);
+  const [podcastSource, setPodcastSource] = useState<'grok' | 'apple' | 'curated'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('podcastSource') as 'grok' | 'apple' | 'curated') || 'curated';
+    }
+    return 'curated';
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('podcastSource', podcastSource);
+    }
+  }, [podcastSource]);
 
   // Load books from Supabase
   useEffect(() => {
@@ -911,8 +1359,13 @@ export default function App() {
 
     // Check if facts already exist in database
     if (currentBook.author_facts && currentBook.author_facts.length > 0) {
-      console.log(`[Author Facts] ✅ Loaded from database for "${currentBook.title}" by ${currentBook.author}: ${currentBook.author_facts.length} facts`);
-      setLoadingFactsForBookId(null);
+      // Show loading state briefly even when loading from DB for consistent UX
+      const bookId = currentBook.id;
+      setLoadingFactsForBookId(bookId);
+      setTimeout(() => {
+        console.log(`[Author Facts] ✅ Loaded from database for "${currentBook.title}" by ${currentBook.author}: ${currentBook.author_facts.length} facts`);
+        setLoadingFactsForBookId(null);
+      }, 800); // Brief delay to show loading animation
       return;
     }
 
@@ -990,15 +1443,48 @@ export default function App() {
       return;
     }
 
-    // Check if podcasts already exist in database
-    if (currentBook.podcast_episodes && currentBook.podcast_episodes.length > 0) {
-      console.log(`[Podcast Episodes] ✅ Loaded from database for "${currentBook.title}" by ${currentBook.author}: ${currentBook.podcast_episodes.length} episodes`);
-      setLoadingPodcastsForBookId(null);
+    const bookId = currentBook.id; // Define bookId early
+
+    // Check if podcasts already exist in database for the selected source
+    const sourceEpisodes = podcastSource === 'curated'
+      ? currentBook.podcast_episodes_curated
+      : podcastSource === 'apple' 
+      ? currentBook.podcast_episodes_apple 
+      : currentBook.podcast_episodes_grok;
+    
+    // Fallback to legacy podcast_episodes if source-specific doesn't exist
+    const episodes = sourceEpisodes || currentBook.podcast_episodes;
+    
+    if (episodes && episodes.length > 0) {
+      // Show loading state briefly even when loading from DB for consistent UX
+      setLoadingPodcastsForBookId(bookId);
+      setTimeout(() => {
+        const sourceName = podcastSource === 'curated' 
+          ? 'Curated' 
+          : podcastSource === 'apple' 
+          ? 'Apple Podcasts' 
+          : 'Grok';
+        console.log(`[Podcast Episodes] ✅ Loaded ${episodes.length} episodes from database (${sourceName}) for "${currentBook.title}" by ${currentBook.author}`);
+        setLoadingPodcastsForBookId(null);
+        
+        // Update local state with source-specific episodes if we used legacy data
+        if (!sourceEpisodes && currentBook.podcast_episodes) {
+          const updateField = podcastSource === 'curated'
+            ? 'podcast_episodes_curated'
+            : podcastSource === 'apple' 
+            ? 'podcast_episodes_apple' 
+            : 'podcast_episodes_grok';
+          setBooks(prev => prev.map(book => 
+            book.id === currentBook.id 
+              ? { ...book, [updateField]: currentBook.podcast_episodes }
+              : book
+          ));
+        }
+      }, 800); // Brief delay to show loading animation
       return;
     }
 
     let cancelled = false;
-    const bookId = currentBook.id;
 
     // Set loading state
     setLoadingPodcastsForBookId(bookId);
@@ -1009,31 +1495,46 @@ export default function App() {
       
       const bookTitle = currentBook.title;
       const bookAuthor = currentBook.author;
+      const sourceName = podcastSource === 'curated' 
+        ? 'Curated' 
+        : podcastSource === 'apple' 
+        ? 'Apple Podcasts' 
+        : 'Grok API';
       
-      console.log(`[Podcast Episodes] 🔄 Fetching from Grok API for "${bookTitle}" by ${bookAuthor}...`);
-      getPodcastEpisodes(bookTitle, bookAuthor).then(async (episodes) => {
+      console.log(`[Podcast Episodes] 🔄 Fetching from ${sourceName} for "${bookTitle}" by ${bookAuthor}...`);
+      getPodcastEpisodes(bookTitle, bookAuthor, podcastSource).then(async (episodes) => {
         if (cancelled) return;
         
         // Clear loading state
         setLoadingPodcastsForBookId(null);
         
         if (episodes.length > 0) {
-          console.log(`[Podcast Episodes] ✅ Received ${episodes.length} episodes from Grok API for "${bookTitle}"`);
-          // Save to database
+          const sourceName = podcastSource === 'curated' 
+            ? 'Curated' 
+            : podcastSource === 'apple' 
+            ? 'Apple Podcasts' 
+            : 'Grok API';
+          console.log(`[Podcast Episodes] ✅ Received ${episodes.length} episodes from ${sourceName} for "${bookTitle}"`);
+          // Save to database with source-specific column
+          const updateField = podcastSource === 'curated'
+            ? 'podcast_episodes_curated'
+            : podcastSource === 'apple' 
+            ? 'podcast_episodes_apple' 
+            : 'podcast_episodes_grok';
           try {
             const { error: updateError } = await supabase
               .from('books')
-              .update({ podcast_episodes: episodes, updated_at: new Date().toISOString() })
+              .update({ [updateField]: episodes, updated_at: new Date().toISOString() })
               .eq('id', bookId);
             
             if (updateError) throw updateError;
             
             console.log(`[Podcast Episodes] 💾 Saved ${episodes.length} episodes to database for "${bookTitle}"`);
             
-            // Update local state
+            // Update local state with source-specific episodes
             setBooks(prev => prev.map(book => 
               book.id === bookId 
-                ? { ...book, podcast_episodes: episodes }
+                ? { ...book, [updateField]: episodes }
                 : book
             ));
           } catch (err: any) {
@@ -1046,7 +1547,7 @@ export default function App() {
             // Still update local state even if DB save fails
             setBooks(prev => prev.map(book => 
               book.id === bookId 
-                ? { ...book, podcast_episodes: episodes }
+                ? { ...book, [updateField]: episodes }
                 : book
             ));
           }
@@ -1066,26 +1567,51 @@ export default function App() {
       setLoadingPodcastsForBookId(null);
       clearTimeout(fetchTimer);
     };
-  }, [selectedIndex, books]); // Depend on selectedIndex and books
+  }, [selectedIndex, books, podcastSource]); // Depend on selectedIndex, books, and podcastSource
 
   async function handleAddBook(meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>) {
     if (!user) return;
 
     try {
+      // Ensure all required fields are present and properly formatted
+      const bookData = {
+        title: meta.title || '',
+        author: meta.author || 'Unknown Author',
+        publish_year: meta.publish_year ?? null,
+        cover_url: meta.cover_url ?? null,
+        wikipedia_url: meta.wikipedia_url ?? null,
+        google_books_url: meta.google_books_url ?? null,
+        user_id: user.id,
+        rating_writing: null,
+        rating_insight: null,
+        rating_flow: null,
+      };
+
+      console.log('Inserting book data:', JSON.stringify(bookData, null, 2));
+
       const { data, error } = await supabase
         .from('books')
-        .insert({
-          ...meta,
-          user_id: user.id,
-          rating_writing: null,
-          rating_insight: null,
-          rating_flow: null,
-        })
+        .insert(bookData)
         .select()
         .single();
 
       if (error) {
         console.error('Supabase error:', error);
+        console.error('Error details:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+        });
+        console.error('Attempted to insert:', JSON.stringify({
+          ...meta,
+          user_id: user.id,
+          rating_writing: null,
+          rating_insight: null,
+          rating_flow: null,
+        }, null, 2));
+        console.error('Meta object:', meta);
+        console.error('Meta keys:', Object.keys(meta));
         throw error;
       }
 
@@ -1138,40 +1664,50 @@ export default function App() {
         });
 
         // Fetch podcast episodes
-        console.log(`[Podcast Episodes] 🔄 Fetching from Grok API for new book "${meta.title}" by ${meta.author}...`);
+        const sourceName = podcastSource === 'curated' 
+          ? 'Curated' 
+          : podcastSource === 'apple' 
+          ? 'Apple Podcasts' 
+          : 'Grok API';
+        console.log(`[Podcast Episodes] 🔄 Fetching from ${sourceName} for new book "${meta.title}" by ${meta.author}...`);
         setLoadingPodcastsForBookId(newBook.id);
-        getPodcastEpisodes(meta.title, meta.author).then(async (episodes) => {
+        getPodcastEpisodes(meta.title, meta.author, podcastSource).then(async (episodes) => {
           setLoadingPodcastsForBookId(null);
           if (episodes.length > 0) {
-            console.log(`[Podcast Episodes] ✅ Received ${episodes.length} episodes from Grok API for "${meta.title}"`);
-            // Save to database
+            console.log(`[Podcast Episodes] ✅ Received ${episodes.length} episodes from ${sourceName} for "${meta.title}"`);
+            // Save to database with source-specific column
+            const updateField = podcastSource === 'curated'
+              ? 'podcast_episodes_curated'
+              : podcastSource === 'apple' 
+              ? 'podcast_episodes_apple' 
+              : 'podcast_episodes_grok';
             try {
               const { error: updateError } = await supabase
                 .from('books')
-                .update({ podcast_episodes: episodes, updated_at: new Date().toISOString() })
+                .update({ [updateField]: episodes, updated_at: new Date().toISOString() })
                 .eq('id', newBook.id);
               
               if (updateError) throw updateError;
               
-              console.log(`[Podcast Episodes] 💾 Saved ${episodes.length} episodes to database for "${meta.title}"`);
+              console.log(`[Podcast Episodes] 💾 Saved ${episodes.length} episodes to database (${podcastSource}) for "${meta.title}"`);
               
-              // Update local state
+              // Update local state with source-specific episodes
               setBooks(prev => prev.map(book => 
                 book.id === newBook.id 
-                  ? { ...book, podcast_episodes: episodes }
+                  ? { ...book, [updateField]: episodes }
                   : book
               ));
             } catch (err: any) {
               console.error('[Podcast Episodes] ❌ Error saving to database:', err);
               console.error('[Podcast Episodes] Error details:', err.message, err.code, err.details);
-              if (err.code === '42703' || err.message?.includes('column') || err.message?.includes('podcast_episodes')) {
-                console.error('[Podcast Episodes] ⚠️ Database column "podcast_episodes" may not exist. Run this SQL in Supabase:');
-                console.error('ALTER TABLE public.books ADD COLUMN IF NOT EXISTS podcast_episodes jsonb;');
+              if (err.code === '42703' || err.message?.includes('column')) {
+                console.error(`[Podcast Episodes] ⚠️ Database column "${updateField}" may not exist. Run this SQL in Supabase:`);
+                console.error(`ALTER TABLE public.books ADD COLUMN IF NOT EXISTS ${updateField} jsonb;`);
               }
               // Still update local state even if DB save fails
               setBooks(prev => prev.map(book => 
                 book.id === newBook.id 
-                  ? { ...book, podcast_episodes: episodes }
+                  ? { ...book, [updateField]: episodes }
                   : book
               ));
             }
@@ -1183,8 +1719,19 @@ export default function App() {
           console.error(`[Podcast Episodes] ❌ Error fetching from Grok API for "${meta.title}":`, err);
         });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error adding book:', err);
+      console.error('Error details:', {
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+        stack: err?.stack,
+      });
+      console.error('Full error object:', JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
+      // Show user-friendly error message
+      const errorMessage = err?.message || err?.code || 'Unknown error';
+      alert(`Failed to add book: ${errorMessage}`);
     }
   }
 
@@ -1346,8 +1893,14 @@ export default function App() {
                                 {activeBook.publish_year}
                               </span>
                             )}
-                            {activeBook.wikipedia_url && (
-                              <a href={activeBook.wikipedia_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[8px] text-blue-600 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline">
+                            {(activeBook.wikipedia_url || activeBook.google_books_url) && (
+                              <a 
+                                href={activeBook.google_books_url || activeBook.wikipedia_url || '#'} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                onClick={(e) => e.stopPropagation()} 
+                                className="text-[8px] text-blue-600 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline"
+                              >
                                 Source <ExternalLink size={8} />
                               </a>
                             )}
@@ -1460,14 +2013,84 @@ export default function App() {
                   isLoading={loadingFactsForBookId === activeBook.id && !activeBook.author_facts}
                 />
                 {/* Podcast Episodes - Show below author facts */}
-                {(activeBook.podcast_episodes && activeBook.podcast_episodes.length > 0) || 
-                 (loadingPodcastsForBookId === activeBook.id && !activeBook.podcast_episodes) ? (
-                  <PodcastEpisodes 
-                    episodes={activeBook.podcast_episodes || []} 
-                    bookId={activeBook.id}
-                    isLoading={loadingPodcastsForBookId === activeBook.id && !activeBook.podcast_episodes}
-                  />
-                ) : null}
+                {(() => {
+                  // Get episodes for the selected source
+                  const sourceEpisodes = podcastSource === 'curated'
+                    ? activeBook.podcast_episodes_curated
+                    : podcastSource === 'apple' 
+                    ? activeBook.podcast_episodes_apple 
+                    : activeBook.podcast_episodes_grok;
+                  // Fallback to legacy podcast_episodes if source-specific doesn't exist
+                  const episodes = sourceEpisodes || activeBook.podcast_episodes || [];
+                  const hasEpisodes = episodes.length > 0;
+                  const isLoading = loadingPodcastsForBookId === activeBook.id;
+                  
+                  // Always show the podcast section
+                  return (
+                    <div className="w-full space-y-2">
+                      {/* Podcast Source Toggle */}
+                      <div className="flex items-center justify-center gap-2 mb-2">
+                        <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Podcasts:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Cycle through: curated -> apple -> grok -> curated
+                            const sources: ('curated' | 'apple' | 'grok')[] = ['curated', 'apple', 'grok'];
+                            const currentIndex = sources.indexOf(podcastSource);
+                            const nextIndex = (currentIndex + 1) % sources.length;
+                            setPodcastSource(sources[nextIndex]);
+                            // Episodes will be loaded automatically via useEffect dependency on podcastSource
+                          }}
+                          className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 active:scale-95 transition-all"
+                        >
+                          <span className={`text-[10px] font-bold transition-colors ${podcastSource === 'curated' ? 'text-blue-600' : 'text-slate-400'}`}>
+                            Curated
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-300">/</span>
+                          <span className={`text-[10px] font-bold transition-colors ${podcastSource === 'apple' ? 'text-blue-600' : 'text-slate-400'}`}>
+                            Apple
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-300">/</span>
+                          <span className={`text-[10px] font-bold transition-colors ${podcastSource === 'grok' ? 'text-blue-600' : 'text-slate-400'}`}>
+                            Grok
+                          </span>
+                        </button>
+                      </div>
+                      {isLoading ? (
+                        // Show loading placeholder
+                        <motion.div
+                          animate={{ opacity: [0.5, 0.8, 0.5] }}
+                          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                          className="w-full bg-slate-50 rounded-2xl p-6 border border-slate-200"
+                        >
+                          <div className="text-center text-slate-400 text-sm">
+                            Loading podcasts...
+                          </div>
+                        </motion.div>
+                      ) : hasEpisodes ? (
+                        // Show episodes
+                        <PodcastEpisodes 
+                          episodes={episodes} 
+                          bookId={activeBook.id}
+                          isLoading={false}
+                        />
+                      ) : (
+                        // Show no results state
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="w-full bg-slate-50 rounded-2xl p-6 border border-slate-200"
+                        >
+                          <div className="text-center">
+                            <Headphones size={24} className="mx-auto mb-2 text-slate-400" />
+                            <p className="text-slate-600 text-sm font-medium mb-1">No podcasts found</p>
+                            <p className="text-slate-400 text-xs">Try switching to {podcastSource === 'grok' ? 'Apple' : 'Grok'} or search for a different book</p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  );
+                })()}
               </>
             )}
           </div>

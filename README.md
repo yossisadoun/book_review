@@ -78,12 +78,30 @@ on public.books for delete
 using (auth.uid() = user_id);
 ```
 
-**Migration for existing tables:** If you already have the `books` table, run this to add the `author_facts` column:
+**Migration for existing tables:** If you already have the `books` table, run these to add additional columns:
 
 ```sql
+-- Add author_facts column
 ALTER TABLE public.books 
 ADD COLUMN IF NOT EXISTS author_facts jsonb;
+
+-- Add google_books_url column (for Google Books search)
+ALTER TABLE public.books 
+ADD COLUMN IF NOT EXISTS google_books_url text;
+
+-- Add podcast_episodes column (legacy - for backward compatibility)
+ALTER TABLE public.books 
+ADD COLUMN IF NOT EXISTS podcast_episodes jsonb;
+
+-- Add source-specific podcast episode columns
+ALTER TABLE public.books 
+ADD COLUMN IF NOT EXISTS podcast_episodes_grok jsonb;
+
+ALTER TABLE public.books 
+ADD COLUMN IF NOT EXISTS podcast_episodes_apple jsonb;
 ```
+
+Or use the migration files in the `migrations/` directory.
 
 4. Get your Supabase credentials:
    - Go to Project Settings → API
@@ -118,7 +136,16 @@ For production, update these to your production URL.
 npm run dev
 ```
 
-### 6. Open [http://localhost:3000](http://localhost:3000) in your browser.
+### 6. Customize LLM Prompts (Optional):
+
+Edit `prompts.yaml` in the root directory to customize the prompts used for:
+- Book title suggestions
+- Author facts generation
+- Podcast episode search
+
+The prompts use `{variable}` syntax for dynamic values. After editing, restart the dev server.
+
+### 7. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Tech Stack
 
