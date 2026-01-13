@@ -450,6 +450,23 @@ async function getApplePodcastEpisodes(bookTitle: string, author: string): Promi
   }
 }
 
+// Type for the RPC function return value
+interface CuratedEpisodeResult {
+  id: string;
+  collection_id: number;
+  podcast_name: string;
+  episode_title: string;
+  episode_url: string;
+  audio_url: string | null;
+  episode_summary: string;
+  podcast_summary: string;
+  length_minutes: number | null;
+  air_date: string | null;
+  book_title: string | null;
+  book_author: string | null;
+  relevance_score: number;
+}
+
 // --- Curated Podcast Episodes (from Supabase) ---
 async function getCuratedPodcastEpisodes(bookTitle: string, author: string): Promise<PodcastEpisode[]> {
   try {
@@ -459,7 +476,7 @@ async function getCuratedPodcastEpisodes(bookTitle: string, author: string): Pro
     const { data, error } = await supabase.rpc('search_curated_episodes', {
       search_title: bookTitle,
       search_author: author
-    });
+    }) as { data: CuratedEpisodeResult[] | null; error: any };
 
     if (error) {
       console.error('[getCuratedPodcastEpisodes] Supabase error:', error);
@@ -479,7 +496,7 @@ async function getCuratedPodcastEpisodes(bookTitle: string, author: string): Pro
           return [];
         }
         
-        const episodes: PodcastEpisode[] = fallbackData.map(ep => ({
+        const episodes: PodcastEpisode[] = fallbackData.map((ep: any) => ({
           title: ep.episode_title || 'Untitled Episode',
           length: ep.length_minutes ? `${ep.length_minutes} min` : undefined,
           air_date: ep.air_date ? new Date(ep.air_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : undefined,
@@ -502,7 +519,7 @@ async function getCuratedPodcastEpisodes(bookTitle: string, author: string): Pro
       return [];
     }
 
-    const episodes: PodcastEpisode[] = data.map(ep => ({
+    const episodes: PodcastEpisode[] = data.map((ep: CuratedEpisodeResult) => ({
       title: ep.episode_title || 'Untitled Episode',
       length: ep.length_minutes ? `${ep.length_minutes} min` : undefined,
       air_date: ep.air_date ? new Date(ep.air_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : undefined,
