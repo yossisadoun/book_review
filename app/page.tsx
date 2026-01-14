@@ -2360,6 +2360,15 @@ export default function App() {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.3, ease: "easeInOut" }}
           className="w-full z-40 fixed top-[50px] left-0 right-0 px-4 py-3 flex items-center justify-between"
+          style={{
+            background: showBookshelf
+              ? scrollY > 20
+                ? `linear-gradient(to bottom, rgba(245, 245, 241, ${Math.max(0, 1 - (scrollY - 20) / 40)}), rgba(245, 245, 241, ${Math.max(0, 1 - (scrollY - 20) / 40)}))`
+                : 'linear-gradient(to bottom, rgba(245, 245, 241, 1), rgba(245, 245, 241, 0))'
+              : scrollY > 20
+                ? `linear-gradient(to bottom, rgba(248, 250, 252, ${Math.max(0, 1 - (scrollY - 20) / 40)}), rgba(248, 250, 252, ${Math.max(0, 1 - (scrollY - 20) / 40)}))`
+                : 'linear-gradient(to bottom, rgba(248, 250, 252, 1), rgba(248, 250, 252, 0))'
+          }}
         >
           {/* BOOKS/BOOKSHELF text on left */}
           <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
@@ -2443,16 +2452,16 @@ export default function App() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="flex-1 flex flex-col items-center justify-center relative pt-20 overflow-hidden"
+            className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
             style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            onScroll={(e) => {
+              const target = e.currentTarget;
+              setScrollY(target.scrollTop);
+            }}
           >
             {/* Bookshelf View */}
             <div 
-              className="w-full h-full flex flex-col items-center px-4 overflow-y-auto ios-scroll"
-              onScroll={(e) => {
-                const target = e.currentTarget;
-                setScrollY(target.scrollTop);
-              }}
+              className="w-full flex flex-col items-center px-4"
             >
               <div className="w-full max-w-[1600px] flex flex-col gap-8 py-8">
                 {/* Grouping Selector */}
