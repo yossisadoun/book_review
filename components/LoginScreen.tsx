@@ -1,31 +1,43 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { BookOpen } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import HelloAnimation from './HelloAnimation';
 
 export function LoginScreen() {
   const { signInWithGoogle, loading } = useAuth();
 
   return (
-    <div className="fixed inset-0 bg-slate-50 flex flex-col items-center justify-center p-4">
+    <div 
+      className="fixed inset-0 flex flex-col items-center justify-center p-4"
+      style={{
+        background: 'linear-gradient(to bottom, #C6DF8B 0%, #A1D821 30%, #FCCF47 100%)'
+      }}
+    >
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col items-center justify-center text-center space-y-8 max-w-sm w-full"
+        className="flex flex-col items-center justify-center text-center max-w-sm w-full"
       >
-        <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl flex items-center justify-center">
-          <BookOpen size={40} className="text-white opacity-90" />
+        {/* Animation - 30% smaller */}
+        <div className="w-full max-w-md mb-8" style={{ transform: 'scale(0.7)' }}>
+          <HelloAnimation 
+            color="#ffffff" 
+            strokeWidth={40} 
+            duration={3} 
+            className="w-full h-auto"
+          />
         </div>
 
-        <h1 className="text-3xl font-bold text-slate-900">BOOK</h1>
+        {/* Logo */}
+        <img src="/logo.png" alt="BOOK" className="object-contain mx-auto mb-4" />
 
         {/* Google Sign-In Button - Standard Design */}
         <motion.button
           onClick={signInWithGoogle}
           disabled={loading}
           whileTap={{ scale: 0.98 }}
-          className="w-full max-w-xs bg-white border border-gray-300 rounded-lg shadow-sm hover:shadow-md transition-shadow py-3 px-4 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full max-w-xs bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 rounded-lg shadow-sm hover:shadow-md transition-shadow py-3 px-4 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
             <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />

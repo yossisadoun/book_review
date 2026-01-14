@@ -5,6 +5,9 @@ import { AuthProvider } from "@/contexts/AuthContext";
 export const metadata: Metadata = {
   title: "BOOK - Book Review App",
   description: "A mobile-first book review app powered by Wikipedia",
+  icons: {
+    icon: '/icon.png',
+  },
 };
 
 export default function RootLayout({

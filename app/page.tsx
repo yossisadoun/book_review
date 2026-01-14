@@ -1478,7 +1478,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
                 placeholder={isQueryHebrew ? "חפש ספר..." : "Search for a book..."}
                 value={query} 
                 onChange={e => setQuery(e.target.value)}
-                className={`w-full h-12 bg-white/80 backdrop-blur-md border border-white/30 rounded-full focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-sm outline-none transition-all ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
+                className={`w-full h-12 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 rounded-full focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-sm outline-none transition-all ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
                 dir={isQueryHebrew ? "rtl" : "ltr"}
               />
               <Search 
@@ -1521,7 +1521,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0 }}
-                  className="space-y-2 max-h-[400px] overflow-y-auto"
+                  className="space-y-2 max-h-[400px] overflow-y-auto ios-scroll"
                 >
                   <div className="text-xs font-medium text-slate-700 mb-2">
                     Select a book to add:
@@ -1615,6 +1615,7 @@ export default function App() {
   const [loadingFactsForBookId, setLoadingFactsForBookId] = useState<string | null>(null);
   const [loadingPodcastsForBookId, setLoadingPodcastsForBookId] = useState<string | null>(null);
   const [scrollY, setScrollY] = useState(0);
+  const [showLogoutMenu, setShowLogoutMenu] = useState(false);
   const [backgroundGradient, setBackgroundGradient] = useState<string>('241,245,249,226,232,240'); // Default slate colors as RGB
   const [podcastSource, setPodcastSource] = useState<'apple' | 'curated'>(() => {
     if (typeof window !== 'undefined') {
@@ -2224,43 +2225,103 @@ export default function App() {
         <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">BOOKS</h1>
         
         {/* User avatar on right */}
-        {userAvatar ? (
-          <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-200">
-            <img 
-              src={userAvatar} 
-              alt={userName}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                // Fallback if image fails to load
-                const target = e.target as HTMLImageElement;
-                target.style.display = 'none';
-                const parent = target.parentElement;
-                if (parent) {
-                  parent.innerHTML = `<div class="w-full h-full flex items-center justify-center bg-slate-300"><span class="text-xs font-bold text-slate-600">${userName.charAt(0).toUpperCase()}</span></div>`;
-                }
-              }}
-              referrerPolicy="no-referrer"
-            />
-          </div>
-        ) : (
-          <div className="w-8 h-8 rounded-full bg-slate-300 flex items-center justify-center">
-            <span className="text-xs font-bold text-slate-600">
-              {userName.charAt(0).toUpperCase()}
-            </span>
-          </div>
-        )}
+        <div className="relative">
+          {userAvatar ? (
+            <button
+              onClick={() => setShowLogoutMenu(!showLogoutMenu)}
+              className="w-8 h-8 rounded-full overflow-hidden bg-slate-200 cursor-pointer active:scale-95 transition-transform"
+            >
+              <img 
+                src={userAvatar} 
+                alt={userName}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  // Fallback if image fails to load
+                  const target = e.target as HTMLImageElement;
+                  target.style.display = 'none';
+                  const parent = target.parentElement;
+                  if (parent) {
+                    parent.innerHTML = `<div class="w-full h-full flex items-center justify-center bg-slate-300"><span class="text-xs font-bold text-slate-600">${userName.charAt(0).toUpperCase()}</span></div>`;
+                  }
+                }}
+                referrerPolicy="no-referrer"
+              />
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowLogoutMenu(!showLogoutMenu)}
+              className="w-8 h-8 rounded-full bg-slate-300 flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
+            >
+              <span className="text-xs font-bold text-slate-600">
+                {userName.charAt(0).toUpperCase()}
+              </span>
+            </button>
+          )}
+          
+          {/* Logout menu */}
+          <AnimatePresence>
+            {showLogoutMenu && (
+              <>
+                {/* Backdrop to close menu */}
+                <div
+                  className="fixed inset-0 z-30"
+                  onClick={() => setShowLogoutMenu(false)}
+                />
+                {/* Menu */}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                  className="absolute top-10 right-0 z-40 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-lg shadow-xl border border-white/30 min-w-[120px] overflow-hidden"
+                >
+                  <button
+                    onClick={async () => {
+                      await signOut();
+                      setShowLogoutMenu(false);
+                    }}
+                    className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 hover:bg-white/20 active:bg-white/30 transition-colors"
+                  >
+                    <LogOut size={16} className="text-slate-600" />
+                    <span>Logout</span>
+                  </button>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+        </div>
       </motion.div>
 
       <main 
-        className="flex-1 flex flex-col items-center justify-start p-4 relative pt-28 overflow-y-auto pb-20"
+        ref={(el) => {
+          if (el) {
+            // Enable rubber band bounce effect
+            el.style.overscrollBehaviorY = 'auto';
+            el.style.webkitOverflowScrolling = 'touch';
+          }
+        }}
+        className="flex-1 flex flex-col items-center justify-start p-4 relative pt-28 overflow-y-auto pb-20 ios-scroll"
         onScroll={(e) => {
           const target = e.currentTarget;
           setScrollY(target.scrollTop);
         }}
+        onTouchMove={(e) => {
+          // Allow native bounce on touch devices
+          const target = e.currentTarget;
+          const { scrollTop, scrollHeight, clientHeight } = target;
+          const isAtTop = scrollTop === 0;
+          const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
+          
+          // Let native bounce behavior work
+          if (isAtTop || isAtBottom) {
+            // Native iOS bounce will handle this
+            return;
+          }
+        }}
       >
         {books.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
-            <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-4"><BookOpen size={40} className="text-white opacity-90" /></div>
+            <img src="/logo.png" alt="BOOK" className="object-contain mx-auto mb-4" />
           </div>
         ) : (
           <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">
@@ -2295,7 +2356,7 @@ export default function App() {
                     initial={{ opacity: 0, y: 20 }} 
                     animate={{ opacity: 1, y: 0 }} 
                     exit={{ opacity: 0, y: 20 }} 
-                    className="absolute bottom-16 left-4 right-4 z-40 bg-white/80 backdrop-blur-xl flex flex-col items-center justify-center p-4 rounded-2xl border border-white/30 shadow-2xl overflow-hidden"
+                    className="absolute bottom-16 left-4 right-4 z-40 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 flex flex-col items-center justify-center p-4 rounded-2xl border border-white/30 shadow-2xl overflow-hidden"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <motion.div 
@@ -2340,7 +2401,7 @@ export default function App() {
                 />
               )}
 
-              <button onClick={() => setIsConfirmingDelete(true)} className="absolute bottom-4 right-4 z-30 bg-white/80 backdrop-blur-md p-2.5 rounded-full shadow-lg text-slate-600 hover:text-red-600 active:scale-90 transition-all border border-white/30">
+              <button onClick={() => setIsConfirmingDelete(true)} className="absolute bottom-4 right-4 z-30 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 p-2.5 rounded-full shadow-lg text-slate-600 hover:text-red-600 active:scale-90 transition-all border border-white/30">
                 <Trash2 size={20} />
               </button>
 
@@ -2349,7 +2410,7 @@ export default function App() {
                   setIsEditing(true);
                   setEditingDimension(null); // Will default to first unrated or first dimension
                 }} 
-                className="absolute bottom-4 left-4 z-30 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1 active:scale-90 transition-transform border border-white/30"
+                className="absolute bottom-4 left-4 z-30 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1 active:scale-90 transition-transform border border-white/30"
               >
                 <Star size={14} className="fill-amber-400 text-amber-400" />
                 <span className="font-black text-sm text-slate-950">
@@ -2500,14 +2561,40 @@ export default function App() {
         )}
       </main>
 
-      {/* Simple always-present search box */}
+      {/* Bottom Navigation Bar */}
       <div className="fixed bottom-4 left-0 right-0 z-[50] flex justify-center px-4 pointer-events-none">
-        <div 
-          className="w-full max-w-[280px] h-10 bg-white/80 backdrop-blur-md border border-white/30 rounded-full shadow-xl flex items-center px-4 cursor-pointer pointer-events-auto transition-all hover:shadow-2xl hover:border-white/40"
-          onClick={() => setIsAdding(true)}
-        >
-          <Search size={16} className="text-slate-600 mr-2 flex-shrink-0" />
-          <span className="text-sm text-slate-700 flex-1">Search for a book...</span>
+        <div className="flex items-center gap-2 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-2xl px-3 py-2.5 shadow-2xl border border-white/30 pointer-events-auto">
+          {/* Books button - left (active, circular) */}
+          <button
+            onClick={() => {
+              // Scroll to top to show books
+              const main = document.querySelector('main');
+              if (main) {
+                main.scrollTo({ top: 0, behavior: 'smooth' });
+              }
+            }}
+            className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:scale-95 transition-all flex items-center justify-center"
+          >
+            <BookOpen size={18} className="text-slate-950" />
+          </button>
+
+          {/* Bookshelf button - middle (circular) */}
+          <button
+            onClick={() => {
+              // TODO: Add bookshelf functionality
+            }}
+            className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:scale-95 transition-all flex items-center justify-center"
+          >
+            <Library size={18} className="text-slate-950" />
+          </button>
+
+          {/* Search button - right (circular) */}
+          <button
+            onClick={() => setIsAdding(true)}
+            className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:scale-95 transition-all flex items-center justify-center ml-auto"
+          >
+            <Search size={18} className="text-slate-950" />
+          </button>
         </div>
       </div>
 

@@ -11,3 +11,36 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* iOS-like scrolling with momentum and spring physics */
+.ios-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: auto; /* Allow bounce at edges like iOS */
+  overscroll-behavior-x: auto;
+  scroll-behavior: smooth;
+  /* Smooth momentum with velocity */
+  scroll-padding: 0;
+  /* Enable rubber band bounce effect - native on iOS */
+  position: relative;
+}
+
+/* Enhanced momentum scrolling for iOS devices */
+@supports (-webkit-overflow-scrolling: touch) {
+  .ios-scroll {
+    -webkit-overflow-scrolling: touch;
+    /* Enable hardware acceleration for smoother scrolling */
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
+  }
+}
+
+/* Smooth scroll with velocity for all browsers */
+html {
+  scroll-behavior: smooth;
+}
+
+/* iOS-like rubber band effect - allow bounce on body */
+body {
+  overscroll-behavior-y: auto;
+  /* Native bounce works with auto on iOS Safari */
+}
