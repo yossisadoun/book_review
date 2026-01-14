@@ -25,6 +25,19 @@ import { LoginScreen } from '@/components/LoginScreen';
 import { supabase } from '@/lib/supabase';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 
+// Helper function to get the correct path for static assets (handles basePath)
+function getAssetPath(path: string): string {
+  if (typeof window === 'undefined') return path;
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (isLocalhost) return path;
+  // Check if pathname starts with /book_review (GitHub Pages basePath)
+  const pathname = window.location.pathname;
+  if (pathname.startsWith('/book_review')) {
+    return `/book_review${path}`;
+  }
+  return path;
+}
+
 // --- Types & Constants ---
 const RATING_DIMENSIONS = ['writing', 'insight', 'flow'] as const;
 const grokApiKey = process.env.NEXT_PUBLIC_GROK_API_KEY || "";
@@ -2237,8 +2250,10 @@ export default function App() {
         }}
         transition={{ duration: 0.3, ease: "easeInOut" }}
       >
-        {/* BOOKS text on left */}
-        <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">BOOKS</h1>
+        {/* BOOKS/BOOKSHELF text on left */}
+        <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
+          {showBookshelf ? 'BOOKSHELF' : 'BOOKS'}
+        </h1>
         
         {/* User avatar on right */}
         <div className="relative">
@@ -2320,14 +2335,6 @@ export default function App() {
             {/* Bookshelf View */}
             <div className="w-full h-full flex flex-col items-center justify-center px-4">
               <div className="w-full max-w-[1600px] h-full flex flex-col">
-                {/* Header */}
-                <div className="text-center mb-8 z-10">
-                  <h1 className="text-3xl font-bold text-slate-950 mb-2">My Bookshelf</h1>
-                  <p className="text-sm font-medium text-slate-600 uppercase tracking-wider">
-                    Sorted by Rating
-                  </p>
-                </div>
-
                 {/* Shelf Container */}
                 <div 
                   className="bookshelf-scroll scrollbar-hide flex-1 flex items-end justify-center overflow-x-auto overflow-y-hidden pb-20 px-4"
@@ -2387,9 +2394,15 @@ export default function App() {
                       return (
                         <motion.div
                           key={book.id}
-                          initial={{ opacity: 0, y: 50 }}
+                          initial={{ opacity: 0, y: -200 }}
                           animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: idx * 0.05, duration: 0.4 }}
+                          transition={{ 
+                            delay: idx * 0.05, 
+                            duration: 0.6,
+                            type: "spring",
+                            stiffness: 100,
+                            damping: 15
+                          }}
                           className="book-spine relative flex-shrink-0 cursor-pointer group"
                           style={{
                             height: `${height}px`,
@@ -2449,7 +2462,7 @@ export default function App() {
                             
                             {/* Spine Content */}
                             <div
-                              className="absolute inset-0 flex items-center justify-center p-2"
+                              className="absolute inset-0 flex flex-col items-center justify-between p-2"
                               style={{
                                 writingMode: 'vertical-rl',
                                 textOrientation: 'mixed',
@@ -2458,46 +2471,39 @@ export default function App() {
                                 fontFamily: 'system-ui, -apple-system, sans-serif',
                               }}
                             >
+                              {/* Title */}
                               <div
-                                className="text-center font-bold leading-tight"
+                                className="text-center font-bold leading-tight flex-1 flex items-center justify-center"
                                 style={{
                                   fontSize: `${Math.max(10, Math.min(16, width * 0.25))}px`,
-                                  maxHeight: '85%',
+                                  maxHeight: '70%',
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
                                 }}
                               >
                                 {book.title.toUpperCase()}
                               </div>
-                            </div>
-                            
-                            {/* Tooltip */}
-                            <div
-                              className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none whitespace-nowrap"
-                              style={{
-                                background: 'rgba(255, 255, 255, 0.9)',
-                                backdropFilter: 'blur(25px) saturate(200%)',
-                                WebkitBackdropFilter: 'blur(25px) saturate(200%)',
-                                color: '#000',
-                                padding: '10px 18px',
-                                borderRadius: '14px',
-                                fontSize: '0.85rem',
-                                fontWeight: '700',
-                                boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
-                                zIndex: 100,
-                                top: '-95px',
-                              }}
-                            >
-                              {avgScore ? (
-                                <>
-                                  <span className="text-slate-400 mr-2">
-                                    {'★'.repeat(Math.floor(parseFloat(avgScore)))}
-                                    {'☆'.repeat(5 - Math.floor(parseFloat(avgScore)))}
+                              
+                              {/* Rating - Always visible at bottom of spine */}
+                              {avgScore && (
+                                <div
+                                  className="flex items-center gap-1 mt-2"
+                                  style={{
+                                    writingMode: 'horizontal-tb',
+                                    transform: 'rotate(180deg)',
+                                  }}
+                                >
+                                  <Star size={Math.max(10, Math.min(14, width * 0.2))} className="fill-amber-400 text-amber-400" />
+                                  <span
+                                    className="font-black"
+                                    style={{
+                                      fontSize: `${Math.max(9, Math.min(12, width * 0.18))}px`,
+                                      color: textColor,
+                                    }}
+                                  >
+                                    {avgScore}
                                   </span>
-                                  {avgScore}
-                                </>
-                              ) : (
-                                'Not Rated'
+                                </div>
                               )}
                             </div>
                           </div>
@@ -2549,7 +2555,7 @@ export default function App() {
           >
         {books.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
-            <img src="/logo.png" alt="BOOK" className="object-contain mx-auto mb-4" />
+            <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
           </div>
         ) : (
           <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">

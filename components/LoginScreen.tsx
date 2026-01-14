@@ -4,6 +4,19 @@ import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import HelloAnimation from './HelloAnimation';
 
+// Helper function to get the correct path for static assets (handles basePath)
+function getAssetPath(path: string): string {
+  if (typeof window === 'undefined') return path;
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (isLocalhost) return path;
+  // Check if pathname starts with /book_review (GitHub Pages basePath)
+  const pathname = window.location.pathname;
+  if (pathname.startsWith('/book_review')) {
+    return `/book_review${path}`;
+  }
+  return path;
+}
+
 export function LoginScreen() {
   const { signInWithGoogle, loading } = useAuth();
 
@@ -30,7 +43,7 @@ export function LoginScreen() {
         </div>
 
         {/* Logo */}
-        <img src="/logo.png" alt="BOOK" className="object-contain mx-auto mb-4" />
+        <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
 
         {/* Google Sign-In Button - Standard Design */}
         <motion.button
