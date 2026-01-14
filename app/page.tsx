@@ -23,6 +23,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginScreen } from '@/components/LoginScreen';
+import { BookLoading } from '@/components/BookLoading';
 import { supabase } from '@/lib/supabase';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 
@@ -40,7 +41,7 @@ function getAssetPath(path: string): string {
 }
 
 // --- Types & Constants ---
-const RATING_DIMENSIONS = ['writing', 'insight', 'flow'] as const;
+const RATING_DIMENSIONS = ['writing', 'insights', 'flow', 'world', 'characters'] as const;
 const grokApiKey = process.env.NEXT_PUBLIC_GROK_API_KEY || "";
 
 const GRADIENTS = [
@@ -82,12 +83,15 @@ interface Book {
   title: string;
   author: string;
   publish_year?: number | null;
+  genre?: string | null;
   cover_url?: string | null;
   wikipedia_url?: string | null;
   google_books_url?: string | null;
   rating_writing?: number | null;
-  rating_insight?: number | null;
+  rating_insights?: number | null;
   rating_flow?: number | null;
+  rating_world?: number | null;
+  rating_characters?: number | null;
   author_facts?: string[] | null; // JSON array of author facts
   podcast_episodes?: PodcastEpisode[] | null; // JSON array of podcast episodes (deprecated - use source-specific columns)
   podcast_episodes_grok?: PodcastEpisode[] | null; // JSON array of podcast episodes from Grok
@@ -98,11 +102,13 @@ interface Book {
 }
 
 // Local app interface (for easier manipulation)
-interface BookWithRatings extends Omit<Book, 'rating_writing' | 'rating_insight' | 'rating_flow'> {
+interface BookWithRatings extends Omit<Book, 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> {
   ratings: {
     writing: number | null;
-    insight: number | null;
+    insights: number | null;
     flow: number | null;
+    world: number | null;
+    characters: number | null;
   };
   author_facts?: string[]; // Fun facts about the author
   podcast_episodes?: PodcastEpisode[]; // Podcast episodes about the book (deprecated - use source-specific)
@@ -800,24 +806,66 @@ async function getGoogleScholarAnalysis(bookTitle: string, author: string): Prom
 // Helper function to save articles to database
 async function saveArticlesToDatabase(bookTitle: string, bookAuthor: string, articles: AnalysisArticle[]): Promise<void> {
   try {
-    const { error } = await supabase
-      .from('google_scholar_articles')
-      .upsert({
-        book_title: bookTitle.toLowerCase().trim(),
-        book_author: bookAuthor.toLowerCase().trim(),
-        articles: articles,
-        updated_at: new Date().toISOString(),
-      }, {
-        onConflict: 'book_title,book_author',
-      });
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = bookAuthor.toLowerCase().trim();
     
-    if (error) {
-      console.error('[saveArticlesToDatabase] ❌ Error saving articles:', error);
+    // First, try to check if record exists
+    const { data: existing, error: checkError } = await supabase
+      .from('google_scholar_articles')
+      .select('id')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (checkError && checkError.code !== 'PGRST116') {
+      // PGRST116 is "not found" which is fine
+      console.error('[saveArticlesToDatabase] ❌ Error checking existing record:', checkError);
+    }
+    
+    const recordData = {
+      book_title: normalizedTitle,
+      book_author: normalizedAuthor,
+      articles: articles,
+      updated_at: new Date().toISOString(),
+    };
+    
+    let result;
+    if (existing) {
+      // Update existing record
+      result = await supabase
+        .from('google_scholar_articles')
+        .update(recordData)
+        .eq('book_title', normalizedTitle)
+        .eq('book_author', normalizedAuthor);
+    } else {
+      // Insert new record
+      result = await supabase
+        .from('google_scholar_articles')
+        .insert(recordData);
+    }
+    
+    if (result.error) {
+      console.error('[saveArticlesToDatabase] ❌ Error saving articles:', {
+        message: result.error.message,
+        code: result.error.code,
+        details: result.error.details,
+        hint: result.error.hint,
+        fullError: result.error
+      });
+      
+      // Check if table doesn't exist
+      if (result.error.code === '42P01' || result.error.message?.includes('does not exist')) {
+        console.error('[saveArticlesToDatabase] ⚠️ Table "google_scholar_articles" does not exist. Please run the migration in Supabase SQL Editor.');
+      }
     } else {
       console.log(`[saveArticlesToDatabase] ✅ Saved ${articles.length} articles to database`);
     }
-  } catch (err) {
-    console.error('[saveArticlesToDatabase] ❌ Error:', err);
+  } catch (err: any) {
+    console.error('[saveArticlesToDatabase] ❌ Unexpected error:', {
+      message: err?.message,
+      stack: err?.stack,
+      fullError: err
+    });
   }
 }
 
@@ -833,7 +881,7 @@ async function getPodcastEpisodes(bookTitle: string, author: string, source: 'ap
 }
 
 // --- Apple Books API (iTunes Search) ---
-async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>[]> {
+async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>[]> {
   try {
     // Use iTunes Search API to search for books (ebooks)
     const country = isHebrew(query) ? 'il' : 'us';
@@ -871,6 +919,15 @@ async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book, 'id' |
         }
       }
       
+      // Extract genre - use primaryGenreName or first genre from genres array
+      let genre: string | undefined = undefined;
+      if (item.primaryGenreName) {
+        // Take first word if genre has multiple words (e.g., "Fiction" from "Literary Fiction")
+        genre = item.primaryGenreName.split(' ')[0];
+      } else if (item.genres && Array.isArray(item.genres) && item.genres.length > 0) {
+        genre = item.genres[0].split(' ')[0];
+      }
+      
       // Get cover image
       const coverUrl = item.artworkUrl100 
         ? item.artworkUrl100.replace('100x100bb', '600x600bb')
@@ -883,6 +940,7 @@ async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book, 'id' |
         title: title,
         author: author,
         publish_year: publishYear,
+        genre: genre,
         cover_url: coverUrl,
         wikipedia_url: null,
         google_books_url: appleBooksUrl,
@@ -898,19 +956,19 @@ async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book, 'id' |
 }
 
 // Legacy function for backward compatibility
-async function lookupBookOnAppleBooks(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null> {
+async function lookupBookOnAppleBooks(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> | null> {
   const books = await lookupBooksOnAppleBooks(query);
   return books.length > 0 ? books[0] : null;
 }
 
 // --- Grok Book Search ---
-async function lookupBooksOnGrok(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>[]> {
+async function lookupBooksOnGrok(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>[]> {
   // For now, Grok returns a single result, so we'll wrap it in an array
   const result = await lookupBookOnGrok(query);
   return result ? [result] : [];
 }
 
-async function lookupBookOnGrok(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null> {
+async function lookupBookOnGrok(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> | null> {
   if (!grokApiKey) {
     console.warn('[lookupBookOnGrok] API key is missing!');
     return null;
@@ -991,6 +1049,7 @@ async function lookupBookOnGrok(query: string): Promise<Omit<Book, 'id' | 'user_
       title: result.title || query,
       author: result.author || 'Unknown Author',
       publish_year: result.publish_year || undefined,
+      genre: result.genre || undefined,
       cover_url: result.cover_url || null,
       wikipedia_url: result.wikipedia_url || null,
       google_books_url: result.google_books_url || null,
@@ -1019,7 +1078,7 @@ async function getWikidataItemForTitle(pageTitle: string, lang = 'en'): Promise<
   return page?.pageprops?.wikibase_item ?? null;
 }
 
-async function getAuthorAndYearFromWikidata(qid: string, lang = 'en'): Promise<{ author: string; publishYear?: number }> {
+async function getAuthorAndYearFromWikidata(qid: string, lang = 'en'): Promise<{ author: string; publishYear?: number; genre?: string }> {
   const entityUrl = `https://www.wikidata.org/w/api.php?action=wbgetentities&format=json&origin=*&ids=${encodeURIComponent(qid)}&props=claims`;
   const entityData = await fetchWithRetry(entityUrl);
   const ent = entityData?.entities?.[qid];
@@ -1032,6 +1091,23 @@ async function getAuthorAndYearFromWikidata(qid: string, lang = 'en'): Promise<{
   const timeStr = dateClaim?.mainsnak?.datavalue?.value?.time; 
   const publishYear = first4DigitYear(timeStr);
 
+  // Extract genre from P136 (genre property)
+  let genre: string | undefined = undefined;
+  const genreClaims = claims?.P136 ?? [];
+  if (genreClaims.length > 0) {
+    const genreId = genreClaims[0]?.mainsnak?.datavalue?.value?.id;
+    if (genreId) {
+      const genreUrl = `https://www.wikidata.org/w/api.php?action=wbgetentities&format=json&origin=*&ids=${encodeURIComponent(genreId)}&props=labels&languages=${lang}|en`;
+      const genreData = await fetchWithRetry(genreUrl);
+      const genreEntity = genreData?.entities?.[genreId];
+      const genreLabel = genreEntity?.labels?.[lang]?.value || genreEntity?.labels?.en?.value;
+      if (genreLabel) {
+        // Take first word if genre has multiple words (e.g., "Fiction" from "Literary Fiction")
+        genre = genreLabel.split(' ')[0];
+      }
+    }
+  }
+
   let author = lang === 'he' ? "מחבר לא ידוע" : "Unknown Author";
 
   if (authorIds.length > 0) {
@@ -1043,10 +1119,10 @@ async function getAuthorAndYearFromWikidata(qid: string, lang = 'en'): Promise<{
     }).filter(Boolean);
     if (labels.length > 0) author = labels.join(", ");
   }
-  return { author, publishYear };
+  return { author, publishYear, genre };
 }
 
-async function lookupBooksOnWikipedia(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>[]> {
+async function lookupBooksOnWikipedia(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>[]> {
   const lang = isHebrew(query) ? 'he' : 'en';
   const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=6`;
   const searchData = await fetchWithRetry(searchUrl);
@@ -1064,12 +1140,13 @@ async function lookupBooksOnWikipedia(query: string): Promise<Omit<Book, 'id' | 
       const summaryData = await fetchWithRetry(summaryUrl);
       
       const qid = await getWikidataItemForTitle(pageTitle, lang);
-      const { author, publishYear } = qid ? await getAuthorAndYearFromWikidata(qid, lang) : { author: summaryData.extract?.split('(')[0]?.trim() || 'Unknown Author', publishYear: undefined };
+      const { author, publishYear, genre } = qid ? await getAuthorAndYearFromWikidata(qid, lang) : { author: summaryData.extract?.split('(')[0]?.trim() || 'Unknown Author', publishYear: undefined, genre: undefined };
       
       return {
         title: summaryData.title || pageTitle,
         author: author,
         publish_year: publishYear,
+        genre: genre,
         cover_url: summaryData.thumbnail?.source?.replace('http://', 'https://') || null,
         wikipedia_url: summaryData.content_urls?.desktop?.page || null,
         google_books_url: null,
@@ -1080,7 +1157,7 @@ async function lookupBooksOnWikipedia(query: string): Promise<Omit<Book, 'id' | 
   return books;
 }
 
-async function lookupBookOnWikipedia(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null> {
+async function lookupBookOnWikipedia(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> | null> {
   const lang = isHebrew(query) ? 'he' : 'en';
   const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*`;
   const searchData = await fetchWithRetry(searchUrl);
@@ -1109,16 +1186,19 @@ async function lookupBookOnWikipedia(query: string): Promise<Omit<Book, 'id' | '
   let author = lang === 'he' ? "מחבר לא ידוע" : "Unknown Author";
   let publishYear: number | undefined = undefined;
   
+  let genre: string | undefined = undefined;
   if (qid) {
     const wdData = await getAuthorAndYearFromWikidata(qid, lang);
     author = wdData.author || author;
     publishYear = wdData.publishYear;
+    genre = wdData.genre;
   }
 
   return {
     title: summaryData.title || pageTitle,
     author: author,
     publish_year: publishYear,
+    genre: genre,
     cover_url: summaryData.thumbnail?.source || summaryData.originalimage?.source || null,
     wikipedia_url: summaryData.content_urls?.desktop?.page || null,
   };
@@ -1209,8 +1289,10 @@ function convertBookToApp(book: Book): BookWithRatings {
     ...book,
     ratings: {
       writing: book.rating_writing ?? null,
-      insight: book.rating_insight ?? null,
+      insights: book.rating_insights ?? null,
       flow: book.rating_flow ?? null,
+      world: book.rating_world ?? null,
+      characters: book.rating_characters ?? null,
     },
     author_facts: book.author_facts || undefined, // Load from database
     podcast_episodes: book.podcast_episodes || undefined, // Load from database (legacy)
@@ -1225,12 +1307,15 @@ function convertBookToDb(book: BookWithRatings): Omit<Book, 'id' | 'user_id' | '
     title: book.title,
     author: book.author,
     publish_year: book.publish_year,
+    genre: book.genre,
     cover_url: book.cover_url,
     wikipedia_url: book.wikipedia_url,
     google_books_url: book.google_books_url,
     rating_writing: book.ratings.writing,
-    rating_insight: book.ratings.insight,
+    rating_insights: book.ratings.insights,
     rating_flow: book.ratings.flow,
+    rating_world: book.ratings.world,
+    rating_characters: book.ratings.characters,
   };
 }
 
@@ -1680,7 +1765,7 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
 
 interface RatingStarsProps {
   value: number | null;
-  onRate: (dimension: string, value: number) => void;
+  onRate: (dimension: string, value: number | null) => void;
   dimension: string;
 }
 
@@ -1697,19 +1782,29 @@ function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
     if (isLocked) return;
     setIsLocked(true);
     setLocalValue(star);
-    setTimeout(() => onRate(dimension, star), 450);
+    // Call immediately for snappy response, then unlock after a brief delay
+    onRate(dimension, star);
+    setTimeout(() => setIsLocked(false), 100);
+  }
+
+  function handleSkip() {
+    if (isLocked) return;
+    setIsLocked(true);
+    // Call immediately for snappy response, then unlock after a brief delay
+    onRate(dimension, null);
+    setTimeout(() => setIsLocked(false), 100);
   }
 
   return (
     <div className="flex flex-col items-center gap-2">
-                      <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950 mb-1">{dimension}</h3>
+      <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950 mb-1">{dimension}</h3>
       <div className="flex gap-1">
         {[1, 2, 3, 4, 5].map((star) => (
           <motion.button key={star} onClick={() => handleTap(star)} className="p-1 focus:outline-none" whileTap={{ scale: 0.7 }}>
             <Star 
               size={32} 
-              className={`transition-all duration-300 ease-out ${star <= localValue ? 'fill-amber-400 text-amber-400 scale-110' : 'text-slate-300 fill-transparent scale-100'}`}
-              style={{ transitionDelay: star <= localValue ? `${star * 50}ms` : '0ms' }}
+              className={`transition-all duration-200 ease-out ${star <= localValue ? 'fill-amber-400 text-amber-400 scale-110' : 'text-slate-300 fill-transparent scale-100'}`}
+              style={{ transitionDelay: star <= localValue ? `${star * 30}ms` : '0ms' }}
             />
           </motion.button>
         ))}
@@ -1721,7 +1816,7 @@ function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
 interface AddBookSheetProps {
   isOpen: boolean;
   onClose: () => void;
-  onAdd: (book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>) => void;
+  onAdd: (book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) => void;
 }
 
 function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
@@ -1729,7 +1824,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [searchResults, setSearchResults] = useState<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>[]>([]);
+  const [searchResults, setSearchResults] = useState<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>[]>([]);
   const [searchSource, setSearchSource] = useState<'wikipedia' | 'apple_books'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('searchSource');
@@ -1756,7 +1851,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
     setError('');
     setSearchResults([]);
     
-    let searchPromise: Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>[]>;
+    let searchPromise: Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>[]>;
     
     if (searchSource === 'apple_books') {
       searchPromise = lookupBooksOnAppleBooks(titleToSearch);
@@ -1783,7 +1878,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
     }
   }
   
-  function handleSelectBook(book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>) {
+  function handleSelectBook(book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) {
     onAdd(book);
     setQuery('');
     setSuggestions([]);
@@ -1999,10 +2094,10 @@ export default function App() {
   const [scrollY, setScrollY] = useState(0);
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
   const [showBookshelf, setShowBookshelf] = useState(false);
-  const [bookshelfGrouping, setBookshelfGrouping] = useState<'rating' | 'author' | 'title'>(() => {
+  const [bookshelfGrouping, setBookshelfGrouping] = useState<'rating' | 'author' | 'title' | 'genre'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('bookshelfGrouping');
-      return (saved as 'rating' | 'author' | 'title') || 'rating';
+      return (saved as 'rating' | 'author' | 'title' | 'genre') || 'rating';
     }
     return 'rating';
   });
@@ -2154,7 +2249,7 @@ export default function App() {
       });
       
       return groups.filter(group => group.books.length > 0);
-    } else { // title
+    } else if (bookshelfGrouping === 'title') {
       const groups: { label: string; books: BookWithRatings[] }[] = [
         { label: 'A-D', books: [] },
         { label: 'E-H', books: [] },
@@ -2175,6 +2270,41 @@ export default function App() {
       // Sort each group by title
       groups.forEach(group => {
         group.books.sort((a, b) => {
+          const titleA = (a.title || '').toUpperCase();
+          const titleB = (b.title || '').toUpperCase();
+          return titleA.localeCompare(titleB);
+        });
+      });
+      
+      return groups.filter(group => group.books.length > 0);
+    } else { // genre
+      const groups: { label: string; books: BookWithRatings[] }[] = [
+        { label: 'A-D', books: [] },
+        { label: 'E-H', books: [] },
+        { label: 'I-M', books: [] },
+        { label: 'N-S', books: [] },
+        { label: 'T-Z', books: [] },
+      ];
+      
+      books.forEach(book => {
+        // Group by first letter of genre, or 'Z' if no genre
+        const genreFirstLetter = book.genre?.[0]?.toUpperCase() || 'Z';
+        const range = getAlphabeticalRange(genreFirstLetter);
+        const groupIndex = groups.findIndex(g => g.label === range);
+        if (groupIndex !== -1) {
+          groups[groupIndex].books.push(book);
+        }
+      });
+      
+      // Sort each group by genre, then by title
+      groups.forEach(group => {
+        group.books.sort((a, b) => {
+          const genreA = (a.genre || 'ZZZ').toUpperCase();
+          const genreB = (b.genre || 'ZZZ').toUpperCase();
+          if (genreA !== genreB) {
+            return genreA.localeCompare(genreB);
+          }
+          // If same genre, sort by title
           const titleA = (a.title || '').toUpperCase();
           const titleB = (b.title || '').toUpperCase();
           return titleA.localeCompare(titleB);
@@ -2493,12 +2623,13 @@ export default function App() {
     };
   }, [selectedIndex, books, analysisArticles]); // Depend on selectedIndex, books, and analysisArticles
 
-  async function handleAddBook(meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>) {
+  async function handleAddBook(meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) {
     if (!user) return;
 
     try {
       // Ensure all required fields are present and properly formatted
-      const bookData = {
+      // Build bookData without genre first, then conditionally add it if it exists
+      const bookData: any = {
         title: meta.title || '',
         author: meta.author || 'Unknown Author',
         publish_year: meta.publish_year ?? null,
@@ -2507,9 +2638,16 @@ export default function App() {
         google_books_url: meta.google_books_url ?? null,
         user_id: user.id,
         rating_writing: null,
-        rating_insight: null,
+        rating_insights: null,
         rating_flow: null,
+        rating_world: null,
+        rating_characters: null,
       };
+      
+      // Only include genre if it exists (column may not exist in database yet)
+      if (meta.genre) {
+        bookData.genre = meta.genre;
+      }
 
       console.log('Inserting book data:', JSON.stringify(bookData, null, 2));
 
@@ -2520,32 +2658,67 @@ export default function App() {
         .single();
 
       if (error) {
-        console.error('Supabase error:', error);
-        console.error('Error details:', {
+        console.error('[handleAddBook] Supabase error:', {
           message: error.message,
           code: error.code,
           details: error.details,
           hint: error.hint,
+          fullError: error
         });
-        console.error('Attempted to insert:', JSON.stringify({
-          ...meta,
-          user_id: user.id,
-          rating_writing: null,
-          rating_insight: null,
-          rating_flow: null,
-        }, null, 2));
-        console.error('Meta object:', meta);
-        console.error('Meta keys:', Object.keys(meta));
-        throw error;
+        
+        // Check if genre column doesn't exist
+        if (error.code === '42703' || (error.message && (error.message.includes('column') || error.message.includes('genre')))) {
+          console.warn('[handleAddBook] ⚠️ Genre column may not exist. Retrying without genre...');
+          // Retry without genre
+          const bookDataWithoutGenre = { ...bookData };
+          delete bookDataWithoutGenre.genre;
+          
+          const { data: retryData, error: retryError } = await supabase
+            .from('books')
+            .insert(bookDataWithoutGenre)
+            .select()
+            .single();
+            
+          if (retryError) {
+            console.error('[handleAddBook] Supabase error (retry):', {
+              message: retryError.message,
+              code: retryError.code,
+              details: retryError.details,
+              hint: retryError.hint,
+            });
+            const errorMessage = retryError?.message || retryError?.code || 'Unknown error';
+            alert(`Failed to add book: ${errorMessage}`);
+            return;
+          }
+          
+          // Success on retry - continue with retryData
+          const newBook = convertBookToApp(retryData);
+          setBooks(prev => [newBook, ...prev]);
+          setSelectedIndex(0);
+          setIsAdding(false);
+          // Automatically open rating overlay for new book
+          setTimeout(() => {
+            setIsEditing(true);
+            setEditingDimension(null); // Will default to first unrated dimension
+          }, 100);
+          return;
+        }
+        
+        // Show user-friendly error message for other errors
+        const errorMessage = error?.message || error?.code || 'Unknown error';
+        alert(`Failed to add book: ${errorMessage}`);
+        return;
       }
 
       const newBook = convertBookToApp(data);
-      const newBooks = [newBook, ...books];
-      setBooks(newBooks);
+      setBooks(prev => [newBook, ...prev]);
       setSelectedIndex(0);
+      setIsAdding(false);
       // Automatically open rating overlay for new book
-      setIsEditing(true);
-      setEditingDimension(null); // Will default to first unrated dimension
+      setTimeout(() => {
+        setIsEditing(true);
+        setEditingDimension(null); // Will default to first unrated dimension
+      }, 100);
 
       // Fetch author facts and podcast episodes asynchronously after book is added and save to DB
       if (meta.title && meta.author) {
@@ -2659,7 +2832,12 @@ export default function App() {
   }
 
   async function handleRate(id: string, dimension: string, value: number | null) {
-    const ratingField = `rating_${dimension}` as 'rating_writing' | 'rating_insight' | 'rating_flow';
+    const ratingField = `rating_${dimension}` as 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters';
+    
+    console.log(`[handleRate] Updating ${ratingField} to ${value} for book ${id}`);
+    
+    // Store original value for revert
+    const originalValue = activeBook?.ratings[dimension as keyof typeof activeBook.ratings] ?? null;
     
     // Optimistic update
     setBooks(prev => prev.map(book => 
@@ -2669,12 +2847,36 @@ export default function App() {
     ));
 
     try {
-      const { error } = await supabase
+      const updateData: Record<string, any> = {
+        [ratingField]: value,
+        updated_at: new Date().toISOString()
+      };
+      
+      const { error, data } = await supabase
         .from('books')
-        .update({ [ratingField]: value, updated_at: new Date().toISOString() })
-        .eq('id', id);
+        .update(updateData)
+        .eq('id', id)
+        .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('[handleRate] Supabase error:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          fullError: error
+        });
+        
+        // Check if column doesn't exist
+        if (error.code === '42703' || error.message?.includes('column') || error.message?.includes('does not exist')) {
+          console.error(`[handleRate] ⚠️ Column "${ratingField}" may not exist. Please run the migration in Supabase SQL Editor.`);
+          console.error(`[handleRate] Migration SQL: ALTER TABLE public.books ADD COLUMN IF NOT EXISTS ${ratingField} int CHECK (${ratingField} between 1 and 5);`);
+        }
+        
+        throw error;
+      }
+      
+      console.log(`[handleRate] ✅ Successfully updated ${ratingField} to ${value}`);
       
       // After rating, move to next dimension or close if all done
       if (value !== null && activeBook) {
@@ -2689,13 +2891,33 @@ export default function App() {
             setEditingDimension(null);
           }, 500);
         }
+      } else if (value === null) {
+        // If skipped, move to next dimension
+        const currentIndex = RATING_DIMENSIONS.indexOf(dimension as typeof RATING_DIMENSIONS[number]);
+        const nextIndex = currentIndex + 1;
+        if (nextIndex < RATING_DIMENSIONS.length) {
+          setEditingDimension(RATING_DIMENSIONS[nextIndex]);
+        } else {
+          // All dimensions processed, close after a brief moment
+          setTimeout(() => {
+            setIsEditing(false);
+            setEditingDimension(null);
+          }, 500);
+        }
       }
-    } catch (err) {
-      console.error('Error updating rating:', err);
+    } catch (err: any) {
+      console.error('[handleRate] ❌ Error updating rating:', {
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+        fullError: err
+      });
+      
       // Revert on error
       setBooks(prev => prev.map(book => 
         book.id === id 
-          ? { ...book, ratings: { ...book.ratings, [dimension]: null } }
+          ? { ...book, ratings: { ...book.ratings, [dimension]: originalValue } }
           : book
       ));
     }
@@ -2732,6 +2954,11 @@ export default function App() {
   }
 
   // Show login screen if not authenticated
+  // Show book loading animation during initial auth check
+  if (authLoading) {
+    return <BookLoading />;
+  }
+
   if (!user) {
     return <LoginScreen />;
   }
@@ -2922,6 +3149,16 @@ export default function App() {
                     }`}
                   >
                     Title
+                  </button>
+                  <button
+                    onClick={() => setBookshelfGrouping('genre')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                      bookshelfGrouping === 'genre'
+                        ? 'bg-opacity-20 text-slate-950'
+                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
+                    }`}
+                  >
+                    Genre
                   </button>
                 </div>
                 
@@ -3257,19 +3494,31 @@ export default function App() {
                         onRate={(dim, val) => handleRate(activeBook.id, dim, val)} 
                       />
                     </motion.div>
-                    {/* Navigation dots */}
-                    <div className="flex gap-1.5 mt-3">
-                      {RATING_DIMENSIONS.map((dim, idx) => (
-                        <button
-                          key={dim}
-                          onClick={() => setEditingDimension(dim)}
-                          className={`w-2 h-2 rounded-full transition-all ${
-                            dim === currentEditingDimension 
-                              ? 'bg-blue-600 w-6' 
-                              : 'bg-slate-400'
-                          }`}
-                        />
-                      ))}
+                    {/* Navigation dots and Skip button */}
+                    <div className="flex items-center justify-center gap-3 mt-3">
+                      <div className="flex gap-1.5">
+                        {RATING_DIMENSIONS.map((dim, idx) => (
+                          <button
+                            key={dim}
+                            onClick={() => setEditingDimension(dim)}
+                            className={`w-2 h-2 rounded-full transition-all ${
+                              dim === currentEditingDimension 
+                                ? 'bg-blue-600 w-6' 
+                                : 'bg-slate-400'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (activeBook && currentEditingDimension) {
+                            handleRate(activeBook.id, currentEditingDimension, null);
+                          }
+                        }}
+                        className="px-3 py-1 text-xs font-medium text-slate-600 hover:text-slate-800 active:scale-95 transition-all"
+                      >
+                        Skip
+                      </button>
                     </div>
                   </motion.div>
                 )}
@@ -3329,6 +3578,14 @@ export default function App() {
                         <span className="text-slate-300">•</span>
                         <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
                           {activeBook.publish_year}
+                        </span>
+                      </>
+                    )}
+                    {activeBook.genre && (
+                      <>
+                        <span className="text-slate-300">•</span>
+                        <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
+                          {activeBook.genre}
                         </span>
                       </>
                     )}

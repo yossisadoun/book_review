@@ -37,15 +37,16 @@ book_search:
 
 author_facts:
   prompt: |
-    You are a literary expert. Generate exactly 10 interesting, fun facts about the author "{author}" specifically in the context of their book "{bookTitle}".
+    You are a literary expert. Generate exactly 10 interesting, fun facts about the author "{author}" specifically in the context of their book "{bookTitle}" or about the book itself.
 
     Requirements:
-    - Return exactly 10 facts
+    - Return exactly 20 facts
     - Each fact should be concise (1-2 sentences max)
     - Focus on interesting, lesser-known details
     - Connect facts to the book when possible
     - Make facts engaging and fun
-    - Return ONLY valid JSON in this format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 10"] }
+    - add a url for the reference where you got the fact when relevant.
+    - Return ONLY valid JSON in this format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 20"] }
 
 podcast_episodes:
   prompt: |
@@ -66,6 +67,9 @@ podcast_episodes:
     10. Reading Glasses (https://podcasts.apple.com/us/podcast/reading-glasses/id1393888875)
     11. Literary Disco (https://podcasts.apple.com/us/podcast/literary-disco/id926207844)
     12. What Should I Read Next? (https://podcasts.apple.com/us/podcast/what-should-i-read-next/id695413960)
+    13. האחיות גרים - (https://podcasts.apple.com/us/podcast/%D7%94%D7%90%D7%97%D7%99%D7%95%D7%AA-%D7%92%D7%A8%D7%99%D7%9D/id1473785807)
+    14. Critics at Large - The New Yorker (https://podcasts.apple.com/us/podcast/critics-at-large-the-new-yorker/id1704902371)
+    
     
     After checking these prioritized podcasts, you may include episodes from other book review / book club type podcasts or deep interviews with the author about the book.
     Only include podcasts from Apple Podcasts.
