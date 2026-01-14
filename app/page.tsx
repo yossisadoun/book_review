@@ -552,7 +552,7 @@ async function getPodcastEpisodes(bookTitle: string, author: string, source: 'gr
 }
 
 // --- Apple Books API (iTunes Search) ---
-async function lookupBookOnAppleBooks(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null> {
+async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>[]> {
   try {
     // Use iTunes Search API to search for books (ebooks)
     const country = isHebrew(query) ? 'il' : 'us';
@@ -560,64 +560,75 @@ async function lookupBookOnAppleBooks(query: string): Promise<Omit<Book, 'id' | 
     const data = await fetchWithRetry(searchUrl);
     
     if (!data.results || data.results.length === 0) {
-      console.log(`[lookupBookOnAppleBooks] No results found for: "${query}"`);
-      return null;
+      console.log(`[lookupBooksOnAppleBooks] No results found for: "${query}"`);
+      return [];
     }
     
-    // Find the best match (prioritize exact title matches)
+    // Sort results: exact matches first, then close matches, then others
     const queryLower = query.toLowerCase();
-    let bestMatch = data.results.find((item: any) => 
-      item.trackName?.toLowerCase() === queryLower
-    );
+    const sortedResults = [...data.results].sort((a: any, b: any) => {
+      const aTitle = a.trackName?.toLowerCase() || '';
+      const bTitle = b.trackName?.toLowerCase() || '';
+      const aExact = aTitle === queryLower ? 3 : aTitle.includes(queryLower) || queryLower.includes(aTitle) ? 2 : 1;
+      const bExact = bTitle === queryLower ? 3 : bTitle.includes(queryLower) || queryLower.includes(bTitle) ? 2 : 1;
+      return bExact - aExact;
+    });
     
-    if (!bestMatch) {
-      // Look for close matches
-      bestMatch = data.results.find((item: any) => 
-        item.trackName?.toLowerCase().includes(queryLower) ||
-        queryLower.includes(item.trackName?.toLowerCase() || '')
-      );
-    }
+    // Take top 6 results
+    const topResults = sortedResults.slice(0, 6);
     
-    if (!bestMatch) bestMatch = data.results[0];
-    
-    const title = bestMatch.trackName || query;
-    const author = bestMatch.artistName || 'Unknown Author';
-    
-    // Extract publish year from releaseDate
-    let publishYear: number | undefined = undefined;
-    if (bestMatch.releaseDate) {
-      const yearMatch = bestMatch.releaseDate.match(/\d{4}/);
-      if (yearMatch) {
-        publishYear = parseInt(yearMatch[0]);
+    const books = topResults.map((item: any) => {
+      const title = item.trackName || query;
+      const author = item.artistName || 'Unknown Author';
+      
+      // Extract publish year from releaseDate
+      let publishYear: number | undefined = undefined;
+      if (item.releaseDate) {
+        const yearMatch = item.releaseDate.match(/\d{4}/);
+        if (yearMatch) {
+          publishYear = parseInt(yearMatch[0]);
+        }
       }
-    }
-    
-    // Get cover image - use artworkUrl100 (100x100) or artworkUrl512 (512x512) for better quality
-    // Replace size parameter to get larger image (600x600)
-    const coverUrl = bestMatch.artworkUrl100 
-      ? bestMatch.artworkUrl100.replace('100x100bb', '600x600bb')
-      : bestMatch.artworkUrl512 || null;
-    
-    // Get Apple Books URL - trackViewUrl points to the book in Apple Books
-    const appleBooksUrl = bestMatch.trackViewUrl || null;
+      
+      // Get cover image
+      const coverUrl = item.artworkUrl100 
+        ? item.artworkUrl100.replace('100x100bb', '600x600bb')
+        : item.artworkUrl512 || null;
+      
+      // Get Apple Books URL
+      const appleBooksUrl = item.trackViewUrl || null;
 
-    console.log(`[lookupBookOnAppleBooks] ✅ Found book: "${title}" by ${author}`);
+      return {
+        title: title,
+        author: author,
+        publish_year: publishYear,
+        cover_url: coverUrl,
+        wikipedia_url: null,
+        google_books_url: appleBooksUrl,
+      };
+    });
 
-    return {
-      title: title,
-      author: author,
-      publish_year: publishYear,
-      cover_url: coverUrl,
-      wikipedia_url: null, // Apple Books doesn't provide Wikipedia URL
-      google_books_url: appleBooksUrl, // Reusing this field for Apple Books URL
-    };
+    console.log(`[lookupBooksOnAppleBooks] ✅ Found ${books.length} books`);
+    return books;
   } catch (err) {
-    console.error('[lookupBookOnAppleBooks] ❌ Error searching Apple Books:', err);
-    return null;
+    console.error('[lookupBooksOnAppleBooks] ❌ Error searching Apple Books:', err);
+    return [];
   }
 }
 
+// Legacy function for backward compatibility
+async function lookupBookOnAppleBooks(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null> {
+  const books = await lookupBooksOnAppleBooks(query);
+  return books.length > 0 ? books[0] : null;
+}
+
 // --- Grok Book Search ---
+async function lookupBooksOnGrok(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>[]> {
+  // For now, Grok returns a single result, so we'll wrap it in an array
+  const result = await lookupBookOnGrok(query);
+  return result ? [result] : [];
+}
+
 async function lookupBookOnGrok(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null> {
   if (!grokApiKey) {
     console.warn('[lookupBookOnGrok] API key is missing!');
@@ -752,6 +763,40 @@ async function getAuthorAndYearFromWikidata(qid: string, lang = 'en'): Promise<{
     if (labels.length > 0) author = labels.join(", ");
   }
   return { author, publishYear };
+}
+
+async function lookupBooksOnWikipedia(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>[]> {
+  const lang = isHebrew(query) ? 'he' : 'en';
+  const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=6`;
+  const searchData = await fetchWithRetry(searchUrl);
+  const results = searchData.query?.search || [];
+  
+  if (results.length === 0) {
+    return [];
+  }
+  
+  // Process top 6 results
+  const books = await Promise.all(
+    results.slice(0, 6).map(async (result: any) => {
+      const pageTitle = result.title;
+      const summaryUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle.replace(/ /g, '_'))}`;
+      const summaryData = await fetchWithRetry(summaryUrl);
+      
+      const qid = await getWikidataItemForTitle(pageTitle, lang);
+      const { author, publishYear } = qid ? await getAuthorAndYearFromWikidata(qid, lang) : { author: summaryData.extract?.split('(')[0]?.trim() || 'Unknown Author', publishYear: undefined };
+      
+      return {
+        title: summaryData.title || pageTitle,
+        author: author,
+        publish_year: publishYear,
+        cover_url: summaryData.thumbnail?.source?.replace('http://', 'https://') || null,
+        wikipedia_url: summaryData.content_urls?.desktop?.page || null,
+        google_books_url: null,
+      };
+    })
+  );
+  
+  return books;
 }
 
 async function lookupBookOnWikipedia(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null> {
@@ -1202,6 +1247,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [searchResults, setSearchResults] = useState<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>[]>([]);
   const [searchSource, setSearchSource] = useState<'wikipedia' | 'apple_books' | 'grok'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('searchSource');
@@ -1226,38 +1272,43 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
     if (!titleToSearch.trim()) return;
     setLoading(true);
     setError('');
+    setSearchResults([]);
     
-    let searchPromise: Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null>;
+    let searchPromise: Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>[]>;
     
     if (searchSource === 'grok') {
-      searchPromise = lookupBookOnGrok(titleToSearch);
+      searchPromise = lookupBooksOnGrok(titleToSearch);
     } else if (searchSource === 'apple_books') {
-      searchPromise = lookupBookOnAppleBooks(titleToSearch);
+      searchPromise = lookupBooksOnAppleBooks(titleToSearch);
     } else {
-      searchPromise = lookupBookOnWikipedia(titleToSearch);
+      searchPromise = lookupBooksOnWikipedia(titleToSearch);
     }
     
     const aiPromise = getAISuggestions(titleToSearch);
 
     try {
-      const [meta, aiSuggestions] = await Promise.all([searchPromise, aiPromise]);
+      const [results, aiSuggestions] = await Promise.all([searchPromise, aiPromise]);
       
       setSuggestions(aiSuggestions);
+      setSearchResults(results);
 
-      if (meta) {
-        onAdd(meta);
-        setQuery('');
-        setSuggestions([]);
-        onClose();
-      } else {
+      if (results.length === 0) {
         const sourceName = searchSource === 'grok' ? 'Grok' : searchSource === 'apple_books' ? 'Apple Books' : 'Wikipedia';
-        setError(`Couldn't find an exact match on ${sourceName}.`);
+        setError(`No results found on ${sourceName}.`);
       }
     } catch (err) {
       setError("Search failed. Please try a different title.");
     } finally {
       setLoading(false);
     }
+  }
+  
+  function handleSelectBook(book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>) {
+    onAdd(book);
+    setQuery('');
+    setSuggestions([]);
+    setSearchResults([]);
+    onClose();
   }
 
   function handleSuggestionClick(s: string) {
@@ -1370,9 +1421,60 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
               </div>
             )}
 
-            {/* Suggestions */}
+            {/* Search Results */}
             <AnimatePresence>
-              {suggestions.length > 0 && (
+              {searchResults.length > 0 && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="space-y-2 max-h-[400px] overflow-y-auto"
+                >
+                  <div className="text-xs font-medium text-slate-500 mb-2">
+                    Select a book to add:
+                  </div>
+                  {searchResults.map((book, i) => (
+                    <motion.button
+                      key={i}
+                      type="button"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      onClick={() => handleSelectBook(book)}
+                      className="w-full flex items-center gap-3 p-3 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition-all text-left"
+                    >
+                      {book.cover_url ? (
+                        <img 
+                          src={book.cover_url} 
+                          alt={book.title}
+                          className="w-12 h-16 object-cover rounded flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="w-12 h-16 bg-slate-200 rounded flex-shrink-0 flex items-center justify-center">
+                          <BookOpen size={20} className="text-slate-400" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-bold text-slate-900 truncate">{book.title}</h3>
+                        <p className="text-xs text-slate-600 truncate">{book.author}</p>
+                        {book.publish_year && (
+                          <p className="text-[10px] text-slate-500 mt-0.5">{book.publish_year}</p>
+                        )}
+                      </div>
+                      {i === 0 && (
+                        <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                          Top
+                        </span>
+                      )}
+                    </motion.button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Suggestions - only show if no search results */}
+            <AnimatePresence>
+              {suggestions.length > 0 && searchResults.length === 0 && (
                 <motion.div 
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -2134,56 +2236,42 @@ export default function App() {
               )}
             </div>
             
-            {/* Info button - moved to its own box below cover and above facts */}
+            {/* Info box - always open, below cover and above facts */}
             {!showRatingOverlay && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="w-full mt-4"
+                className="w-full mt-2"
               >
-                <motion.div
-                  style={{
-                    width: isMetaExpanded ? 'auto' : '44px',
-                    height: isMetaExpanded ? 'auto' : '44px',
-                    padding: isMetaExpanded ? '12px' : '0px',
-                    borderRadius: '22px'
-                  }}
-                  onClick={() => setIsMetaExpanded(!isMetaExpanded)}
-                  className="bg-white/95 backdrop-blur-md shadow-lg border border-slate-200 cursor-pointer flex items-center justify-center overflow-hidden mx-auto"
-                >
-                  <AnimatePresence mode="wait">
-                    {isMetaExpanded ? (
-                      <motion.div key="expanded" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full">
-                        <h2 className="text-sm font-black text-slate-900 leading-tight line-clamp-2 mb-1">{activeBook.title}</h2>
-                        <div className="flex flex-col gap-1">
-                          <p className="text-[10px] font-bold text-slate-600 truncate">{activeBook.author}</p>
-                          <div className="flex items-center gap-2">
-                            {activeBook.publish_year && (
-                              <span className="bg-slate-200/80 px-1.5 py-0.5 rounded text-[8px] uppercase font-bold tracking-wider text-slate-700">
-                                {activeBook.publish_year}
-                              </span>
-                            )}
-                            {(activeBook.wikipedia_url || activeBook.google_books_url) && (
-                              <a 
-                                href={activeBook.google_books_url || activeBook.wikipedia_url || '#'} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                onClick={(e) => e.stopPropagation()} 
-                                className="text-[8px] text-blue-600 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline"
-                              >
-                                Source <ExternalLink size={8} />
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      </motion.div>
-                    ) : (
-                      <motion.div key="minimized" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                        <Info size={20} className="text-slate-800" />
-                      </motion.div>
+                <div className="bg-white/95 backdrop-blur-md shadow-lg border border-slate-200 rounded-2xl px-4 py-3 mx-auto">
+                  {/* Line 1: Title */}
+                  <h2 className="text-sm font-black text-slate-900 leading-tight line-clamp-2 mb-2">{activeBook.title}</h2>
+                  {/* Line 2: Author, Year, Source */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-xs font-bold text-slate-600">{activeBook.author}</p>
+                    {activeBook.publish_year && (
+                      <>
+                        <span className="text-slate-300">•</span>
+                        <span className="bg-slate-200/80 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-700">
+                          {activeBook.publish_year}
+                        </span>
+                      </>
                     )}
-                  </AnimatePresence>
-                </motion.div>
+                    {(activeBook.wikipedia_url || activeBook.google_books_url) && (
+                      <>
+                        <span className="text-slate-300">•</span>
+                        <a 
+                          href={activeBook.google_books_url || activeBook.wikipedia_url || '#'} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="text-[10px] text-blue-600 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline"
+                        >
+                          Source <ExternalLink size={10} />
+                        </a>
+                      </>
+                    )}
+                  </div>
+                </div>
               </motion.div>
             )}
             
