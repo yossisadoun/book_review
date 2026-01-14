@@ -2463,7 +2463,7 @@ export default function App() {
             <div 
               className="w-full flex flex-col items-center px-4"
             >
-              <div className="w-full max-w-[1600px] flex flex-col gap-8 py-8">
+              <div className="w-full max-w-[1600px] flex flex-col gap-6 py-8">
                 {/* Grouping Selector */}
                 <div className="flex items-center justify-center gap-2 px-4 mb-4">
                   <button
@@ -2499,7 +2499,14 @@ export default function App() {
                 </div>
                 
                 {groupedBooksForBookshelf.map((group, groupIdx) => (
-                  <div key={group.label} className="flex flex-col gap-4">
+                  <div 
+                    key={group.label} 
+                    className="flex flex-col gap-4 rounded-2xl overflow-hidden"
+                    style={{
+                      background: 'linear-gradient(to bottom, #FEFEFE, #F0F0F0)',
+                      padding: '2rem 0',
+                    }}
+                  >
                     {/* Shelf Label */}
                     <h2 className="text-xl font-bold text-slate-950 px-[10vw]">{group.label}</h2>
                     
@@ -2605,7 +2612,7 @@ export default function App() {
                       return (
                         <motion.div
                           key={book.id}
-                          initial={{ opacity: 0, y: -200 }}
+                          initial={{ opacity: 0, y: 200 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ 
                             delay: (groupIdx * 0.1) + (idx * 0.05), 
@@ -2711,6 +2718,16 @@ export default function App() {
                                 )}
                               </div>
                             </div>
+                            
+                            {/* Bottom Shadow */}
+                            <div
+                              className="absolute bottom-0 left-0 right-0 h-6 pointer-events-none z-0"
+                              style={{
+                                background: 'linear-gradient(to bottom, rgba(0, 0, 0, 0.15), transparent)',
+                                filter: 'blur(10px)',
+                                transform: 'translateY(50%)',
+                              }}
+                            />
                           </div>
                         </motion.div>
                       );
