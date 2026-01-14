@@ -551,66 +551,167 @@ async function getPodcastEpisodes(bookTitle: string, author: string, source: 'gr
   return getGrokPodcastEpisodes(bookTitle, author);
 }
 
-// --- Google Books API ---
-
-async function lookupBookOnGoogleBooks(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null> {
+// --- Apple Books API (iTunes Search) ---
+async function lookupBookOnAppleBooks(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null> {
   try {
-    const searchUrl = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5&langRestrict=${isHebrew(query) ? 'he' : 'en'}`;
+    // Use iTunes Search API to search for books (ebooks)
+    const country = isHebrew(query) ? 'il' : 'us';
+    const searchUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&country=${country}&media=ebook&limit=10`;
     const data = await fetchWithRetry(searchUrl);
     
-    if (!data.items || data.items.length === 0) return null;
+    if (!data.results || data.results.length === 0) {
+      console.log(`[lookupBookOnAppleBooks] No results found for: "${query}"`);
+      return null;
+    }
     
     // Find the best match (prioritize exact title matches)
     const queryLower = query.toLowerCase();
-    let bestMatch = data.items.find((item: any) => 
-      item.volumeInfo.title?.toLowerCase() === queryLower
+    let bestMatch = data.results.find((item: any) => 
+      item.trackName?.toLowerCase() === queryLower
     );
     
     if (!bestMatch) {
       // Look for close matches
-      bestMatch = data.items.find((item: any) => 
-        item.volumeInfo.title?.toLowerCase().includes(queryLower) ||
-        queryLower.includes(item.volumeInfo.title?.toLowerCase() || '')
+      bestMatch = data.results.find((item: any) => 
+        item.trackName?.toLowerCase().includes(queryLower) ||
+        queryLower.includes(item.trackName?.toLowerCase() || '')
       );
     }
     
-    if (!bestMatch) bestMatch = data.items[0];
+    if (!bestMatch) bestMatch = data.results[0];
     
-    const volumeInfo = bestMatch.volumeInfo;
-    const authors = volumeInfo.authors || [];
-    const author = authors.length > 0 ? authors.join(', ') : 'Unknown Author';
+    const title = bestMatch.trackName || query;
+    const author = bestMatch.artistName || 'Unknown Author';
     
-    // Extract publish year
+    // Extract publish year from releaseDate
     let publishYear: number | undefined = undefined;
-    if (volumeInfo.publishedDate) {
-      const yearMatch = volumeInfo.publishedDate.match(/\d{4}/);
+    if (bestMatch.releaseDate) {
+      const yearMatch = bestMatch.releaseDate.match(/\d{4}/);
       if (yearMatch) {
         publishYear = parseInt(yearMatch[0]);
       }
     }
     
-    // Get cover image (prefer thumbnail, fallback to smallThumbnail)
-    const coverUrl = volumeInfo.imageLinks?.thumbnail?.replace('http://', 'https://') || 
-                     volumeInfo.imageLinks?.smallThumbnail?.replace('http://', 'https://') || 
-                     null;
+    // Get cover image - use artworkUrl100 (100x100) or artworkUrl512 (512x512) for better quality
+    // Replace size parameter to get larger image (600x600)
+    const coverUrl = bestMatch.artworkUrl100 
+      ? bestMatch.artworkUrl100.replace('100x100bb', '600x600bb')
+      : bestMatch.artworkUrl512 || null;
     
-    // Get Google Books URL - canonicalVolumeLink is on the item, not volumeInfo
-    const googleBooksUrl = bestMatch.volumeInfo?.canonicalVolumeLink || 
-                          bestMatch.volumeInfo?.infoLink || 
-                          bestMatch.selfLink || 
-                          `https://books.google.com/books?id=${bestMatch.id}` ||
-                          null;
+    // Get Apple Books URL - trackViewUrl points to the book in Apple Books
+    const appleBooksUrl = bestMatch.trackViewUrl || null;
+
+    console.log(`[lookupBookOnAppleBooks] ✅ Found book: "${title}" by ${author}`);
 
     return {
-      title: volumeInfo.title || query,
+      title: title,
       author: author,
       publish_year: publishYear,
       cover_url: coverUrl,
-      wikipedia_url: null, // Google Books doesn't provide Wikipedia URL
-      google_books_url: googleBooksUrl,
+      wikipedia_url: null, // Apple Books doesn't provide Wikipedia URL
+      google_books_url: appleBooksUrl, // Reusing this field for Apple Books URL
     };
   } catch (err) {
-    console.error('Error searching Google Books:', err);
+    console.error('[lookupBookOnAppleBooks] ❌ Error searching Apple Books:', err);
+    return null;
+  }
+}
+
+// --- Grok Book Search ---
+async function lookupBookOnGrok(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null> {
+  if (!grokApiKey) {
+    console.warn('[lookupBookOnGrok] API key is missing!');
+    return null;
+  }
+
+  try {
+    console.log(`[lookupBookOnGrok] 🔄 Searching for book: "${query}"`);
+    
+    const url = 'https://api.x.ai/v1/chat/completions';
+    
+    const prompts = await loadPrompts();
+    if (!prompts.book_search || !prompts.book_search.prompt) {
+      console.error('[lookupBookOnGrok] ❌ book_search prompt not found in prompts.yaml');
+      return null;
+    }
+    const prompt = formatPrompt(prompts.book_search.prompt, { query });
+
+    const payload = {
+      messages: [
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      model: "grok-4-1-fast-non-reasoning",
+      stream: false,
+      temperature: 0.7
+    };
+
+    console.log('[lookupBookOnGrok] 🔵 RAW GROK REQUEST URL:', url);
+    console.log('[lookupBookOnGrok] 🔵 RAW GROK REQUEST PAYLOAD:', JSON.stringify(payload, null, 2));
+    console.log('[lookupBookOnGrok] 🔵 FORMATTED PROMPT:', prompt);
+
+    const response = await fetchWithRetry(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${grokApiKey}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+    console.log('[lookupBookOnGrok] 🔵 RAW GROK RESPONSE:', JSON.stringify(data, null, 2));
+
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      console.warn('[lookupBookOnGrok] ⚠️ No content in response');
+      return null;
+    }
+
+    // Parse JSON from response (may be wrapped in markdown code blocks)
+    let result;
+    try {
+      // Try to extract JSON from markdown code blocks
+      const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/) || content.match(/(\{[\s\S]*\})/);
+      if (jsonMatch) {
+        result = JSON.parse(jsonMatch[1]);
+      } else {
+        result = JSON.parse(content);
+      }
+    } catch (parseErr) {
+      console.error('[lookupBookOnGrok] ❌ Failed to parse JSON:', parseErr);
+      console.error('[lookupBookOnGrok] Raw content:', content);
+      return null;
+    }
+
+    console.log('[lookupBookOnGrok] 🔵 PARSED JSON:', result);
+
+    // Check if result is null (book not found)
+    if (result === null || !result.title) {
+      console.log(`[lookupBookOnGrok] ⚠️ Book not found for query: "${query}"`);
+      return null;
+    }
+
+    // Validate and return the book data
+    const bookData = {
+      title: result.title || query,
+      author: result.author || 'Unknown Author',
+      publish_year: result.publish_year || undefined,
+      cover_url: result.cover_url || null,
+      wikipedia_url: result.wikipedia_url || null,
+      google_books_url: result.google_books_url || null,
+    };
+
+    console.log(`[lookupBookOnGrok] ✅ Found book: "${bookData.title}" by ${bookData.author}`);
+    return bookData;
+  } catch (err: any) {
+    console.error('[lookupBookOnGrok] ❌ Error:', err);
+    console.error('[lookupBookOnGrok] Error details:', err.message, err.stack);
+    if (err.message?.includes('403')) {
+      console.error('Grok API returned 403 - check your API key permissions');
+    }
     return null;
   }
 }
@@ -1101,9 +1202,15 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [searchSource, setSearchSource] = useState<'wikipedia' | 'google_books'>(() => {
+  const [searchSource, setSearchSource] = useState<'wikipedia' | 'apple_books' | 'grok'>(() => {
     if (typeof window !== 'undefined') {
-      return (localStorage.getItem('searchSource') as 'wikipedia' | 'google_books') || 'wikipedia';
+      const saved = localStorage.getItem('searchSource');
+      // Migrate old 'google_books' to 'apple_books'
+      if (saved === 'google_books') {
+        localStorage.setItem('searchSource', 'apple_books');
+        return 'apple_books';
+      }
+      return (saved as 'wikipedia' | 'apple_books' | 'grok') || 'wikipedia';
     }
     return 'wikipedia';
   });
@@ -1120,9 +1227,16 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
     setLoading(true);
     setError('');
     
-    const searchPromise = searchSource === 'google_books' 
-      ? lookupBookOnGoogleBooks(titleToSearch)
-      : lookupBookOnWikipedia(titleToSearch);
+    let searchPromise: Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'> | null>;
+    
+    if (searchSource === 'grok') {
+      searchPromise = lookupBookOnGrok(titleToSearch);
+    } else if (searchSource === 'apple_books') {
+      searchPromise = lookupBookOnAppleBooks(titleToSearch);
+    } else {
+      searchPromise = lookupBookOnWikipedia(titleToSearch);
+    }
+    
     const aiPromise = getAISuggestions(titleToSearch);
 
     try {
@@ -1136,7 +1250,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
         setSuggestions([]);
         onClose();
       } else {
-        const sourceName = searchSource === 'google_books' ? 'Google Books' : 'Wikipedia';
+        const sourceName = searchSource === 'grok' ? 'Grok' : searchSource === 'apple_books' ? 'Apple Books' : 'Wikipedia';
         setError(`Couldn't find an exact match on ${sourceName}.`);
       }
     } catch (err) {
@@ -1194,76 +1308,101 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
       <motion.div 
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="w-full max-w-md bg-white rounded-t-3xl p-3 shadow-2xl pb-5"
+        className="w-full max-w-md bg-white rounded-t-3xl shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
-        {/* Search Source Toggle */}
-        <div className="mb-3 flex items-center justify-center gap-2">
-          <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Source:</span>
-          <button
-            type="button"
-            onClick={() => setSearchSource(prev => prev === 'wikipedia' ? 'google_books' : 'wikipedia')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 active:scale-95 transition-all"
-          >
-            <span className={`text-[10px] font-bold transition-colors ${searchSource === 'wikipedia' ? 'text-blue-600' : 'text-slate-400'}`}>
-              Wikipedia
-            </span>
-            <span className="text-[10px] font-bold text-slate-300">/</span>
-            <span className={`text-[10px] font-bold transition-colors ${searchSource === 'google_books' ? 'text-blue-600' : 'text-slate-400'}`}>
-              Google Books
-            </span>
-          </button>
+        {/* Handle bar */}
+        <div className="w-full flex justify-center pt-3 pb-2">
+          <div className="w-12 h-1 bg-slate-300 rounded-full" />
         </div>
 
-        <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }} className="space-y-4">
-          <div className="relative">
-            <input 
-              ref={inputRef}
-              type="text" 
-              inputMode="search"
-              placeholder={isQueryHebrew ? "חפש ספר..." : "Search for a book..."}
-              value={query} 
-              onChange={e => setQuery(e.target.value)}
-              className={`w-full py-4 bg-slate-100 rounded-2xl border-none focus:ring-2 focus:ring-blue-500 text-lg outline-none ${isQueryHebrew ? 'text-right pr-4 pl-12' : 'pl-4 pr-12'}`}
-              dir={isQueryHebrew ? "rtl" : "ltr"}
-            />
-            <button 
-              type="submit" 
-              disabled={loading} 
-              className={`absolute top-2 bottom-2 aspect-square bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-xl flex items-center justify-center disabled:opacity-50 ${isQueryHebrew ? 'left-2' : 'right-2'}`}
-            >
-              {loading ? <Loader2 className="animate-spin" size={20} /> : <Search size={20} />}
-            </button>
-          </div>
-          
-          <AnimatePresence>
-            {suggestions.length > 0 && (
-              <motion.div 
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex flex-wrap gap-2 pt-2"
-              >
-                <div className="w-full text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                  <Sparkles size={12} className="text-amber-400" /> Did you mean?
-                </div>
-                {suggestions.map((s, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleSuggestionClick(s)}
-                    className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-full text-xs font-bold hover:bg-blue-100 transition-colors border border-blue-100"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
+        <div className="px-4 pb-6">
+          <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }} className="space-y-4">
+            {/* Search input - matching the bottom search box style */}
+            <div className="relative">
+              <input 
+                ref={inputRef}
+                type="text" 
+                inputMode="search"
+                placeholder={isQueryHebrew ? "חפש ספר..." : "Search for a book..."}
+                value={query} 
+                onChange={e => setQuery(e.target.value)}
+                className={`w-full h-12 bg-white border border-slate-300 rounded-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm outline-none transition-all ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
+                dir={isQueryHebrew ? "rtl" : "ltr"}
+              />
+              <Search 
+                size={16} 
+                className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isQueryHebrew ? 'left-4' : 'right-4'}`}
+              />
+            </div>
 
-          {error && <p className="text-red-500 text-sm px-2 font-medium">{error}</p>}
-        </form>
-        <p className="mt-4 text-center text-xs text-slate-400 font-medium flex items-center justify-center gap-1.5 uppercase tracking-wider">
-          <Library size={12} /> Powered by {searchSource === 'google_books' ? 'Google Books' : 'Wikipedia'} & AI
-        </p>
+            {/* Search Source Toggle - simplified */}
+            <div className="flex items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  // Cycle through: wikipedia -> apple_books -> grok -> wikipedia
+                  const sources: ('wikipedia' | 'apple_books' | 'grok')[] = ['wikipedia', 'apple_books', 'grok'];
+                  const currentIndex = sources.indexOf(searchSource);
+                  const nextIndex = (currentIndex + 1) % sources.length;
+                  setSearchSource(sources[nextIndex]);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 active:scale-95 transition-all text-xs"
+              >
+                <span className={`font-medium transition-colors ${searchSource === 'wikipedia' ? 'text-blue-600' : 'text-slate-500'}`}>
+                  Wikipedia
+                </span>
+                <span className="text-slate-300">/</span>
+                <span className={`font-medium transition-colors ${searchSource === 'apple_books' ? 'text-blue-600' : 'text-slate-500'}`}>
+                  Apple Books
+                </span>
+                <span className="text-slate-300">/</span>
+                <span className={`font-medium transition-colors ${searchSource === 'grok' ? 'text-blue-600' : 'text-slate-500'}`}>
+                  Grok
+                </span>
+              </button>
+            </div>
+            
+            {/* Loading state */}
+            {loading && (
+              <div className="flex items-center justify-center py-2">
+                <Loader2 className="animate-spin text-blue-500" size={20} />
+              </div>
+            )}
+
+            {/* Suggestions */}
+            <AnimatePresence>
+              {suggestions.length > 0 && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-wrap gap-2"
+                >
+                  <div className="w-full text-xs font-medium text-slate-500 mb-1 flex items-center gap-1.5">
+                    <Sparkles size={12} className="text-amber-400" /> 
+                    <span>Did you mean?</span>
+                  </div>
+                  {suggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => handleSuggestionClick(s)}
+                      className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-full text-xs font-medium hover:bg-blue-100 transition-colors border border-blue-100"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Error message */}
+            {error && (
+              <p className="text-red-500 text-sm text-center font-medium">{error}</p>
+            )}
+          </form>
+        </div>
       </motion.div>
     </motion.div>
   );
@@ -1638,6 +1777,9 @@ export default function App() {
       const newBooks = [newBook, ...books];
       setBooks(newBooks);
       setSelectedIndex(0);
+      // Automatically open rating overlay for new book
+      setIsEditing(true);
+      setEditingDimension(null); // Will default to first unrated dimension
 
       // Fetch author facts and podcast episodes asynchronously after book is added and save to DB
       if (meta.title && meta.author) {
@@ -1843,40 +1985,43 @@ export default function App() {
 
   const userEmail = user?.email || user?.user_metadata?.email || 'User';
   const userName = user?.user_metadata?.full_name || userEmail.split('@')[0];
+  // Get user avatar from Google account
+  const userAvatar = user?.user_metadata?.avatar_url || user?.user_metadata?.picture || null;
 
   return (
     <div className="fixed inset-0 bg-slate-50 text-slate-900 font-sans select-none overflow-hidden flex flex-col">
-      {/* Persistent menu bar - hides on scroll */}
+      {/* Simple header - fades on scroll */}
       <motion.div 
-        className="w-full z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/50 shadow-sm"
+        className="w-full z-40 fixed top-[50px] left-0 right-0 px-4 py-3 flex items-center justify-between"
         animate={{ 
           opacity: scrollY > 50 ? 0 : 1,
-          y: scrollY > 50 ? -100 : 0,
           pointerEvents: scrollY > 50 ? 'none' : 'auto'
         }}
         transition={{ duration: 0.2, ease: "easeOut" }}
       >
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col">
-              <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Signed in as</span>
-              <span className="text-sm font-semibold text-slate-900 truncate max-w-[200px] sm:max-w-none">
-                {userEmail}
-              </span>
-            </div>
+        {/* BOOKS text on left */}
+        <h1 className="text-2xl font-bold text-slate-900">BOOKS</h1>
+        
+        {/* User avatar on right */}
+        {userAvatar ? (
+          <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-slate-200">
+            <img 
+              src={userAvatar} 
+              alt={userName}
+              className="w-full h-full object-cover"
+            />
           </div>
-          <button
-            onClick={signOut}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 rounded-lg font-medium text-sm active:scale-95 transition-all"
-          >
-            <LogOut size={16} />
-            <span>Sign Out</span>
-          </button>
-        </div>
+        ) : (
+          <div className="w-12 h-12 rounded-full bg-slate-300 flex items-center justify-center border-2 border-slate-200">
+            <span className="text-sm font-bold text-slate-600">
+              {userName.charAt(0).toUpperCase()}
+            </span>
+          </div>
+        )}
       </motion.div>
 
       <main 
-        className="flex-1 flex flex-col items-center justify-start p-4 relative pt-4 overflow-y-auto pb-20"
+        className="flex-1 flex flex-col items-center justify-start p-4 relative pt-28 overflow-y-auto pb-20"
         onScroll={(e) => {
           const target = e.currentTarget;
           setScrollY(target.scrollTop);
@@ -1900,54 +2045,6 @@ export default function App() {
                   )}
                 </motion.div>
               </AnimatePresence>
-
-
-              <div className="absolute top-4 left-4 z-30 max-w-[80%]">
-                <motion.div 
-                  initial={false}
-                  animate={{ 
-                    width: isMetaExpanded ? 'auto' : '44px',
-                    height: isMetaExpanded ? 'auto' : '44px',
-                    padding: isMetaExpanded ? '12px' : '0px',
-                    borderRadius: '22px'
-                  }}
-                  onClick={() => setIsMetaExpanded(!isMetaExpanded)}
-                  className="bg-white/90 backdrop-blur-md shadow-xl border border-white/20 cursor-pointer flex items-center justify-center overflow-hidden"
-                >
-                  <AnimatePresence mode="wait">
-                    {isMetaExpanded ? (
-                      <motion.div key="expanded" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full">
-                        <h2 className="text-sm font-black text-slate-900 leading-tight line-clamp-2 mb-1">{activeBook.title}</h2>
-                        <div className="flex flex-col gap-1">
-                          <p className="text-[10px] font-bold text-slate-600 truncate">{activeBook.author}</p>
-                          <div className="flex items-center gap-2">
-                            {activeBook.publish_year && (
-                              <span className="bg-slate-200/80 px-1.5 py-0.5 rounded text-[8px] uppercase font-bold tracking-wider text-slate-700">
-                                {activeBook.publish_year}
-                              </span>
-                            )}
-                            {(activeBook.wikipedia_url || activeBook.google_books_url) && (
-                              <a 
-                                href={activeBook.google_books_url || activeBook.wikipedia_url || '#'} 
-                                target="_blank" 
-                                rel="noopener noreferrer" 
-                                onClick={(e) => e.stopPropagation()} 
-                                className="text-[8px] text-blue-600 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline"
-                              >
-                                Source <ExternalLink size={8} />
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      </motion.div>
-                    ) : (
-                      <motion.div key="minimized" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                        <Info size={20} className="text-slate-800" />
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
-              </div>
 
               <AnimatePresence>
                 {isConfirmingDelete && (
@@ -2036,6 +2133,59 @@ export default function App() {
                 </>
               )}
             </div>
+            
+            {/* Info button - moved to its own box below cover and above facts */}
+            {!showRatingOverlay && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="w-full mt-4"
+              >
+                <motion.div
+                  style={{
+                    width: isMetaExpanded ? 'auto' : '44px',
+                    height: isMetaExpanded ? 'auto' : '44px',
+                    padding: isMetaExpanded ? '12px' : '0px',
+                    borderRadius: '22px'
+                  }}
+                  onClick={() => setIsMetaExpanded(!isMetaExpanded)}
+                  className="bg-white/95 backdrop-blur-md shadow-lg border border-slate-200 cursor-pointer flex items-center justify-center overflow-hidden mx-auto"
+                >
+                  <AnimatePresence mode="wait">
+                    {isMetaExpanded ? (
+                      <motion.div key="expanded" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full">
+                        <h2 className="text-sm font-black text-slate-900 leading-tight line-clamp-2 mb-1">{activeBook.title}</h2>
+                        <div className="flex flex-col gap-1">
+                          <p className="text-[10px] font-bold text-slate-600 truncate">{activeBook.author}</p>
+                          <div className="flex items-center gap-2">
+                            {activeBook.publish_year && (
+                              <span className="bg-slate-200/80 px-1.5 py-0.5 rounded text-[8px] uppercase font-bold tracking-wider text-slate-700">
+                                {activeBook.publish_year}
+                              </span>
+                            )}
+                            {(activeBook.wikipedia_url || activeBook.google_books_url) && (
+                              <a 
+                                href={activeBook.google_books_url || activeBook.wikipedia_url || '#'} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                onClick={(e) => e.stopPropagation()} 
+                                className="text-[8px] text-blue-600 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline"
+                              >
+                                Source <ExternalLink size={8} />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </motion.div>
+                    ) : (
+                      <motion.div key="minimized" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                        <Info size={20} className="text-slate-800" />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              </motion.div>
+            )}
             
             {/* Author Facts Tooltips - Show below cover with spacing */}
             {!showRatingOverlay && (
@@ -2141,20 +2291,15 @@ export default function App() {
         )}
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 z-[50] flex justify-center px-4 pb-0 pointer-events-none">
-        <motion.div 
-          initial={{ y: 45 }}
-          animate={{ y: 40 }}
-          whileHover={{ y: 35 }}
-          className="w-full max-w-[380px] bg-white border border-slate-200 border-b-0 rounded-t-[32px] shadow-[0_-20px_50px_-10px_rgba(0,0,0,0.2)] p-5 flex flex-col items-center gap-2 cursor-pointer pointer-events-auto transition-all hover:bg-slate-50"
+      {/* Simple always-present search box */}
+      <div className="fixed bottom-4 left-0 right-0 z-[50] flex justify-center px-4 pointer-events-none">
+        <div 
+          className="w-full max-w-[280px] h-10 bg-white border border-slate-300 rounded-full shadow-lg flex items-center px-4 cursor-pointer pointer-events-auto transition-all hover:shadow-xl hover:border-slate-400"
           onClick={() => setIsAdding(true)}
         >
-          <div className="w-14 h-1.5 bg-slate-200 rounded-full mb-1" />
-          <div className="flex items-center gap-3 text-slate-300 font-extrabold uppercase tracking-[0.2em] text-[10px] pb-4">
-            <Search size={16} className="text-blue-500 opacity-50" />
-            Add Book
-          </div>
-        </motion.div>
+          <Search size={16} className="text-slate-400 mr-2 flex-shrink-0" />
+          <span className="text-sm text-slate-500 flex-1">Search for a book...</span>
+        </div>
       </div>
 
       <AnimatePresence>

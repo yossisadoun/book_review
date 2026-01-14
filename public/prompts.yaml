@@ -8,6 +8,33 @@ book_suggestions:
     If the input is Hebrew, suggest Hebrew titles.
     Return ONLY valid JSON in this format: { "suggestions": ["Title 1/Author 1", "Title 2/Author 2", "Title 3/Author 3"] }
 
+book_search:
+  prompt: |
+    You are a book search expert. The user is searching for a book with the query: "{query}"
+    
+    Find the most likely book match and return detailed information about it.
+    
+    Return ONLY valid JSON in this format:
+    {
+      "title": "Exact Book Title",
+      "author": "Author Name (full name)",
+      "publish_year": 1999,
+      "cover_url": "https://complete-url-to-book-cover-image.jpg",
+      "wikipedia_url": "https://en.wikipedia.org/wiki/Book_Title",
+      "google_books_url": "https://books.google.com/books?id=..."
+    }
+    
+    Requirements:
+    - Use the exact, canonical title of the book
+    - Include the full author name (first and last)
+    - Extract the publication year if available
+    - Provide a high-quality cover image URL if available (prefer official book covers)
+    - Include Wikipedia URL if the book has a Wikipedia page
+    - Include Google Books URL if available
+    - If any field is not available, use null
+    - If the book cannot be found, return null
+    - If the input is Hebrew, search for Hebrew books and return Hebrew titles/authors
+
 author_facts:
   prompt: |
     You are a literary expert. Generate exactly 10 interesting, fun facts about the author "{author}" specifically in the context of their book "{bookTitle}".

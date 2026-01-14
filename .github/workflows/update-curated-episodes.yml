@@ -2,7 +2,7 @@ name: Update Curated Podcast Episodes
 
 on:
   schedule:
-    - cron: '0 * * * *' # Run every hour
+    - cron: '0 0 * * *' # Run daily at midnight UTC
   workflow_dispatch: # Allow manual trigger
 
 jobs:
@@ -12,7 +12,7 @@ jobs:
       - name: Call Supabase Edge Function
         run: |
           response=$(curl -s -w "\n%{http_code}" -X POST \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
             -H "Content-Type: application/json" \
             https://nuhpfsbjjqoikwszlphr.supabase.co/functions/v1/smart-responder)
           
