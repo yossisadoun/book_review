@@ -49,6 +49,7 @@ interface PodcastEpisode {
   podcast_name?: string; // Name of the podcast show
   episode_summary: string;
   podcast_summary: string;
+  thumbnail?: string; // Episode or show thumbnail image URL
 }
 
 // Supabase database schema interface
@@ -401,6 +402,17 @@ async function getApplePodcastEpisodes(bookTitle: string, author: string): Promi
           }
         }
         
+        // Get thumbnail - prefer episode artwork, fallback to collection (show) artwork
+        // iTunes API provides: artworkUrl60, artworkUrl100, artworkUrl600 for episodes
+        // Episodes may also have collection artwork if episode artwork is missing
+        const thumbnail = ep.artworkUrl600 
+          ? ep.artworkUrl600.replace('600x600bb', '300x300bb')
+          : ep.artworkUrl100 
+          ? ep.artworkUrl100.replace('100x100bb', '300x300bb')
+          : ep.artworkUrl60
+          ? ep.artworkUrl60.replace('60x60bb', '300x300bb')
+          : undefined;
+        
         const episode: PodcastEpisode = {
           title: ep.trackName || 'Untitled Episode',
           length: length,
@@ -411,6 +423,7 @@ async function getApplePodcastEpisodes(bookTitle: string, author: string): Promi
           podcast_name: ep.collectionName || undefined,
           episode_summary: ep.description || `Episode about ${bookTitle} by ${author}`,
           podcast_summary: ep.collectionName || 'Podcast',
+          thumbnail: thumbnail,
         };
         
         // Check if this episode is from a prioritized show
@@ -1126,8 +1139,19 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
             transition={{ duration: 0.3, ease: "easeInOut" }}
             className="bg-white/95 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/40"
           >
-            <div className="flex items-start gap-2 mb-2">
-              <Headphones size={16} className="text-blue-500 mt-0.5 flex-shrink-0" />
+            <div className="flex items-start gap-3 mb-2">
+              {/* Thumbnail - show for Apple Podcasts */}
+              {currentEpisode.thumbnail ? (
+                <img 
+                  src={currentEpisode.thumbnail} 
+                  alt={currentEpisode.podcast_name || currentEpisode.title}
+                  className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-lg bg-slate-200 flex items-center justify-center flex-shrink-0">
+                  <Headphones size={20} className="text-slate-400" />
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <a 
                   href={currentEpisode.url} 
@@ -1248,15 +1272,15 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
   const [error, setError] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [searchResults, setSearchResults] = useState<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>[]>([]);
-  const [searchSource, setSearchSource] = useState<'wikipedia' | 'apple_books' | 'grok'>(() => {
+  const [searchSource, setSearchSource] = useState<'wikipedia' | 'apple_books'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('searchSource');
-      // Migrate old 'google_books' to 'apple_books'
-      if (saved === 'google_books') {
+      // Migrate old values
+      if (saved === 'google_books' || saved === 'grok') {
         localStorage.setItem('searchSource', 'apple_books');
         return 'apple_books';
       }
-      return (saved as 'wikipedia' | 'apple_books' | 'grok') || 'wikipedia';
+      return (saved as 'wikipedia' | 'apple_books') || 'wikipedia';
     }
     return 'wikipedia';
   });
@@ -1276,9 +1300,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
     
     let searchPromise: Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>[]>;
     
-    if (searchSource === 'grok') {
-      searchPromise = lookupBooksOnGrok(titleToSearch);
-    } else if (searchSource === 'apple_books') {
+    if (searchSource === 'apple_books') {
       searchPromise = lookupBooksOnAppleBooks(titleToSearch);
     } else {
       searchPromise = lookupBooksOnWikipedia(titleToSearch);
@@ -1293,7 +1315,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
       setSearchResults(results);
 
       if (results.length === 0) {
-        const sourceName = searchSource === 'grok' ? 'Grok' : searchSource === 'apple_books' ? 'Apple Books' : 'Wikipedia';
+        const sourceName = searchSource === 'apple_books' ? 'Apple Books' : 'Wikipedia';
         setError(`No results found on ${sourceName}.`);
       }
     } catch (err) {
@@ -1392,11 +1414,8 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
               <button
                 type="button"
                 onClick={() => {
-                  // Cycle through: wikipedia -> apple_books -> grok -> wikipedia
-                  const sources: ('wikipedia' | 'apple_books' | 'grok')[] = ['wikipedia', 'apple_books', 'grok'];
-                  const currentIndex = sources.indexOf(searchSource);
-                  const nextIndex = (currentIndex + 1) % sources.length;
-                  setSearchSource(sources[nextIndex]);
+                  // Toggle between: wikipedia -> apple_books -> wikipedia
+                  setSearchSource(prev => prev === 'wikipedia' ? 'apple_books' : 'wikipedia');
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 active:scale-95 transition-all text-xs"
               >
@@ -1406,10 +1425,6 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
                 <span className="text-slate-300">/</span>
                 <span className={`font-medium transition-colors ${searchSource === 'apple_books' ? 'text-blue-600' : 'text-slate-500'}`}>
                   Apple Books
-                </span>
-                <span className="text-slate-300">/</span>
-                <span className={`font-medium transition-colors ${searchSource === 'grok' ? 'text-blue-600' : 'text-slate-500'}`}>
-                  Grok
                 </span>
               </button>
             </div>
