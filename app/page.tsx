@@ -18,6 +18,7 @@ import {
   LogOut,
   Headphones,
   Play,
+  FileText,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -63,6 +64,15 @@ interface PodcastEpisode {
   episode_summary: string;
   podcast_summary: string;
   thumbnail?: string; // Episode or show thumbnail image URL
+}
+
+// Analysis article interface
+interface AnalysisArticle {
+  title: string;
+  snippet: string;
+  url: string;
+  authors?: string;
+  year?: string;
 }
 
 // Supabase database schema interface
@@ -563,6 +573,251 @@ async function getCuratedPodcastEpisodes(bookTitle: string, author: string): Pro
   } catch (err: any) {
     console.error('[getCuratedPodcastEpisodes] ❌ Error:', err);
     return [];
+  }
+}
+
+// --- Google Scholar API ---
+async function getGoogleScholarAnalysis(bookTitle: string, author: string): Promise<AnalysisArticle[]> {
+  console.log(`[getGoogleScholarAnalysis] 🔄 Searching Google Scholar for "${bookTitle}" by ${author}`);
+  
+  // Normalize for database lookup
+  const normalizedTitle = bookTitle.trim().toLowerCase();
+  const normalizedAuthor = author.trim().toLowerCase();
+  
+  // First, check if we have cached results in the database
+  try {
+    const { data: cachedData, error: cacheError } = await supabase
+      .from('google_scholar_articles')
+      .select('articles')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (!cacheError && cachedData && cachedData.articles && Array.isArray(cachedData.articles) && cachedData.articles.length > 0) {
+      // Check if it's not just the fallback search URL
+      const firstArticle = cachedData.articles[0];
+      if (firstArticle.url && !firstArticle.url.includes('scholar.google.com/scholar?q=')) {
+        console.log(`[getGoogleScholarAnalysis] ✅ Found ${cachedData.articles.length} cached articles in database`);
+        return cachedData.articles as AnalysisArticle[];
+      } else if (firstArticle.title && firstArticle.title.includes('Search Google Scholar')) {
+        // It's a fallback - we'll try to fetch again (maybe proxies will work this time)
+        console.log(`[getGoogleScholarAnalysis] ⚠️ Found cached fallback, will try to fetch fresh results`);
+      } else {
+        console.log(`[getGoogleScholarAnalysis] ✅ Found ${cachedData.articles.length} cached articles in database`);
+        return cachedData.articles as AnalysisArticle[];
+      }
+    } else if (cacheError && cacheError.code !== 'PGRST116') {
+      // PGRST116 is "not found" error, which is fine
+      console.warn('[getGoogleScholarAnalysis] ⚠️ Error checking cache:', cacheError);
+    }
+  } catch (err) {
+    console.warn('[getGoogleScholarAnalysis] ⚠️ Error checking cache:', err);
+    // Continue to fetch
+  }
+  
+  // Construct search query: book title + author + (Analysis OR Review OR Criticism)
+  const searchQuery = `"${bookTitle}" "${author}" (Analysis OR Review OR Criticism)`;
+  const encodedQuery = encodeURIComponent(searchQuery);
+  
+  // Google Scholar search URL
+  const searchUrl = `https://scholar.google.com/scholar?q=${encodedQuery}&hl=en&as_sdt=0,5`;
+  
+  // Note: Google Scholar blocks direct scraping and CORS proxies are unreliable
+  // We'll try to fetch via proxy, but if it fails, we'll provide the search URL
+  // In production, consider using a server-side proxy or API route
+  
+  const proxyConfigs = [
+    { 
+      url: `https://api.allorigins.win/get?url=${encodeURIComponent(searchUrl)}`,
+      parser: async (response: Response) => {
+        const data = await response.json();
+        return data.contents;
+      }
+    },
+    { 
+      url: `https://corsproxy.io/?${encodeURIComponent(searchUrl)}`,
+      parser: async (response: Response) => await response.text()
+    },
+    { 
+      url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(searchUrl)}`,
+      parser: async (response: Response) => await response.text()
+    },
+  ];
+  
+  for (let i = 0; i < proxyConfigs.length; i++) {
+    const config = proxyConfigs[i];
+    console.log(`[getGoogleScholarAnalysis] 🔄 Trying proxy ${i + 1}/${proxyConfigs.length}`);
+    
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      // Try fetch without explicit mode to avoid CORS preflight issues
+      const response = await fetch(config.url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.warn(`[getGoogleScholarAnalysis] ⚠️ Proxy ${i + 1} returned status ${response.status}`);
+        continue;
+      }
+      
+      const html = await config.parser(response);
+      
+      if (!html || typeof html !== 'string' || html.length < 100) {
+        console.warn(`[getGoogleScholarAnalysis] ⚠️ Proxy ${i + 1} returned invalid HTML (length: ${html?.length || 0})`);
+        continue;
+      }
+      
+      console.log(`[getGoogleScholarAnalysis] ✅ Got HTML from proxy ${i + 1}, length: ${html.length}`);
+      
+      // Parse HTML to extract articles
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      
+      const articles: AnalysisArticle[] = [];
+      
+      // Try multiple selectors as Google Scholar HTML structure may vary
+      let resultElements = doc.querySelectorAll('.gs_ri');
+      if (resultElements.length === 0) {
+        resultElements = doc.querySelectorAll('[data-rp]');
+      }
+      if (resultElements.length === 0) {
+        resultElements = doc.querySelectorAll('.gs_r');
+      }
+      if (resultElements.length === 0) {
+        // Try finding any result containers
+        resultElements = doc.querySelectorAll('div[class*="gs"]');
+      }
+      
+      console.log(`[getGoogleScholarAnalysis] 🔍 Found ${resultElements.length} potential result elements`);
+      
+      resultElements.forEach((element, index) => {
+        if (index >= 10) return; // Limit to 10 results
+        
+        // Try multiple selectors for title and link
+        let titleElement = element.querySelector('.gs_rt a') || 
+                          element.querySelector('h3 a') ||
+                          element.querySelector('h3.gs_rt a') ||
+                          element.querySelector('a[data-clk]') ||
+                          element.querySelector('a[href*="/scholar?"]');
+        
+        const title = titleElement?.textContent?.trim() || '';
+        let url = titleElement?.getAttribute('href') || '';
+        
+        // Skip if no title or URL found
+        if (!title || !url) return;
+        
+        // Fix relative URLs and extract actual article URLs
+        if (url.startsWith('/url?q=')) {
+          // Google Scholar redirect URL - extract the actual article URL
+          const match = url.match(/url\?q=([^&]+)/);
+          if (match) {
+            url = decodeURIComponent(match[1]);
+          }
+        } else if (url.startsWith('/scholar?')) {
+          // This is a Google Scholar link, not an article - skip it
+          return;
+        } else if (url.startsWith('/')) {
+          url = `https://scholar.google.com${url}`;
+        } else if (!url.startsWith('http')) {
+          url = `https://scholar.google.com/${url}`;
+        }
+        
+        // Only include if it's a real article URL (not a Google Scholar page)
+        if (!url.startsWith('http') || url.includes('scholar.google.com/scholar')) {
+          return;
+        }
+        
+        // Try multiple selectors for snippet
+        const snippetElement = element.querySelector('.gs_rs') || 
+                              element.querySelector('.gs_rsb') ||
+                              element.querySelector('.gs_s') ||
+                              element.querySelector('[class*="snippet"]');
+        const snippet = snippetElement?.textContent?.trim() || '';
+        
+        // Try multiple selectors for authors
+        const authorsElement = element.querySelector('.gs_a') || 
+                              element.querySelector('.gs_authors') ||
+                              element.querySelector('[class*="author"]');
+        const authorsText = authorsElement?.textContent?.trim() || '';
+        const yearMatch = authorsText.match(/\d{4}/);
+        const year = yearMatch ? yearMatch[0] : undefined;
+        
+        articles.push({
+          title,
+          snippet: snippet ? (snippet.substring(0, 200) + (snippet.length > 200 ? '...' : '')) : 'No snippet available.',
+          url,
+          authors: authorsText || undefined,
+          year,
+        });
+      });
+      
+      if (articles.length > 0) {
+        console.log(`[getGoogleScholarAnalysis] ✅ Successfully parsed ${articles.length} articles from proxy ${i + 1}`);
+        
+        // Save to database
+        await saveArticlesToDatabase(normalizedTitle, normalizedAuthor, articles);
+        
+        return articles;
+      } else {
+        console.warn(`[getGoogleScholarAnalysis] ⚠️ Proxy ${i + 1} returned HTML but no articles parsed. HTML preview: ${html.substring(0, 500)}`);
+        // Continue to next proxy
+      }
+    } catch (err: any) {
+      // Handle abort/timeout or other errors
+      if (err.name === 'AbortError') {
+        console.warn(`[getGoogleScholarAnalysis] ⚠️ Proxy ${i + 1} request timeout`);
+      } else if (err.message?.includes('CORS') || err.message?.includes('Failed to fetch')) {
+        console.warn(`[getGoogleScholarAnalysis] ⚠️ Proxy ${i + 1} CORS/network error:`, err.message);
+      } else {
+        console.warn(`[getGoogleScholarAnalysis] ⚠️ Proxy ${i + 1} error:`, err.message);
+      }
+      // Continue to next proxy
+    }
+  }
+  
+  // All proxies failed - return search URL as fallback
+  console.warn('[getGoogleScholarAnalysis] ⚠️ All proxies failed, returning search URL');
+  const fallbackArticle: AnalysisArticle = {
+    title: `Search Google Scholar for "${bookTitle}" by ${author}`,
+    snippet: `Click to view Google Scholar search results for analysis, reviews, and criticism of this book. Individual article links require visiting Google Scholar directly.`,
+    url: searchUrl,
+  };
+  
+  // Save fallback to database so we don't keep trying
+  await saveArticlesToDatabase(normalizedTitle, normalizedAuthor, [fallbackArticle]);
+  
+  return [fallbackArticle];
+}
+
+// Helper function to save articles to database
+async function saveArticlesToDatabase(bookTitle: string, bookAuthor: string, articles: AnalysisArticle[]): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('google_scholar_articles')
+      .upsert({
+        book_title: bookTitle.toLowerCase().trim(),
+        book_author: bookAuthor.toLowerCase().trim(),
+        articles: articles,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'book_title,book_author',
+      });
+    
+    if (error) {
+      console.error('[saveArticlesToDatabase] ❌ Error saving articles:', error);
+    } else {
+      console.log(`[saveArticlesToDatabase] ✅ Saved ${articles.length} articles to database`);
+    }
+  } catch (err) {
+    console.error('[saveArticlesToDatabase] ❌ Error:', err);
   }
 }
 
@@ -1317,6 +1572,112 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
   );
 }
 
+interface AnalysisArticlesProps {
+  articles: AnalysisArticle[];
+  bookId: string;
+  isLoading?: boolean;
+}
+
+function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArticlesProps) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    // Reset when book changes
+    setCurrentIndex(0);
+    setIsVisible(false);
+    
+    if (articles.length === 0) return;
+
+    // Show first article after a short delay
+    const timeout = setTimeout(() => {
+      setIsVisible(true);
+    }, 1000);
+
+    return () => clearTimeout(timeout);
+  }, [articles, bookId]);
+
+  function handleNext() {
+    setIsVisible(false);
+    // Wait for fade out, then show next (or loop back to first)
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev + 1) % articles.length);
+      setIsVisible(true);
+    }, 300);
+  }
+
+  if (isLoading) {
+    return (
+      <div className="w-full">
+        <motion.div
+          animate={{ opacity: [0.5, 0.8, 0.5] }}
+          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+        >
+          <div className="space-y-3">
+            <div className="h-4 bg-slate-300/50 rounded animate-pulse" />
+            <div className="h-3 bg-slate-300/50 rounded w-3/4 animate-pulse" />
+            <div className="h-3 bg-slate-300/50 rounded w-2/3 animate-pulse" />
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (articles.length === 0 || currentIndex >= articles.length) return null;
+
+  const currentArticle = articles[currentIndex];
+
+  return (
+    <div
+      onClick={handleNext}
+      className="w-full cursor-pointer"
+    >
+      <AnimatePresence mode="wait">
+        {isVisible && (
+          <motion.div
+            key={`${currentArticle.url}-${currentIndex}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+          >
+            <div className="flex items-start gap-3 mb-2">
+              <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                <FileText size={20} className="text-slate-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <a 
+                  href={currentArticle.url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-xs font-bold text-blue-700 hover:text-blue-800 hover:underline block mb-1 line-clamp-2"
+                >
+                  {currentArticle.title}
+                </a>
+                {(currentArticle.authors || currentArticle.year) && (
+                  <div className="text-[10px] text-slate-600">
+                    {currentArticle.authors && <span>{currentArticle.authors}</span>}
+                    {currentArticle.year && <span> • {currentArticle.year}</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+            <p className="text-[10px] font-medium text-slate-800 leading-relaxed mb-1">
+              {currentArticle.snippet}
+            </p>
+            <p className="text-[10px] text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
+              Tap for next ({currentIndex + 1}/{articles.length})
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 interface RatingStarsProps {
   value: number | null;
   onRate: (dimension: string, value: number) => void;
@@ -1633,6 +1994,8 @@ export default function App() {
   const [isMetaExpanded, setIsMetaExpanded] = useState(true);
   const [loadingFactsForBookId, setLoadingFactsForBookId] = useState<string | null>(null);
   const [loadingPodcastsForBookId, setLoadingPodcastsForBookId] = useState<string | null>(null);
+  const [loadingAnalysisForBookId, setLoadingAnalysisForBookId] = useState<string | null>(null);
+  const [analysisArticles, setAnalysisArticles] = useState<Map<string, AnalysisArticle[]>>(new Map());
   const [scrollY, setScrollY] = useState(0);
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
   const [showBookshelf, setShowBookshelf] = useState(false);
@@ -2065,6 +2428,70 @@ export default function App() {
       clearTimeout(fetchTimer);
     };
   }, [selectedIndex, books, podcastSource]); // Depend on selectedIndex, books, and podcastSource
+
+  // Load analysis articles from Google Scholar
+  useEffect(() => {
+    if (!activeBook) {
+      setLoadingAnalysisForBookId(null);
+      return;
+    }
+
+    const currentBook = activeBook;
+    let cancelled = false;
+
+    if (!currentBook.title || !currentBook.author) {
+      setLoadingAnalysisForBookId(null);
+      return;
+    }
+
+    const bookId = currentBook.id;
+
+    // Check if analysis already exists in state
+    if (analysisArticles.has(bookId)) {
+      setLoadingAnalysisForBookId(null);
+      return;
+    }
+
+    setLoadingAnalysisForBookId(bookId);
+
+    // Add a delay to avoid rate limits when scrolling through books
+    const fetchTimer = setTimeout(() => {
+      if (cancelled) return;
+      
+      const bookTitle = currentBook.title;
+      const bookAuthor = currentBook.author;
+      
+      console.log(`[Analysis Articles] 🔄 Fetching from Google Scholar for "${bookTitle}" by ${bookAuthor}...`);
+      getGoogleScholarAnalysis(bookTitle, bookAuthor).then((articles) => {
+        if (cancelled) return;
+        
+        // Clear loading state
+        setLoadingAnalysisForBookId(null);
+        
+        if (articles.length > 0) {
+          console.log(`[Analysis Articles] ✅ Received ${articles.length} articles for "${bookTitle}"`);
+          // Store in state
+          setAnalysisArticles(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, articles);
+            return newMap;
+          });
+        } else {
+          console.log(`[Analysis Articles] ⚠️ No articles found for "${bookTitle}"`);
+        }
+      }).catch((err) => {
+        if (cancelled) return;
+        setLoadingAnalysisForBookId(null);
+        console.error('Error fetching analysis articles:', err);
+      });
+    }, 2000); // Delay to avoid rate limits when scrolling
+
+    return () => {
+      cancelled = true;
+      setLoadingAnalysisForBookId(null);
+      clearTimeout(fetchTimer);
+    };
+  }, [selectedIndex, books, analysisArticles]); // Depend on selectedIndex, books, and analysisArticles
 
   async function handleAddBook(meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insight' | 'rating_flow'>) {
     if (!user) return;
@@ -2561,19 +2988,24 @@ export default function App() {
                       const styleSet = colorSets[hash % colorSets.length];
                       const bookFont = fonts[hash % fonts.length];
                       
-                      // Calculate tonal text color
-                      const getTonalColor = (hex: string) => {
-                        const r = parseInt(hex.slice(1, 3), 16);
-                        const g = parseInt(hex.slice(3, 5), 16);
-                        const b = parseInt(hex.slice(5, 7), 16);
-                        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-                        const factor = luminance > 0.5 ? -0.55 : 0.65;
-                        const newR = Math.max(0, Math.min(255, Math.round(r + (r * factor))));
-                        const newG = Math.max(0, Math.min(255, Math.round(g + (g * factor))));
-                        const newB = Math.max(0, Math.min(255, Math.round(b + (b * factor))));
-                        return `rgb(${newR}, ${newG}, ${newB})`;
-                      };
-                      const textColor = getTonalColor(styleSet.main);
+                      // Calculate text color for THIS specific book's color: 50% darker or brighter based on background luminance
+                      const bookColorHex = styleSet.main; // This book's specific color
+                      const r = parseInt(bookColorHex.slice(1, 3), 16);
+                      const g = parseInt(bookColorHex.slice(3, 5), 16);
+                      const b = parseInt(bookColorHex.slice(5, 7), 16);
+                      
+                      // Calculate relative luminance (0-1) for this book's color
+                      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+                      
+                      // If this book's background is light (luminance > 0.5), make text 50% darker
+                      // If this book's background is dark (luminance <= 0.5), make text 50% brighter
+                      const factor = luminance > 0.5 ? -0.5 : 0.5;
+                      
+                      const textR = Math.max(0, Math.min(255, Math.round(r * (1 + factor))));
+                      const textG = Math.max(0, Math.min(255, Math.round(g * (1 + factor))));
+                      const textB = Math.max(0, Math.min(255, Math.round(b * (1 + factor))));
+                      
+                      const textColor = `rgb(${textR}, ${textG}, ${textB})`;
                       
                       // Height based on score (280-420px range)
                       const height = score > 0 ? 280 + (score * 28) : 280;
@@ -3002,6 +3434,67 @@ export default function App() {
                             <Headphones size={24} className="mx-auto mb-2 text-slate-600" />
                             <p className="text-slate-800 text-sm font-medium mb-1">No podcasts found</p>
                             <p className="text-slate-600 text-xs">Try switching to {podcastSource === 'curated' ? 'Apple' : 'Curated'} or search for a different book</p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  );
+                })()}
+                
+                {/* Analysis Articles - Show below podcasts */}
+                {(() => {
+                  const articles = analysisArticles.get(activeBook.id) || [];
+                  // Check if we have real articles (not just the fallback search URL)
+                  // A fallback article has a title that starts with "Search Google Scholar" and URL contains "scholar.google.com/scholar?q="
+                  const hasRealArticles = articles.length > 0 && articles.some(article => {
+                    const isFallback = article.title?.includes('Search Google Scholar') || 
+                                       (article.url && article.url.includes('scholar.google.com/scholar?q='));
+                    return !isFallback;
+                  });
+                  const hasOnlyFallback = articles.length > 0 && !hasRealArticles;
+                  const hasArticles = hasRealArticles;
+                  const isLoading = loadingAnalysisForBookId === activeBook.id && !hasArticles && !hasOnlyFallback;
+                  
+                  // Always show the analysis section
+                  return (
+                    <div className="w-full space-y-2">
+                      {/* Analysis Header */}
+                      <div className="flex items-center justify-center mb-2">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
+                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">ANALYSIS:</span>
+                          <span className="text-[10px] font-bold text-slate-400">/</span>
+                          <span className="text-[10px] font-bold text-blue-700">Google Scholar</span>
+                        </div>
+                      </div>
+                      {isLoading ? (
+                        // Show loading placeholder
+                        <motion.div
+                          animate={{ opacity: [0.5, 0.8, 0.5] }}
+                          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                          className="w-full bg-slate-50 rounded-2xl p-6 border border-slate-200"
+                        >
+                          <div className="text-center text-slate-600 text-sm">
+                            Loading analysis articles...
+                          </div>
+                        </motion.div>
+                      ) : hasArticles ? (
+                        // Show articles - once loaded, always show
+                        <AnalysisArticles 
+                          articles={articles} 
+                          bookId={activeBook.id}
+                          isLoading={false}
+                        />
+                      ) : (
+                        // Show no results state (either no articles or only fallback)
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="w-full bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-white/30 shadow-lg"
+                        >
+                          <div className="text-center">
+                            <FileText size={24} className="mx-auto mb-2 text-slate-600" />
+                            <p className="text-slate-800 text-sm font-medium mb-1">No analysis articles found</p>
+                            <p className="text-slate-600 text-xs">No scholarly articles, reviews, or criticism found for this book on Google Scholar</p>
                           </div>
                         </motion.div>
                       )}
