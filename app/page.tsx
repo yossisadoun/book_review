@@ -19,6 +19,7 @@ import {
   Headphones,
   Play,
   FileText,
+  Pencil,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -97,6 +98,7 @@ interface Book {
   podcast_episodes_grok?: PodcastEpisode[] | null; // JSON array of podcast episodes from Grok
   podcast_episodes_apple?: PodcastEpisode[] | null; // JSON array of podcast episodes from Apple Podcasts
   podcast_episodes_curated?: PodcastEpisode[] | null; // JSON array of podcast episodes from curated source
+  notes?: string | null; // User notes for the book
   created_at: string;
   updated_at: string;
 }
@@ -115,6 +117,7 @@ interface BookWithRatings extends Omit<Book, 'rating_writing' | 'rating_insights
   podcast_episodes_grok?: PodcastEpisode[]; // Podcast episodes from Grok
   podcast_episodes_apple?: PodcastEpisode[]; // Podcast episodes from Apple Podcasts
   podcast_episodes_curated?: PodcastEpisode[]; // Podcast episodes from curated source
+  notes?: string | null; // User notes for the book
 }
 
 // --- API Helpers ---
@@ -1299,6 +1302,7 @@ function convertBookToApp(book: Book): BookWithRatings {
     podcast_episodes_grok: book.podcast_episodes_grok || undefined, // Load from database
     podcast_episodes_apple: book.podcast_episodes_apple || undefined, // Load from database
     podcast_episodes_curated: book.podcast_episodes_curated || undefined, // Load from database
+    notes: book.notes || null, // Load notes from database
   };
 }
 
@@ -2086,6 +2090,9 @@ export default function App() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [isShowingNotes, setIsShowingNotes] = useState(false);
+  const [noteText, setNoteText] = useState('');
+  const noteSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isMetaExpanded, setIsMetaExpanded] = useState(true);
   const [loadingFactsForBookId, setLoadingFactsForBookId] = useState<string | null>(null);
   const [loadingPodcastsForBookId, setLoadingPodcastsForBookId] = useState<string | null>(null);
@@ -2094,6 +2101,8 @@ export default function App() {
   const [scrollY, setScrollY] = useState(0);
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
   const [showBookshelf, setShowBookshelf] = useState(false);
+  const [showNotesView, setShowNotesView] = useState(false);
+  const [editingNoteBookId, setEditingNoteBookId] = useState<string | null>(null);
   const [bookshelfGrouping, setBookshelfGrouping] = useState<'rating' | 'author' | 'title' | 'genre'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('bookshelfGrouping');
@@ -2328,6 +2337,7 @@ export default function App() {
   useEffect(() => {
     setIsEditing(false);
     setIsConfirmingDelete(false);
+    setIsShowingNotes(false);
     setEditingDimension(null);
     
     setIsMetaExpanded(true);
@@ -2337,6 +2347,20 @@ export default function App() {
     
     return () => clearTimeout(timer);
   }, [selectedIndex]);
+
+  // Load note text when book changes
+  useEffect(() => {
+    if (activeBook) {
+      setNoteText(activeBook.notes || '');
+    }
+    // Cleanup timeout on book change
+    return () => {
+      if (noteSaveTimeoutRef.current) {
+        clearTimeout(noteSaveTimeoutRef.current);
+        noteSaveTimeoutRef.current = null;
+      }
+    };
+  }, [activeBook?.id, activeBook?.notes]);
 
   // Update background gradient when book changes
   useEffect(() => {
@@ -2944,16 +2968,35 @@ export default function App() {
     }
   }
 
-  // Show loading spinner while checking auth
-  if (authLoading) {
-    return (
-      <div className="fixed inset-0 bg-slate-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+  async function handleSaveNote(text?: string, bookId?: string) {
+    const targetBookId = bookId || activeBook?.id;
+    if (!targetBookId) return;
+    
+    const textToSave = text !== undefined ? text : noteText;
+
+    try {
+      const { error } = await supabase
+        .from('books')
+        .update({ 
+          notes: textToSave.trim() || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', targetBookId);
+
+      if (error) throw error;
+
+      // Update local state
+      setBooks(prev => prev.map(book => 
+        book.id === targetBookId 
+          ? { ...book, notes: textToSave.trim() || null }
+          : book
+      ));
+    } catch (err) {
+      console.error('Error saving note:', err);
+      alert('Failed to save note. Please try again.');
+    }
   }
 
-  // Show login screen if not authenticated
   // Show book loading animation during initial auth check
   if (authLoading) {
     return <BookLoading />;
@@ -2963,13 +3006,9 @@ export default function App() {
     return <LoginScreen />;
   }
 
-  // Show loading spinner while loading books (only if user is authenticated)
+  // Show book loading animation while loading books (only if user is authenticated)
   if (!isLoaded) {
-    return (
-      <div className="fixed inset-0 bg-slate-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <BookLoading />;
   }
 
   const userEmail = user?.email || user?.user_metadata?.email || 'User';
@@ -3005,7 +3044,7 @@ export default function App() {
       {/* Simple header - fades on scroll and during transitions */}
       <AnimatePresence mode="wait">
         <motion.div 
-          key={showBookshelf ? 'bookshelf-header' : 'books-header'}
+          key={showNotesView ? 'notes-header' : showBookshelf ? 'bookshelf-header' : 'books-header'}
           initial={{ opacity: 0 }}
           animate={{ 
             opacity: scrollY > 20 ? Math.max(0, 1 - (scrollY - 20) / 40) : 1,
@@ -3015,7 +3054,7 @@ export default function App() {
           transition={{ duration: 0.3, ease: "easeInOut" }}
           className="w-full z-40 fixed top-[50px] left-0 right-0 px-4 py-3 flex items-center justify-between"
           style={{
-            background: showBookshelf
+            background: showNotesView || showBookshelf
               ? scrollY > 20
                 ? `linear-gradient(to bottom, rgba(245, 245, 241, ${Math.max(0, 1 - (scrollY - 20) / 40)}), rgba(245, 245, 241, ${Math.max(0, 1 - (scrollY - 20) / 40)}))`
                 : 'linear-gradient(to bottom, rgba(245, 245, 241, 1), rgba(245, 245, 241, 0))'
@@ -3024,9 +3063,15 @@ export default function App() {
                 : 'linear-gradient(to bottom, rgba(248, 250, 252, 1), rgba(248, 250, 252, 0))'
           }}
         >
-          {/* BOOKS/BOOKSHELF text on left */}
+          {/* BOOKS/BOOKSHELF/NOTES text on left */}
           <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
-            {showBookshelf ? 'BOOKSHELF' : 'BOOKS'}
+            {isShowingNotes && activeBook 
+              ? `${activeBook.title} notes` 
+              : showNotesView 
+                ? 'NOTES' 
+                : showBookshelf 
+                  ? 'BOOKSHELF' 
+                  : 'BOOKS'}
           </h1>
         
         {/* User avatar on right */}
@@ -3099,7 +3144,145 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence mode="wait">
-        {showBookshelf ? (
+        {showNotesView ? (
+          <motion.main
+            key="notes"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
+            style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            onScroll={(e) => {
+              const target = e.currentTarget;
+              setScrollY(target.scrollTop);
+            }}
+          >
+            {/* Notes View */}
+            <div className="w-full max-w-[600px] flex flex-col gap-4 px-4 py-8">
+              <h1 className="text-2xl font-bold text-slate-950 mb-2">My Notes</h1>
+              {(() => {
+                // Filter books with notes and sort by title
+                const booksWithNotes = books
+                  .filter(book => book.notes && book.notes.trim().length > 0)
+                  .sort((a, b) => a.title.localeCompare(b.title));
+
+                if (booksWithNotes.length === 0) {
+                  return (
+                    <div className="w-full bg-white/80 backdrop-blur-md rounded-2xl p-8 border border-white/30 shadow-lg text-center">
+                      <Pencil size={32} className="mx-auto mb-3 text-slate-400" />
+                      <p className="text-slate-800 text-sm font-medium">No notes yet</p>
+                      <p className="text-slate-600 text-xs mt-1">Add notes to your books to see them here</p>
+                    </div>
+                  );
+                }
+
+                return booksWithNotes.map((book) => (
+                  <motion.div
+                    key={book.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-white/80 backdrop-blur-md rounded-2xl p-4 border border-white/30 shadow-lg"
+                  >
+                    <div className="flex gap-4">
+                      {/* Book Cover */}
+                      <div className="flex-shrink-0">
+                        {book.cover_url ? (
+                          <img 
+                            src={book.cover_url} 
+                            alt={book.title}
+                            className="w-16 h-24 object-cover rounded-lg shadow-md"
+                          />
+                        ) : (
+                          <div className={`w-16 h-24 rounded-lg flex items-center justify-center bg-gradient-to-br ${getGradient(book.id)}`}>
+                            <BookOpen size={24} className="text-white opacity-50" />
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Book Info and Notes */}
+                      <div className="flex-1 min-w-0">
+                        <h2 className="text-sm font-bold text-slate-950 mb-1 line-clamp-1">{book.title}</h2>
+                        <p className="text-xs text-slate-600 mb-2">{book.author}</p>
+                        
+                        {editingNoteBookId === book.id ? (
+                          <div className="space-y-2">
+                            <textarea
+                              value={book.notes || ''}
+                              onChange={(e) => {
+                                const newText = e.target.value;
+                                // Update local state immediately
+                                setBooks(prev => prev.map(b => 
+                                  b.id === book.id ? { ...b, notes: newText } : b
+                                ));
+                                // Clear existing timeout
+                                if (noteSaveTimeoutRef.current) {
+                                  clearTimeout(noteSaveTimeoutRef.current);
+                                }
+                                // Debounced auto-save
+                                noteSaveTimeoutRef.current = setTimeout(() => {
+                                  handleSaveNote(newText, book.id);
+                                }, 1000);
+                              }}
+                              onBlur={() => {
+                                handleSaveNote(book.notes || '', book.id);
+                                setEditingNoteBookId(null);
+                              }}
+                              placeholder="Write your notes here..."
+                              className="w-full text-xs text-slate-800 bg-transparent border border-slate-200 rounded-lg p-2 resize-none focus:outline-none focus:border-blue-500"
+                              rows={4}
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => {
+                                handleSaveNote(book.notes || '', book.id);
+                                setEditingNoteBookId(null);
+                              }}
+                              className="text-xs text-blue-600 font-medium hover:text-blue-700"
+                            >
+                              Done
+                            </button>
+                          </div>
+                        ) : (
+                          <div>
+                            <p className="text-xs text-slate-700 leading-relaxed line-clamp-3 mb-2">
+                              {book.notes}
+                            </p>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => {
+                                  // Find book index and navigate to it, then open notes
+                                  const bookIndex = books.findIndex(b => b.id === book.id);
+                                  if (bookIndex !== -1) {
+                                    setSelectedIndex(bookIndex);
+                                    setShowNotesView(false);
+                                    setTimeout(() => {
+                                      setIsShowingNotes(true);
+                                    }, 300);
+                                  }
+                                }}
+                                className="text-xs text-blue-600 font-medium hover:text-blue-700"
+                              >
+                                View Book
+                              </button>
+                              <span className="text-slate-300">•</span>
+                              <button
+                                onClick={() => setEditingNoteBookId(book.id)}
+                                className="text-xs text-blue-600 font-medium hover:text-blue-700"
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                ));
+              })()}
+            </div>
+          </motion.main>
+        ) : showBookshelf ? (
           <motion.main
             key="bookshelf"
             initial={{ opacity: 0 }}
@@ -3448,20 +3631,77 @@ export default function App() {
         ) : (
           <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">
             <div className="relative w-full aspect-[2/3] rounded-3xl shadow-2xl border border-white/30 overflow-hidden group">
-              <AnimatePresence mode='wait'>
-                <motion.div key={activeBook.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="w-full h-full">
-                  {activeBook.cover_url ? (
-                    <img src={activeBook.cover_url} alt={activeBook.title} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className={`w-full h-full flex flex-col items-center justify-center p-8 text-center bg-gradient-to-br ${getGradient(activeBook.id)} text-white`}>
-                      <BookOpen size={48} className="mb-4 opacity-30" />
-                    </div>
-                  )}
-                </motion.div>
+              {/* Front side - Book cover */}
+              <AnimatePresence mode="wait">
+                {!isShowingNotes && (
+                  <motion.div
+                    key="cover"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                    className="absolute inset-0 w-full h-full"
+                  >
+                    <AnimatePresence mode='wait'>
+                      <motion.div key={activeBook.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="w-full h-full">
+                        {activeBook.cover_url ? (
+                          <img src={activeBook.cover_url} alt={activeBook.title} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className={`w-full h-full flex flex-col items-center justify-center p-8 text-center bg-gradient-to-br ${getGradient(activeBook.id)} text-white`}>
+                            <BookOpen size={48} className="mb-4 opacity-30" />
+                          </div>
+                        )}
+                      </motion.div>
+                    </AnimatePresence>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Back side - Notes */}
+              <AnimatePresence mode="wait">
+                {isShowingNotes && (
+                  <motion.div
+                    key="notes"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                    className="absolute inset-0 w-full h-full bg-white rounded-3xl p-4 flex flex-col"
+                  >
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-bold text-slate-950">Notes</h3>
+                    <button
+                      onClick={() => setIsShowingNotes(false)}
+                      className="p-1.5 text-slate-600 hover:text-slate-800 active:scale-95 transition-all"
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+                  </div>
+                  <textarea
+                    value={noteText}
+                    onChange={(e) => {
+                      const newText = e.target.value;
+                      setNoteText(newText);
+                      // Clear existing timeout
+                      if (noteSaveTimeoutRef.current) {
+                        clearTimeout(noteSaveTimeoutRef.current);
+                      }
+                      // Debounced auto-save after 1 second of no typing
+                      noteSaveTimeoutRef.current = setTimeout(() => {
+                        handleSaveNote(newText);
+                      }, 1000);
+                    }}
+                    onBlur={() => handleSaveNote()}
+                    placeholder="Write your notes here..."
+                    className="flex-1 w-full resize-none border-none outline-none text-sm text-slate-800 placeholder:text-slate-400 bg-transparent"
+                    style={{ minHeight: 0 }}
+                  />
+                  </motion.div>
+                )}
               </AnimatePresence>
 
               <AnimatePresence>
-                {isConfirmingDelete && (
+                {isConfirmingDelete && !isShowingNotes && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[60] bg-red-600/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white">
                     <AlertCircle size={48} className="mb-4" /><h3 className="text-xl font-bold mb-2">Delete this book?</h3>
                     <div className="flex flex-col w-full gap-2">
@@ -3473,7 +3713,7 @@ export default function App() {
               </AnimatePresence>
 
               <AnimatePresence>
-                {showRatingOverlay && !isConfirmingDelete && currentEditingDimension && (
+                {showRatingOverlay && !isConfirmingDelete && !isShowingNotes && currentEditingDimension && (
                   <motion.div 
                     initial={{ opacity: 0, y: 20 }} 
                     animate={{ opacity: 1, y: 0 }} 
@@ -3515,7 +3755,7 @@ export default function App() {
                             handleRate(activeBook.id, currentEditingDimension, null);
                           }
                         }}
-                        className="px-3 py-1 text-xs font-medium text-slate-600 hover:text-slate-800 active:scale-95 transition-all"
+                        className="px-3 py-1 text-xs font-medium text-black hover:text-slate-800 active:scale-95 transition-all"
                       >
                         Skip
                       </button>
@@ -3535,22 +3775,59 @@ export default function App() {
                 />
               )}
 
-              <button onClick={() => setIsConfirmingDelete(true)} className="absolute bottom-4 right-4 z-30 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 p-2.5 rounded-full shadow-lg text-slate-600 hover:text-red-600 active:scale-90 transition-all border border-white/30">
-                <Trash2 size={20} />
-              </button>
+              {/* Pencil button - top right */}
+              <AnimatePresence>
+                {!isShowingNotes && (
+                  <motion.button 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3, delay: 0.3 }}
+                    onClick={() => setIsShowingNotes(true)}
+                    className="absolute top-4 right-4 z-30 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 p-2.5 rounded-full shadow-lg text-black hover:text-blue-600 active:scale-90 transition-all border border-white/30"
+                  >
+                    <Pencil size={20} />
+                  </motion.button>
+                )}
+              </AnimatePresence>
 
-              <button 
-                onClick={() => {
-                  setIsEditing(true);
-                  setEditingDimension(null); // Will default to first unrated or first dimension
-                }} 
-                className="absolute bottom-4 left-4 z-30 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1 active:scale-90 transition-transform border border-white/30"
-              >
-                <Star size={14} className="fill-amber-400 text-amber-400" />
-                <span className="font-black text-sm text-slate-950">
-                  {calculateAvg(activeBook.ratings) || 'Rate'}
-                </span>
-              </button>
+              {/* Delete button - bottom right */}
+              <AnimatePresence>
+                {!isShowingNotes && (
+                  <motion.button 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3, delay: 0.3 }}
+                    onClick={() => setIsConfirmingDelete(true)} 
+                    className="absolute bottom-4 right-4 z-30 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 p-2.5 rounded-full shadow-lg text-black hover:text-red-600 active:scale-90 transition-all border border-white/30"
+                  >
+                    <Trash2 size={20} />
+                  </motion.button>
+                )}
+              </AnimatePresence>
+
+              {/* Rating button - bottom left */}
+              <AnimatePresence>
+                {!isShowingNotes && (
+                  <motion.button 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3, delay: 0.3 }}
+                    onClick={() => {
+                      setIsEditing(true);
+                      setEditingDimension(null); // Will default to first unrated or first dimension
+                    }} 
+                    className="absolute bottom-4 left-4 z-30 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1 active:scale-90 transition-transform border border-white/30"
+                  >
+                    <Star size={14} className="fill-amber-400 text-amber-400" />
+                    <span className="font-black text-sm text-slate-950">
+                      {calculateAvg(activeBook.ratings) || 'Rate'}
+                    </span>
+                  </motion.button>
+                )}
+              </AnimatePresence>
 
               {books.length > 1 && (
                 <>
@@ -3774,6 +4051,7 @@ export default function App() {
             onClick={() => {
               setScrollY(0); // Reset scroll when switching views
               setShowBookshelf(false);
+              setShowNotesView(false);
               // Scroll to top to show books
               const main = document.querySelector('main');
               if (main) {
@@ -3781,7 +4059,7 @@ export default function App() {
               }
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
-              !showBookshelf 
+              !showBookshelf && !showNotesView
                 ? 'bg-white/40 hover:bg-white/50' 
                 : 'bg-white/20 hover:bg-white/30'
             }`}
@@ -3794,6 +4072,7 @@ export default function App() {
             onClick={() => {
               setScrollY(0); // Reset scroll when switching views
               setShowBookshelf(!showBookshelf);
+              setShowNotesView(false);
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
               showBookshelf 
@@ -3802,6 +4081,22 @@ export default function App() {
             }`}
           >
             <Library size={18} className="text-slate-950" />
+          </button>
+
+          {/* Notes button - between bookshelf and search */}
+          <button
+            onClick={() => {
+              setScrollY(0); // Reset scroll when switching views
+              setShowNotesView(!showNotesView);
+              setShowBookshelf(false);
+            }}
+            className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
+              showNotesView 
+                ? 'bg-white/40 hover:bg-white/50' 
+                : 'bg-white/20 hover:bg-white/30'
+            }`}
+          >
+            <Pencil size={18} className="text-slate-950" />
           </button>
 
           {/* Search button - right (circular) */}
