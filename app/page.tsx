@@ -2297,7 +2297,7 @@ export default function App() {
           if (el) {
             // Enable rubber band bounce effect
             el.style.overscrollBehaviorY = 'auto';
-            el.style.webkitOverflowScrolling = 'touch';
+            (el.style as any).webkitOverflowScrolling = 'touch';
           }
         }}
         className="flex-1 flex flex-col items-center justify-start p-4 relative pt-28 overflow-y-auto pb-20 ios-scroll"
