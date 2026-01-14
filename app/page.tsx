@@ -972,6 +972,12 @@ function calculateAvg(ratings: BookWithRatings['ratings']): string | null {
   return (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
 }
 
+function calculateScore(ratings: BookWithRatings['ratings']): number {
+  const values = Object.values(ratings).filter(v => v != null) as number[];
+  if (values.length === 0) return 0;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
 function getGradient(id: string): string {
   const hash = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   return GRADIENTS[hash % GRADIENTS.length];
@@ -1616,6 +1622,7 @@ export default function App() {
   const [loadingPodcastsForBookId, setLoadingPodcastsForBookId] = useState<string | null>(null);
   const [scrollY, setScrollY] = useState(0);
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
+  const [showBookshelf, setShowBookshelf] = useState(false);
   const [backgroundGradient, setBackgroundGradient] = useState<string>('241,245,249,226,232,240'); // Default slate colors as RGB
   const [podcastSource, setPodcastSource] = useState<'apple' | 'curated'>(() => {
     if (typeof window !== 'undefined') {
@@ -1685,6 +1692,15 @@ export default function App() {
   // All hooks must be called before any conditional returns
   const activeBook = books[selectedIndex] || null;
   const [editingDimension, setEditingDimension] = useState<typeof RATING_DIMENSIONS[number] | null>(null);
+  
+  // Sort books by score for bookshelf view
+  const sortedBooksForBookshelf = useMemo(() => {
+    return [...books].sort((a, b) => {
+      const scoreA = calculateScore(a.ratings);
+      const scoreB = calculateScore(b.ratings);
+      return scoreB - scoreA; // Descending order
+    });
+  }, [books]);
   
   // When editing, show the first dimension that needs rating, or first dimension if all are rated
   const currentEditingDimension = useMemo((): typeof RATING_DIMENSIONS[number] | null => {
@@ -2292,33 +2308,245 @@ export default function App() {
         </div>
       </motion.div>
 
-      <main 
-        ref={(el) => {
-          if (el) {
-            // Enable rubber band bounce effect
-            el.style.overscrollBehaviorY = 'auto';
-            (el.style as any).webkitOverflowScrolling = 'touch';
-          }
-        }}
-        className="flex-1 flex flex-col items-center justify-start p-4 relative pt-28 overflow-y-auto pb-20 ios-scroll"
-        onScroll={(e) => {
-          const target = e.currentTarget;
-          setScrollY(target.scrollTop);
-        }}
-        onTouchMove={(e) => {
-          // Allow native bounce on touch devices
-          const target = e.currentTarget;
-          const { scrollTop, scrollHeight, clientHeight } = target;
-          const isAtTop = scrollTop === 0;
-          const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
-          
-          // Let native bounce behavior work
-          if (isAtTop || isAtBottom) {
-            // Native iOS bounce will handle this
-            return;
-          }
-        }}
-      >
+      <AnimatePresence mode="wait">
+        {showBookshelf ? (
+          <motion.main
+            key="bookshelf"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="flex-1 flex flex-col items-center justify-center relative pt-20 pb-20 overflow-hidden"
+          >
+            {/* Bookshelf View */}
+            <div className="w-full h-full flex flex-col items-center justify-center px-4">
+              <div className="w-full max-w-[1600px] h-full flex flex-col">
+                {/* Header */}
+                <div className="text-center mb-8 z-10">
+                  <h1 className="text-3xl font-bold text-slate-950 mb-2">My Bookshelf</h1>
+                  <p className="text-sm font-medium text-slate-600 uppercase tracking-wider">
+                    Sorted by Rating
+                  </p>
+                </div>
+
+                {/* Shelf Container */}
+                <div 
+                  className="bookshelf-scroll scrollbar-hide flex-1 flex items-end justify-center overflow-x-auto overflow-y-hidden pb-20 px-4"
+                  style={{
+                    scrollSnapType: 'x proximity',
+                    cursor: 'grab',
+                    perspective: '2500px',
+                  } as React.CSSProperties}
+                  onMouseDown={(e) => {
+                    const shelf = e.currentTarget;
+                    const startX = e.pageX - shelf.offsetLeft;
+                    const scrollLeft = shelf.scrollLeft;
+                    let isDown = true;
+
+                    const handleMouseMove = (e: MouseEvent) => {
+                      if (!isDown) return;
+                      e.preventDefault();
+                      const x = e.pageX - shelf.offsetLeft;
+                      const walk = (x - startX) * 2;
+                      shelf.scrollLeft = scrollLeft - walk;
+                    };
+
+                    const handleMouseUp = () => {
+                      isDown = false;
+                      document.removeEventListener('mousemove', handleMouseMove);
+                      document.removeEventListener('mouseup', handleMouseUp);
+                    };
+
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                  }}
+                >
+                  
+                  <div className="flex items-end gap-0.5 min-h-[400px]">
+                    {sortedBooksForBookshelf.map((book, idx) => {
+                      const score = calculateScore(book.ratings);
+                      const avgScore = calculateAvg(book.ratings);
+                      
+                      // Generate consistent colors based on book ID
+                      const hash = book.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+                      const colors = [
+                        '#f3f3f3', '#1c1c1e', '#a1d821', '#fccf47', '#ff3b30',
+                        '#007aff', '#5856d6', '#ff9500', '#5ac8fa', '#afafb1', '#2c2c2e'
+                      ];
+                      const bookColor = colors[hash % colors.length];
+                      const isDark = ['#1c1c1e', '#2c2c2e', '#5856d6', '#007aff', '#ff3b30'].includes(bookColor);
+                      const textColor = isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.8)';
+                      
+                      // Height based on score (min 200px, max 400px)
+                      const height = score > 0 ? 200 + (score * 40) : 200;
+                      // Width varies slightly (45-70px)
+                      const width = 50 + (hash % 25);
+                      
+                      // Find book index in original array for navigation
+                      const bookIndex = books.findIndex(b => b.id === book.id);
+                      
+                      return (
+                        <motion.div
+                          key={book.id}
+                          initial={{ opacity: 0, y: 50 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.05, duration: 0.4 }}
+                          className="book-spine relative flex-shrink-0 cursor-pointer group"
+                          style={{
+                            height: `${height}px`,
+                            width: `${width}px`,
+                            transformStyle: 'preserve-3d',
+                            transform: 'rotateX(10deg)',
+                            transformOrigin: 'bottom',
+                          } as React.CSSProperties}
+                          onClick={() => {
+                            if (bookIndex !== -1) {
+                              setSelectedIndex(bookIndex);
+                              setShowBookshelf(false);
+                              // Scroll to top
+                              setTimeout(() => {
+                                const main = document.querySelector('main');
+                                if (main) {
+                                  main.scrollTo({ top: 0, behavior: 'smooth' });
+                                }
+                              }, 100);
+                            }
+                          }}
+                        >
+                          {/* Book Spine */}
+                          <div
+                            className="relative w-full h-full rounded-sm"
+                            style={{
+                              backgroundColor: bookColor,
+                              boxShadow: `
+                                -10px 15px 30px rgba(0,0,0,0.6),
+                                inset 0.5px 0 0 rgba(255,255,255,0.1)
+                              `,
+                            }}
+                          >
+                            {/* Top Pages (Sharp Matte Look) */}
+                            <div
+                              className="absolute top-0 left-0 w-full"
+                              style={{
+                                height: '18px',
+                                background: '#ffffff',
+                                transform: 'rotateX(-90deg)',
+                                transformOrigin: 'top',
+                                boxShadow: 'inset 0 0 8px rgba(0,0,0,0.05)',
+                              }}
+                            />
+                            
+                            {/* Lighting Overlay */}
+                            <div
+                              className="absolute inset-0 pointer-events-none rounded-sm"
+                              style={{
+                                background: `linear-gradient(90deg, 
+                                  rgba(0,0,0,0.2) 0%, 
+                                  rgba(255,255,255,0.05) 15%, 
+                                  rgba(255,255,255,0) 50%, 
+                                  rgba(0,0,0,0.25) 100%)`,
+                              }}
+                            />
+                            
+                            {/* Spine Content */}
+                            <div
+                              className="absolute inset-0 flex items-center justify-center p-2"
+                              style={{
+                                writingMode: 'vertical-rl',
+                                textOrientation: 'mixed',
+                                transform: 'rotate(180deg)',
+                                color: textColor,
+                                fontFamily: 'system-ui, -apple-system, sans-serif',
+                              }}
+                            >
+                              <div
+                                className="text-center font-bold leading-tight"
+                                style={{
+                                  fontSize: `${Math.max(10, Math.min(16, width * 0.25))}px`,
+                                  maxHeight: '85%',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {book.title.toUpperCase()}
+                              </div>
+                            </div>
+                            
+                            {/* Tooltip */}
+                            <div
+                              className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none whitespace-nowrap"
+                              style={{
+                                background: 'rgba(255, 255, 255, 0.9)',
+                                backdropFilter: 'blur(25px) saturate(200%)',
+                                WebkitBackdropFilter: 'blur(25px) saturate(200%)',
+                                color: '#000',
+                                padding: '10px 18px',
+                                borderRadius: '14px',
+                                fontSize: '0.85rem',
+                                fontWeight: '700',
+                                boxShadow: '0 20px 40px rgba(0,0,0,0.3)',
+                                zIndex: 100,
+                                top: '-95px',
+                              }}
+                            >
+                              {avgScore ? (
+                                <>
+                                  <span className="text-slate-400 mr-2">
+                                    {'★'.repeat(Math.floor(parseFloat(avgScore)))}
+                                    {'☆'.repeat(5 - Math.floor(parseFloat(avgScore)))}
+                                  </span>
+                                  {avgScore}
+                                </>
+                              ) : (
+                                'Not Rated'
+                              )}
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+                
+                {/* Shelf Base */}
+                <div
+                  className="h-0.5 bg-white/10 w-full mt-4"
+                  style={{ marginTop: '-60px' }}
+                />
+              </div>
+            </div>
+          </motion.main>
+        ) : (
+          <motion.main
+            key="main"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            ref={(el) => {
+              if (el) {
+                // Enable rubber band bounce effect
+                el.style.overscrollBehaviorY = 'auto';
+                (el.style as any).webkitOverflowScrolling = 'touch';
+              }
+            }}
+            className="flex-1 flex flex-col items-center justify-start p-4 relative pt-28 overflow-y-auto pb-20 ios-scroll"
+            onScroll={(e) => {
+              const target = e.currentTarget;
+              setScrollY(target.scrollTop);
+            }}
+            onTouchMove={(e) => {
+              // Allow native bounce on touch devices
+              const target = e.currentTarget;
+              const { scrollTop, scrollHeight, clientHeight } = target;
+              const isAtTop = scrollTop === 0;
+              const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
+              
+              // Let native bounce behavior work
+              if (isAtTop || isAtBottom) {
+                // Native iOS bounce will handle this
+                return;
+              }
+            }}
+          >
         {books.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
             <img src="/logo.png" alt="BOOK" className="object-contain mx-auto mb-4" />
@@ -2559,7 +2787,9 @@ export default function App() {
             )}
           </div>
         )}
-      </main>
+          </motion.main>
+        )}
+      </AnimatePresence>
 
       {/* Bottom Navigation Bar */}
       <div className="fixed bottom-4 left-0 right-0 z-[50] flex justify-center px-4 pointer-events-none">
@@ -2567,13 +2797,18 @@ export default function App() {
           {/* Books button - left (active, circular) */}
           <button
             onClick={() => {
+              setShowBookshelf(false);
               // Scroll to top to show books
               const main = document.querySelector('main');
               if (main) {
                 main.scrollTo({ top: 0, behavior: 'smooth' });
               }
             }}
-            className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:scale-95 transition-all flex items-center justify-center"
+            className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
+              !showBookshelf 
+                ? 'bg-white/40 hover:bg-white/50' 
+                : 'bg-white/20 hover:bg-white/30'
+            }`}
           >
             <BookOpen size={18} className="text-slate-950" />
           </button>
@@ -2581,9 +2816,13 @@ export default function App() {
           {/* Bookshelf button - middle (circular) */}
           <button
             onClick={() => {
-              // TODO: Add bookshelf functionality
+              setShowBookshelf(!showBookshelf);
             }}
-            className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:scale-95 transition-all flex items-center justify-center"
+            className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
+              showBookshelf 
+                ? 'bg-white/40 hover:bg-white/50' 
+                : 'bg-white/20 hover:bg-white/30'
+            }`}
           >
             <Library size={18} className="text-slate-950" />
           </button>
