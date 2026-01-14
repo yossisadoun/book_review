@@ -3344,6 +3344,59 @@ export default function App() {
                     Genre
                   </button>
                 </div>
+
+                {/* Summary Section */}
+                <div className="flex items-center justify-center gap-4 px-4 mb-6">
+                  {(() => {
+                    // Calculate KPIs
+                    const totalBooks = books.length;
+                    const booksWithRatings = books.filter(book => {
+                      const values = Object.values(book.ratings).filter(v => v != null) as number[];
+                      return values.length > 0;
+                    });
+                    const totalUnrated = totalBooks - booksWithRatings.length;
+                    
+                    // Calculate average score across all books
+                    let avgScore = 0;
+                    if (booksWithRatings.length > 0) {
+                      const totalScore = booksWithRatings.reduce((sum, book) => {
+                        return sum + calculateScore(book.ratings);
+                      }, 0);
+                      avgScore = totalScore / booksWithRatings.length;
+                    }
+
+                    return (
+                      <>
+                        {/* Total Books KPI */}
+                        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-lg flex flex-col items-center min-w-[100px]">
+                          <span className="text-lg font-bold text-slate-950 mb-1">
+                            {totalBooks}
+                          </span>
+                          <span className="text-xs text-slate-600 font-medium">Total</span>
+                        </div>
+
+                        {/* Average Score KPI */}
+                        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-lg flex flex-col items-center min-w-[100px]">
+                          <div className="flex items-center gap-1 mb-1">
+                            <Star size={16} className="fill-amber-400 text-amber-400" />
+                            <span className="text-lg font-bold text-slate-950">
+                              {avgScore > 0 ? avgScore.toFixed(1) : '—'}
+                            </span>
+                          </div>
+                          <span className="text-xs text-slate-600 font-medium">Avg Score</span>
+                        </div>
+
+                        {/* Total Unrated KPI */}
+                        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-lg flex flex-col items-center min-w-[100px]">
+                          <span className="text-lg font-bold text-slate-950 mb-1">
+                            {totalUnrated}
+                          </span>
+                          <span className="text-xs text-slate-600 font-medium">Unrated</span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
                 
                 {groupedBooksForBookshelf.map((group, groupIdx) => (
                   <div 
