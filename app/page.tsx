@@ -553,7 +553,7 @@ async function getCuratedPodcastEpisodes(bookTitle: string, author: string): Pro
   }
 }
 
-async function getPodcastEpisodes(bookTitle: string, author: string, source: 'grok' | 'apple' | 'curated' = 'curated'): Promise<PodcastEpisode[]> {
+async function getPodcastEpisodes(bookTitle: string, author: string, source: 'apple' | 'curated' = 'curated'): Promise<PodcastEpisode[]> {
   console.log(`[getPodcastEpisodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${author} from ${source}`);
   if (source === 'curated') {
     return getCuratedPodcastEpisodes(bookTitle, author);
@@ -858,6 +858,84 @@ async function lookupBookOnWikipedia(query: string): Promise<Omit<Book, 'id' | '
 
 // --- Utilities ---
 
+// Extract dominant colors from an image and create a gradient
+function extractColorsFromImage(imageUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) {
+          resolve('241,245,249,226,232,240'); // Default slate colors as RGB
+          return;
+        }
+        
+        // Scale down for performance
+        const scale = 0.15;
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        
+        // Sample colors from different regions (more samples for better accuracy)
+        const samplePoints = [
+          { x: canvas.width * 0.1, y: canvas.height * 0.1 }, // Top-left
+          { x: canvas.width * 0.9, y: canvas.height * 0.1 }, // Top-right
+          { x: canvas.width * 0.5, y: canvas.height * 0.3 }, // Upper center
+          { x: canvas.width * 0.5, y: canvas.height * 0.7 }, // Lower center
+          { x: canvas.width * 0.1, y: canvas.height * 0.9 }, // Bottom-left
+          { x: canvas.width * 0.9, y: canvas.height * 0.9 }, // Bottom-right
+        ];
+        
+        const colors: number[][] = [];
+        samplePoints.forEach(point => {
+          const pixel = ctx.getImageData(Math.floor(point.x), Math.floor(point.y), 1, 1);
+          const [r, g, b] = pixel.data;
+          colors.push([r, g, b]);
+        });
+        
+        // Calculate average color
+        const avgColor = colors.reduce(
+          (acc, color) => [acc[0] + color[0], acc[1] + color[1], acc[2] + color[2]],
+          [0, 0, 0]
+        ).map(sum => Math.floor(sum / colors.length));
+        
+        // Create a slightly darker/lighter complementary color for gradient
+        // Lighten one direction, darken the other
+        const lighten = (color: number[]) => [
+          Math.min(255, Math.floor(color[0] * 1.2)),
+          Math.min(255, Math.floor(color[1] * 1.2)),
+          Math.min(255, Math.floor(color[2] * 1.2)),
+        ];
+        
+        const darken = (color: number[]) => [
+          Math.max(0, Math.floor(color[0] * 0.7)),
+          Math.max(0, Math.floor(color[1] * 0.7)),
+          Math.max(0, Math.floor(color[2] * 0.7)),
+        ];
+        
+        // Use lighter and darker versions for gradient
+        const color1 = lighten(avgColor);
+        const color2 = darken(avgColor);
+        
+        // Return as RGB values separated by commas: "r1,g1,b1,r2,g2,b2"
+        resolve(`${color1[0]},${color1[1]},${color1[2]},${color2[0]},${color2[1]},${color2[2]}`);
+      } catch (err) {
+        console.error('Error extracting colors:', err);
+        resolve('241,245,249,226,232,240'); // Default slate colors
+      }
+    };
+    
+    img.onerror = () => {
+      resolve('241,245,249,226,232,240'); // Default slate colors
+    };
+    
+    img.src = imageUrl;
+  });
+}
+
 function convertBookToApp(book: Book): BookWithRatings {
   return {
     ...book,
@@ -941,10 +1019,10 @@ function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTo
         <motion.div
           animate={{ opacity: [0.5, 0.8, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="bg-white/95 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/40"
+          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
         >
-          <div className="h-12 flex items-center justify-center">
-            <div className="w-full h-4 bg-slate-200/60 rounded animate-pulse" />
+            <div className="h-12 flex items-center justify-center">
+            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
           </div>
         </motion.div>
       </div>
@@ -968,12 +1046,12 @@ function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTo
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="bg-white/95 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/40"
+            className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
           >
-            <p className="text-xs font-medium text-slate-800 leading-relaxed text-center">
+            <p className="text-xs font-medium text-slate-950 leading-relaxed text-center">
               💡 {currentFact}
             </p>
-            <p className="text-[10px] text-slate-400 text-center mt-2 font-bold uppercase tracking-wider">
+            <p className="text-[10px] text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
               Tap for next ({currentIndex + 1}/{facts.length})
             </p>
           </motion.div>
@@ -1108,12 +1186,12 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
         <motion.div
           animate={{ opacity: [0.5, 0.8, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="bg-white/95 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/40"
+          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
         >
           <div className="space-y-3">
-            <div className="h-4 bg-slate-200/60 rounded animate-pulse" />
-            <div className="h-3 bg-slate-200/60 rounded w-3/4 animate-pulse" />
-            <div className="h-3 bg-slate-200/60 rounded w-2/3 animate-pulse" />
+            <div className="h-4 bg-slate-300/50 rounded animate-pulse" />
+            <div className="h-3 bg-slate-300/50 rounded w-3/4 animate-pulse" />
+            <div className="h-3 bg-slate-300/50 rounded w-2/3 animate-pulse" />
           </div>
         </motion.div>
       </div>
@@ -1137,7 +1215,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="bg-white/95 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/40"
+            className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
           >
             <div className="flex items-start gap-3 mb-2">
               {/* Thumbnail - show for Apple Podcasts */}
@@ -1148,8 +1226,8 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                   className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
                 />
               ) : (
-                <div className="w-12 h-12 rounded-lg bg-slate-200 flex items-center justify-center flex-shrink-0">
-                  <Headphones size={20} className="text-slate-400" />
+                <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                  <Headphones size={20} className="text-slate-600" />
                 </div>
               )}
               <div className="flex-1 min-w-0">
@@ -1158,7 +1236,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                   target="_blank" 
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline block"
+                  className="text-xs font-bold text-blue-700 hover:text-blue-800 hover:underline block"
                 >
                   {currentEpisode.title}
                 </a>
@@ -1170,7 +1248,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                 return (
                   <button
                     onClick={(e) => handlePlay(e, currentEpisode)}
-                    className="flex-shrink-0 p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-all active:scale-95 shadow-lg"
+                    className="flex-shrink-0 p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full transition-all active:scale-95 shadow-lg"
                     aria-label="Play episode"
                   >
                     <Play 
@@ -1188,9 +1266,9 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                 );
               })()}
             </div>
-            <div className="text-[10px] text-slate-500 space-y-1 mb-2">
+            <div className="text-[10px] text-slate-700 space-y-1 mb-2">
               {currentEpisode.podcast_name && (
-                <div className="font-bold text-slate-700">{currentEpisode.podcast_name}</div>
+                <div className="font-bold text-slate-900">{currentEpisode.podcast_name}</div>
               )}
               {currentEpisode.platform && (
                 <div className="font-semibold">{currentEpisode.platform}</div>
@@ -1202,15 +1280,15 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                 </div>
               )}
             </div>
-            <p className="text-[10px] font-medium text-slate-700 leading-relaxed mb-1">
+            <p className="text-[10px] font-medium text-slate-800 leading-relaxed mb-1">
               {currentEpisode.episode_summary}
             </p>
             {currentEpisode.podcast_summary && (
-              <p className="text-[9px] text-slate-500 italic">
+              <p className="text-[9px] text-slate-600 italic">
                 {currentEpisode.podcast_summary}
               </p>
             )}
-            <p className="text-[10px] text-slate-400 text-center mt-2 font-bold uppercase tracking-wider">
+            <p className="text-[10px] text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
               Tap for next ({currentIndex + 1}/{episodes.length})
             </p>
           </motion.div>
@@ -1244,7 +1322,7 @@ function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <h3 className="text-sm font-bold uppercase tracking-widest text-slate-900/60 mb-1">{dimension}</h3>
+                      <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950 mb-1">{dimension}</h3>
       <div className="flex gap-1">
         {[1, 2, 3, 4, 5].map((star) => (
           <motion.button key={star} onClick={() => handleTap(star)} className="p-1 focus:outline-none" whileTap={{ scale: 0.7 }}>
@@ -1381,12 +1459,12 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
       <motion.div 
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="w-full max-w-md bg-white rounded-t-3xl shadow-2xl"
+        className="w-full max-w-md bg-white/80 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30"
         onClick={e => e.stopPropagation()}
       >
         {/* Handle bar */}
         <div className="w-full flex justify-center pt-3 pb-2">
-          <div className="w-12 h-1 bg-slate-300 rounded-full" />
+          <div className="w-12 h-1 bg-slate-400 rounded-full" />
         </div>
 
         <div className="px-4 pb-6">
@@ -1400,12 +1478,12 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
                 placeholder={isQueryHebrew ? "חפש ספר..." : "Search for a book..."}
                 value={query} 
                 onChange={e => setQuery(e.target.value)}
-                className={`w-full h-12 bg-white border border-slate-300 rounded-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm outline-none transition-all ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
+                className={`w-full h-12 bg-white/80 backdrop-blur-md border border-white/30 rounded-full focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-sm outline-none transition-all ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
                 dir={isQueryHebrew ? "rtl" : "ltr"}
               />
               <Search 
                 size={16} 
-                className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isQueryHebrew ? 'left-4' : 'right-4'}`}
+                className={`absolute top-1/2 -translate-y-1/2 text-slate-600 ${isQueryHebrew ? 'left-4' : 'right-4'}`}
               />
             </div>
 
@@ -1417,13 +1495,13 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
                   // Toggle between: wikipedia -> apple_books -> wikipedia
                   setSearchSource(prev => prev === 'wikipedia' ? 'apple_books' : 'wikipedia');
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 active:scale-95 transition-all text-xs"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/80 backdrop-blur-md hover:bg-white/85 active:scale-95 transition-all text-xs border border-white/30 shadow-sm"
               >
-                <span className={`font-medium transition-colors ${searchSource === 'wikipedia' ? 'text-blue-600' : 'text-slate-500'}`}>
+                <span className={`font-medium transition-colors ${searchSource === 'wikipedia' ? 'text-blue-700' : 'text-slate-700'}`}>
                   Wikipedia
                 </span>
-                <span className="text-slate-300">/</span>
-                <span className={`font-medium transition-colors ${searchSource === 'apple_books' ? 'text-blue-600' : 'text-slate-500'}`}>
+                <span className="text-slate-400">/</span>
+                <span className={`font-medium transition-colors ${searchSource === 'apple_books' ? 'text-blue-700' : 'text-slate-700'}`}>
                   Apple Books
                 </span>
               </button>
@@ -1445,7 +1523,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
                   exit={{ opacity: 0 }}
                   className="space-y-2 max-h-[400px] overflow-y-auto"
                 >
-                  <div className="text-xs font-medium text-slate-500 mb-2">
+                  <div className="text-xs font-medium text-slate-700 mb-2">
                     Select a book to add:
                   </div>
                   {searchResults.map((book, i) => (
@@ -1456,7 +1534,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: i * 0.05 }}
                       onClick={() => handleSelectBook(book)}
-                      className="w-full flex items-center gap-3 p-3 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 transition-all text-left"
+                      className="w-full flex items-center gap-3 p-3 bg-white/80 backdrop-blur-md hover:bg-white/85 rounded-xl border border-white/30 shadow-sm transition-all text-left"
                     >
                       {book.cover_url ? (
                         <img 
@@ -1465,19 +1543,19 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
                           className="w-12 h-16 object-cover rounded flex-shrink-0"
                         />
                       ) : (
-                        <div className="w-12 h-16 bg-slate-200 rounded flex-shrink-0 flex items-center justify-center">
-                          <BookOpen size={20} className="text-slate-400" />
+                        <div className="w-12 h-16 bg-slate-100 rounded flex-shrink-0 flex items-center justify-center">
+                          <BookOpen size={20} className="text-slate-600" />
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-bold text-slate-900 truncate">{book.title}</h3>
-                        <p className="text-xs text-slate-600 truncate">{book.author}</p>
+                        <h3 className="text-sm font-bold text-slate-950 truncate">{book.title}</h3>
+                        <p className="text-xs text-slate-800 truncate">{book.author}</p>
                         {book.publish_year && (
-                          <p className="text-[10px] text-slate-500 mt-0.5">{book.publish_year}</p>
+                          <p className="text-[10px] text-slate-600 mt-0.5">{book.publish_year}</p>
                         )}
                       </div>
                       {i === 0 && (
-                        <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                        <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-1 rounded">
                           Top
                         </span>
                       )}
@@ -1496,7 +1574,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
                   exit={{ opacity: 0 }}
                   className="flex flex-wrap gap-2"
                 >
-                  <div className="w-full text-xs font-medium text-slate-500 mb-1 flex items-center gap-1.5">
+                  <div className="w-full text-xs font-medium text-slate-700 mb-1 flex items-center gap-1.5">
                     <Sparkles size={12} className="text-amber-400" /> 
                     <span>Did you mean?</span>
                   </div>
@@ -1537,9 +1615,16 @@ export default function App() {
   const [loadingFactsForBookId, setLoadingFactsForBookId] = useState<string | null>(null);
   const [loadingPodcastsForBookId, setLoadingPodcastsForBookId] = useState<string | null>(null);
   const [scrollY, setScrollY] = useState(0);
-  const [podcastSource, setPodcastSource] = useState<'grok' | 'apple' | 'curated'>(() => {
+  const [backgroundGradient, setBackgroundGradient] = useState<string>('241,245,249,226,232,240'); // Default slate colors as RGB
+  const [podcastSource, setPodcastSource] = useState<'apple' | 'curated'>(() => {
     if (typeof window !== 'undefined') {
-      return (localStorage.getItem('podcastSource') as 'grok' | 'apple' | 'curated') || 'curated';
+      const saved = localStorage.getItem('podcastSource');
+      // Migrate old 'grok' values to 'curated'
+      if (saved === 'grok') {
+        localStorage.setItem('podcastSource', 'curated');
+        return 'curated';
+      }
+      return (saved as 'apple' | 'curated') || 'curated';
     }
     return 'curated';
   });
@@ -1622,6 +1707,18 @@ export default function App() {
     
     return () => clearTimeout(timer);
   }, [selectedIndex]);
+
+  // Update background gradient when book changes
+  useEffect(() => {
+    const currentBook = books[selectedIndex];
+    if (currentBook?.cover_url) {
+      extractColorsFromImage(currentBook.cover_url).then(gradient => {
+        setBackgroundGradient(gradient);
+      });
+    } else {
+      setBackgroundGradient('241,245,249,226,232,240'); // Default slate colors
+    }
+  }, [selectedIndex, books]);
 
   // Fetch author facts for existing books when they're selected (if missing)
   useEffect(() => {
@@ -1723,9 +1820,7 @@ export default function App() {
     // Check if podcasts already exist in database for the selected source
     const sourceEpisodes = podcastSource === 'curated'
       ? currentBook.podcast_episodes_curated
-      : podcastSource === 'apple' 
-      ? currentBook.podcast_episodes_apple 
-      : currentBook.podcast_episodes_grok;
+      : currentBook.podcast_episodes_apple;
     
     // Fallback to legacy podcast_episodes if source-specific doesn't exist
     const episodes = sourceEpisodes || currentBook.podcast_episodes;
@@ -1736,9 +1831,7 @@ export default function App() {
       setTimeout(() => {
         const sourceName = podcastSource === 'curated' 
           ? 'Curated' 
-          : podcastSource === 'apple' 
-          ? 'Apple Podcasts' 
-          : 'Grok';
+          : 'Apple Podcasts';
         console.log(`[Podcast Episodes] ✅ Loaded ${episodes.length} episodes from database (${sourceName}) for "${currentBook.title}" by ${currentBook.author}`);
         setLoadingPodcastsForBookId(null);
         
@@ -1746,9 +1839,7 @@ export default function App() {
         if (!sourceEpisodes && currentBook.podcast_episodes) {
           const updateField = podcastSource === 'curated'
             ? 'podcast_episodes_curated'
-            : podcastSource === 'apple' 
-            ? 'podcast_episodes_apple' 
-            : 'podcast_episodes_grok';
+            : 'podcast_episodes_apple';
           setBooks(prev => prev.map(book => 
             book.id === currentBook.id 
               ? { ...book, [updateField]: currentBook.podcast_episodes }
@@ -1772,9 +1863,7 @@ export default function App() {
       const bookAuthor = currentBook.author;
       const sourceName = podcastSource === 'curated' 
         ? 'Curated' 
-        : podcastSource === 'apple' 
-        ? 'Apple Podcasts' 
-        : 'Grok API';
+        : 'Apple Podcasts';
       
       console.log(`[Podcast Episodes] 🔄 Fetching from ${sourceName} for "${bookTitle}" by ${bookAuthor}...`);
       getPodcastEpisodes(bookTitle, bookAuthor, podcastSource).then(async (episodes) => {
@@ -1786,16 +1875,12 @@ export default function App() {
         if (episodes.length > 0) {
           const sourceName = podcastSource === 'curated' 
             ? 'Curated' 
-            : podcastSource === 'apple' 
-            ? 'Apple Podcasts' 
-            : 'Grok API';
+            : 'Apple Podcasts';
           console.log(`[Podcast Episodes] ✅ Received ${episodes.length} episodes from ${sourceName} for "${bookTitle}"`);
           // Save to database with source-specific column
           const updateField = podcastSource === 'curated'
             ? 'podcast_episodes_curated'
-            : podcastSource === 'apple' 
-            ? 'podcast_episodes_apple' 
-            : 'podcast_episodes_grok';
+            : 'podcast_episodes_apple';
           try {
             const { error: updateError } = await supabase
               .from('books')
@@ -1944,9 +2029,7 @@ export default function App() {
         // Fetch podcast episodes
         const sourceName = podcastSource === 'curated' 
           ? 'Curated' 
-          : podcastSource === 'apple' 
-          ? 'Apple Podcasts' 
-          : 'Grok API';
+          : 'Apple Podcasts';
         console.log(`[Podcast Episodes] 🔄 Fetching from ${sourceName} for new book "${meta.title}" by ${meta.author}...`);
         setLoadingPodcastsForBookId(newBook.id);
         getPodcastEpisodes(meta.title, meta.author, podcastSource).then(async (episodes) => {
@@ -1956,9 +2039,7 @@ export default function App() {
             // Save to database with source-specific column
             const updateField = podcastSource === 'curated'
               ? 'podcast_episodes_curated'
-              : podcastSource === 'apple' 
-              ? 'podcast_episodes_apple' 
-              : 'podcast_episodes_grok';
+              : 'podcast_episodes_apple';
             try {
               const { error: updateError } = await supabase
                 .from('books')
@@ -2105,32 +2186,65 @@ export default function App() {
   // Get user avatar from Google account
   const userAvatar = user?.user_metadata?.avatar_url || user?.user_metadata?.picture || null;
 
+  // Parse gradient for inline style (format: "r1,g1,b1,r2,g2,b2")
+  const [r1, g1, b1, r2, g2, b2] = backgroundGradient.split(',').map(Number);
+  const gradientStyle = {
+    background: `linear-gradient(to bottom right, rgb(${r1}, ${g1}, ${b1}), rgb(${r2}, ${g2}, ${b2}))`,
+  };
+  
+  // Calculate gradient opacity based on scroll (fade in when header fades out)
+  // More responsive: starts fading at 20px, fully visible at 60px
+  const gradientOpacity = Math.min(1, Math.max(0, (scrollY - 20) / 40));
+
   return (
     <div className="fixed inset-0 bg-slate-50 text-slate-900 font-sans select-none overflow-hidden flex flex-col">
+      {/* Gradient background that fades in on scroll */}
+      <motion.div
+        key={`gradient-${books[selectedIndex]?.id || 'default'}`}
+        className="fixed inset-0 pointer-events-none z-0"
+        style={{
+          ...gradientStyle,
+          opacity: gradientOpacity,
+        }}
+        animate={{
+          opacity: gradientOpacity,
+        }}
+        transition={{ duration: 0.4, ease: "easeInOut" }}
+      />
       {/* Simple header - fades on scroll */}
       <motion.div 
         className="w-full z-40 fixed top-[50px] left-0 right-0 px-4 py-3 flex items-center justify-between"
         animate={{ 
-          opacity: scrollY > 50 ? 0 : 1,
-          pointerEvents: scrollY > 50 ? 'none' : 'auto'
+          opacity: scrollY > 20 ? Math.max(0, 1 - (scrollY - 20) / 40) : 1,
+          pointerEvents: scrollY > 60 ? 'none' : 'auto'
         }}
-        transition={{ duration: 0.2, ease: "easeOut" }}
+        transition={{ duration: 0.3, ease: "easeInOut" }}
       >
         {/* BOOKS text on left */}
-        <h1 className="text-2xl font-bold text-slate-900">BOOKS</h1>
+        <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">BOOKS</h1>
         
         {/* User avatar on right */}
         {userAvatar ? (
-          <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-slate-200">
+          <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-200">
             <img 
               src={userAvatar} 
               alt={userName}
               className="w-full h-full object-cover"
+              onError={(e) => {
+                // Fallback if image fails to load
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
+                const parent = target.parentElement;
+                if (parent) {
+                  parent.innerHTML = `<div class="w-full h-full flex items-center justify-center bg-slate-300"><span class="text-xs font-bold text-slate-600">${userName.charAt(0).toUpperCase()}</span></div>`;
+                }
+              }}
+              referrerPolicy="no-referrer"
             />
           </div>
         ) : (
-          <div className="w-12 h-12 rounded-full bg-slate-300 flex items-center justify-center border-2 border-slate-200">
-            <span className="text-sm font-bold text-slate-600">
+          <div className="w-8 h-8 rounded-full bg-slate-300 flex items-center justify-center">
+            <span className="text-xs font-bold text-slate-600">
               {userName.charAt(0).toUpperCase()}
             </span>
           </div>
@@ -2150,7 +2264,7 @@ export default function App() {
           </div>
         ) : (
           <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">
-            <div className="relative w-full aspect-[2/3] rounded-3xl shadow-2xl border border-white/50 overflow-hidden group">
+            <div className="relative w-full aspect-[2/3] rounded-3xl shadow-2xl border border-white/30 overflow-hidden group">
               <AnimatePresence mode='wait'>
                 <motion.div key={activeBook.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="w-full h-full">
                   {activeBook.cover_url ? (
@@ -2181,7 +2295,7 @@ export default function App() {
                     initial={{ opacity: 0, y: 20 }} 
                     animate={{ opacity: 1, y: 0 }} 
                     exit={{ opacity: 0, y: 20 }} 
-                    className="absolute bottom-16 left-4 right-4 z-40 bg-white/80 backdrop-blur-xl flex flex-col items-center justify-center p-4 rounded-2xl border border-white/20 shadow-2xl overflow-hidden"
+                    className="absolute bottom-16 left-4 right-4 z-40 bg-white/80 backdrop-blur-xl flex flex-col items-center justify-center p-4 rounded-2xl border border-white/30 shadow-2xl overflow-hidden"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <motion.div 
@@ -2205,8 +2319,8 @@ export default function App() {
                           onClick={() => setEditingDimension(dim)}
                           className={`w-2 h-2 rounded-full transition-all ${
                             dim === currentEditingDimension 
-                              ? 'bg-blue-500 w-6' 
-                              : 'bg-slate-300'
+                              ? 'bg-blue-600 w-6' 
+                              : 'bg-slate-400'
                           }`}
                         />
                       ))}
@@ -2226,7 +2340,7 @@ export default function App() {
                 />
               )}
 
-              <button onClick={() => setIsConfirmingDelete(true)} className="absolute bottom-4 right-4 z-30 bg-white/95 backdrop-blur p-2.5 rounded-full shadow-lg text-slate-400 hover:text-red-500 active:scale-90 transition-all border border-white/20">
+              <button onClick={() => setIsConfirmingDelete(true)} className="absolute bottom-4 right-4 z-30 bg-white/80 backdrop-blur-md p-2.5 rounded-full shadow-lg text-slate-600 hover:text-red-600 active:scale-90 transition-all border border-white/30">
                 <Trash2 size={20} />
               </button>
 
@@ -2235,10 +2349,10 @@ export default function App() {
                   setIsEditing(true);
                   setEditingDimension(null); // Will default to first unrated or first dimension
                 }} 
-                className="absolute bottom-4 left-4 z-30 bg-white/95 backdrop-blur px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1 active:scale-90 transition-transform border border-white/20"
+                className="absolute bottom-4 left-4 z-30 bg-white/80 backdrop-blur-md px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1 active:scale-90 transition-transform border border-white/30"
               >
                 <Star size={14} className="fill-amber-400 text-amber-400" />
-                <span className="font-black text-sm text-slate-800">
+                <span className="font-black text-sm text-slate-950">
                   {calculateAvg(activeBook.ratings) || 'Rate'}
                 </span>
               </button>
@@ -2258,16 +2372,16 @@ export default function App() {
                 animate={{ opacity: 1, y: 0 }}
                 className="w-full mt-2"
               >
-                <div className="bg-white/95 backdrop-blur-md shadow-lg border border-slate-200 rounded-2xl px-4 py-3 mx-auto">
+                <div className="bg-white/80 backdrop-blur-md shadow-xl border border-white/30 rounded-2xl px-4 py-3 mx-auto">
                   {/* Line 1: Title */}
-                  <h2 className="text-sm font-black text-slate-900 leading-tight line-clamp-2 mb-2">{activeBook.title}</h2>
+                  <h2 className="text-sm font-black text-slate-950 leading-tight line-clamp-2 mb-2">{activeBook.title}</h2>
                   {/* Line 2: Author, Year, Source */}
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-xs font-bold text-slate-600">{activeBook.author}</p>
+                    <p className="text-xs font-bold text-slate-800">{activeBook.author}</p>
                     {activeBook.publish_year && (
                       <>
                         <span className="text-slate-300">•</span>
-                        <span className="bg-slate-200/80 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-700">
+                        <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
                           {activeBook.publish_year}
                         </span>
                       </>
@@ -2279,7 +2393,7 @@ export default function App() {
                           href={activeBook.google_books_url || activeBook.wikipedia_url || '#'} 
                           target="_blank" 
                           rel="noopener noreferrer" 
-                          className="text-[10px] text-blue-600 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline"
+                          className="text-[10px] text-blue-700 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline"
                         >
                           Source <ExternalLink size={10} />
                         </a>
@@ -2313,9 +2427,7 @@ export default function App() {
                   // Get episodes for the selected source
                   const sourceEpisodes = podcastSource === 'curated'
                     ? activeBook.podcast_episodes_curated
-                    : podcastSource === 'apple' 
-                    ? activeBook.podcast_episodes_apple 
-                    : activeBook.podcast_episodes_grok;
+                    : activeBook.podcast_episodes_apple;
                   // Fallback to legacy podcast_episodes if source-specific doesn't exist
                   const episodes = sourceEpisodes || activeBook.podcast_episodes || [];
                   const hasEpisodes = episodes.length > 0;
@@ -2326,30 +2438,24 @@ export default function App() {
                   return (
                     <div className="w-full space-y-2">
                       {/* Podcast Source Toggle */}
-                      <div className="flex items-center justify-center gap-2 mb-2">
-                        <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Podcasts:</span>
+                      <div className="flex items-center justify-center mb-2">
                         <button
                           type="button"
                           onClick={() => {
-                            // Cycle through: curated -> apple -> grok -> curated
-                            const sources: ('curated' | 'apple' | 'grok')[] = ['curated', 'apple', 'grok'];
-                            const currentIndex = sources.indexOf(podcastSource);
-                            const nextIndex = (currentIndex + 1) % sources.length;
-                            setPodcastSource(sources[nextIndex]);
+                            // Toggle between: curated -> apple -> curated
+                            setPodcastSource(podcastSource === 'curated' ? 'apple' : 'curated');
                             // Episodes will be loaded automatically via useEffect dependency on podcastSource
                           }}
-                          className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 active:scale-95 transition-all"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md hover:bg-white/85 active:scale-95 transition-all border border-white/30 shadow-sm"
                         >
-                          <span className={`text-[10px] font-bold transition-colors ${podcastSource === 'curated' ? 'text-blue-600' : 'text-slate-400'}`}>
+                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">PODCASTS:</span>
+                          <span className="text-[10px] font-bold text-slate-400">/</span>
+                          <span className={`text-[10px] font-bold transition-colors ${podcastSource === 'curated' ? 'text-blue-700' : 'text-slate-600'}`}>
                             Curated
                           </span>
-                          <span className="text-[10px] font-bold text-slate-300">/</span>
-                          <span className={`text-[10px] font-bold transition-colors ${podcastSource === 'apple' ? 'text-blue-600' : 'text-slate-400'}`}>
+                          <span className="text-[10px] font-bold text-slate-400">/</span>
+                          <span className={`text-[10px] font-bold transition-colors ${podcastSource === 'apple' ? 'text-blue-700' : 'text-slate-600'}`}>
                             Apple
-                          </span>
-                          <span className="text-[10px] font-bold text-slate-300">/</span>
-                          <span className={`text-[10px] font-bold transition-colors ${podcastSource === 'grok' ? 'text-blue-600' : 'text-slate-400'}`}>
-                            Grok
                           </span>
                         </button>
                       </div>
@@ -2360,7 +2466,7 @@ export default function App() {
                           transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
                           className="w-full bg-slate-50 rounded-2xl p-6 border border-slate-200"
                         >
-                          <div className="text-center text-slate-400 text-sm">
+                          <div className="text-center text-slate-600 text-sm">
                             Loading podcasts...
                           </div>
                         </motion.div>
@@ -2376,12 +2482,12 @@ export default function App() {
                         <motion.div
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
-                          className="w-full bg-slate-50 rounded-2xl p-6 border border-slate-200"
+                          className="w-full bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-white/30 shadow-lg"
                         >
                           <div className="text-center">
-                            <Headphones size={24} className="mx-auto mb-2 text-slate-400" />
-                            <p className="text-slate-600 text-sm font-medium mb-1">No podcasts found</p>
-                            <p className="text-slate-400 text-xs">Try switching to {podcastSource === 'grok' ? 'Apple' : 'Grok'} or search for a different book</p>
+                            <Headphones size={24} className="mx-auto mb-2 text-slate-600" />
+                            <p className="text-slate-800 text-sm font-medium mb-1">No podcasts found</p>
+                            <p className="text-slate-600 text-xs">Try switching to {podcastSource === 'curated' ? 'Apple' : 'Curated'} or search for a different book</p>
                           </div>
                         </motion.div>
                       )}
@@ -2397,11 +2503,11 @@ export default function App() {
       {/* Simple always-present search box */}
       <div className="fixed bottom-4 left-0 right-0 z-[50] flex justify-center px-4 pointer-events-none">
         <div 
-          className="w-full max-w-[280px] h-10 bg-white border border-slate-300 rounded-full shadow-lg flex items-center px-4 cursor-pointer pointer-events-auto transition-all hover:shadow-xl hover:border-slate-400"
+          className="w-full max-w-[280px] h-10 bg-white/80 backdrop-blur-md border border-white/30 rounded-full shadow-xl flex items-center px-4 cursor-pointer pointer-events-auto transition-all hover:shadow-2xl hover:border-white/40"
           onClick={() => setIsAdding(true)}
         >
-          <Search size={16} className="text-slate-400 mr-2 flex-shrink-0" />
-          <span className="text-sm text-slate-500 flex-1">Search for a book...</span>
+          <Search size={16} className="text-slate-600 mr-2 flex-shrink-0" />
+          <span className="text-sm text-slate-700 flex-1">Search for a book...</span>
         </div>
       </div>
 
