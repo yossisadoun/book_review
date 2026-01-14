@@ -11,31 +11,56 @@ jobs:
     steps:
       - name: Call Supabase Edge Function
         run: |
-          # Use service role key if available, otherwise fall back to anon key
-          AUTH_KEY="${SUPABASE_SERVICE_ROLE_KEY:-$SUPABASE_ANON_KEY}"
-          
-          if [ -z "$AUTH_KEY" ] || [ "$AUTH_KEY" = "" ]; then
-            echo "❌ Error: No Supabase key found."
-            echo "Please set SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY in GitHub secrets."
+          # Debug: Check if secrets are available (without exposing values)
+          if [ -z "$SUPABASE_ANON_KEY" ] && [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "❌ Error: No Supabase keys found in secrets."
+            echo "Please ensure NEXT_PUBLIC_SUPABASE_ANON_KEY is set in GitHub secrets."
             exit 1
           fi
           
-          echo "🔑 Using authentication key (length: ${#AUTH_KEY})"
+          # Prefer service role key, fall back to anon key
+          if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ] && [ "$SUPABASE_SERVICE_ROLE_KEY" != "" ]; then
+            AUTH_KEY="$SUPABASE_SERVICE_ROLE_KEY"
+            echo "🔑 Using service role key (length: ${#AUTH_KEY})"
+          elif [ -n "$SUPABASE_ANON_KEY" ] && [ "$SUPABASE_ANON_KEY" != "" ]; then
+            AUTH_KEY="$SUPABASE_ANON_KEY"
+            echo "🔑 Using anon key (length: ${#AUTH_KEY})"
+          else
+            echo "❌ Error: Keys are empty or invalid"
+            exit 1
+          fi
           
+          # Verify key format (should start with eyJ for JWT)
+          if [[ ! "$AUTH_KEY" =~ ^eyJ ]]; then
+            echo "⚠️ Warning: Key doesn't appear to be a valid JWT (should start with 'eyJ')"
+          fi
+          
+          echo "📡 Calling Edge Function: https://nuhpfsbjjqoikwszlphr.supabase.co/functions/v1/smart-responder"
+          
+          # Try with Authorization Bearer header (standard method)
           response=$(curl -s -w "\n%{http_code}" -X POST \
             -H "Authorization: Bearer $AUTH_KEY" \
             -H "Content-Type: application/json" \
+            -H "apikey: $AUTH_KEY" \
+            -d '{}' \
             https://nuhpfsbjjqoikwszlphr.supabase.co/functions/v1/smart-responder)
           
           http_code=$(echo "$response" | tail -n1)
           body=$(echo "$response" | sed '$d')
+          
+          echo "📥 Response code: $http_code"
           
           if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]; then
             echo "✅ Successfully updated curated episodes"
             echo "$body"
           else
             echo "❌ Failed to update curated episodes (HTTP $http_code)"
-            echo "$body"
+            echo "Response body: $body"
+            echo ""
+            echo "💡 Troubleshooting:"
+            echo "   - Verify the Edge Function 'smart-responder' exists and is deployed"
+            echo "   - Check if the Edge Function requires authentication"
+            echo "   - Ensure the key has proper permissions"
             exit 1
           fi
         env:
