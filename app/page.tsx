@@ -1636,6 +1636,13 @@ export default function App() {
   const [scrollY, setScrollY] = useState(0);
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
   const [showBookshelf, setShowBookshelf] = useState(false);
+  const [bookshelfGrouping, setBookshelfGrouping] = useState<'rating' | 'author' | 'title'>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('bookshelfGrouping');
+      return (saved as 'rating' | 'author' | 'title') || 'rating';
+    }
+    return 'rating';
+  });
   const [backgroundGradient, setBackgroundGradient] = useState<string>('241,245,249,226,232,240'); // Default slate colors as RGB
   const [podcastSource, setPodcastSource] = useState<'apple' | 'curated'>(() => {
     if (typeof window !== 'undefined') {
@@ -1706,14 +1713,114 @@ export default function App() {
   const activeBook = books[selectedIndex] || null;
   const [editingDimension, setEditingDimension] = useState<typeof RATING_DIMENSIONS[number] | null>(null);
   
-  // Sort books by score for bookshelf view
-  const sortedBooksForBookshelf = useMemo(() => {
-    return [...books].sort((a, b) => {
-      const scoreA = calculateScore(a.ratings);
-      const scoreB = calculateScore(b.ratings);
-      return scoreB - scoreA; // Descending order
-    });
-  }, [books]);
+  // Save bookshelf grouping preference
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('bookshelfGrouping', bookshelfGrouping);
+    }
+  }, [bookshelfGrouping]);
+
+  // Helper function to get alphabetical range for a letter
+  const getAlphabeticalRange = (letter: string): string => {
+    const upper = letter.toUpperCase();
+    if (upper >= 'A' && upper <= 'D') return 'A-D';
+    if (upper >= 'E' && upper <= 'H') return 'E-H';
+    if (upper >= 'I' && upper <= 'M') return 'I-M';
+    if (upper >= 'N' && upper <= 'S') return 'N-S';
+    return 'T-Z';
+  };
+
+  // Group books for bookshelf view based on selected grouping
+  const groupedBooksForBookshelf = useMemo(() => {
+    if (bookshelfGrouping === 'rating') {
+      const groups: { label: string; books: BookWithRatings[] }[] = [
+        { label: '4-5 Stars', books: [] },
+        { label: '3-4 Stars', books: [] },
+        { label: '1-3 Stars', books: [] },
+        { label: 'Not Rated', books: [] },
+      ];
+      
+      books.forEach(book => {
+        const score = calculateScore(book.ratings);
+        if (score >= 4) {
+          groups[0].books.push(book);
+        } else if (score >= 3) {
+          groups[1].books.push(book);
+        } else if (score >= 1) {
+          groups[2].books.push(book);
+        } else {
+          groups[3].books.push(book);
+        }
+      });
+      
+      // Sort each group by score descending
+      groups.forEach(group => {
+        group.books.sort((a, b) => {
+          const scoreA = calculateScore(a.ratings);
+          const scoreB = calculateScore(b.ratings);
+          return scoreB - scoreA;
+        });
+      });
+      
+      return groups.filter(group => group.books.length > 0);
+    } else if (bookshelfGrouping === 'author') {
+      const groups: { label: string; books: BookWithRatings[] }[] = [
+        { label: 'A-D', books: [] },
+        { label: 'E-H', books: [] },
+        { label: 'I-M', books: [] },
+        { label: 'N-S', books: [] },
+        { label: 'T-Z', books: [] },
+      ];
+      
+      books.forEach(book => {
+        const firstLetter = book.author?.[0]?.toUpperCase() || 'Z';
+        const range = getAlphabeticalRange(firstLetter);
+        const groupIndex = groups.findIndex(g => g.label === range);
+        if (groupIndex !== -1) {
+          groups[groupIndex].books.push(book);
+        }
+      });
+      
+      // Sort each group by author name
+      groups.forEach(group => {
+        group.books.sort((a, b) => {
+          const authorA = (a.author || '').toUpperCase();
+          const authorB = (b.author || '').toUpperCase();
+          return authorA.localeCompare(authorB);
+        });
+      });
+      
+      return groups.filter(group => group.books.length > 0);
+    } else { // title
+      const groups: { label: string; books: BookWithRatings[] }[] = [
+        { label: 'A-D', books: [] },
+        { label: 'E-H', books: [] },
+        { label: 'I-M', books: [] },
+        { label: 'N-S', books: [] },
+        { label: 'T-Z', books: [] },
+      ];
+      
+      books.forEach(book => {
+        const firstLetter = book.title?.[0]?.toUpperCase() || 'Z';
+        const range = getAlphabeticalRange(firstLetter);
+        const groupIndex = groups.findIndex(g => g.label === range);
+        if (groupIndex !== -1) {
+          groups[groupIndex].books.push(book);
+        }
+      });
+      
+      // Sort each group by title
+      groups.forEach(group => {
+        group.books.sort((a, b) => {
+          const titleA = (a.title || '').toUpperCase();
+          const titleB = (b.title || '').toUpperCase();
+          return titleA.localeCompare(titleB);
+        });
+      });
+      
+      return groups.filter(group => group.books.length > 0);
+    }
+  }, [books, bookshelfGrouping]);
   
   // When editing, show the first dimension that needs rating, or first dimension if all are rated
   const currentEditingDimension = useMemo((): typeof RATING_DIMENSIONS[number] | null => {
@@ -2241,19 +2348,23 @@ export default function App() {
         }}
         transition={{ duration: 0.4, ease: "easeInOut" }}
       />
-      {/* Simple header - fades on scroll */}
-      <motion.div 
-        className="w-full z-40 fixed top-[50px] left-0 right-0 px-4 py-3 flex items-center justify-between"
-        animate={{ 
-          opacity: scrollY > 20 ? Math.max(0, 1 - (scrollY - 20) / 40) : 1,
-          pointerEvents: scrollY > 60 ? 'none' : 'auto'
-        }}
-        transition={{ duration: 0.3, ease: "easeInOut" }}
-      >
-        {/* BOOKS/BOOKSHELF text on left */}
-        <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
-          {showBookshelf ? 'BOOKSHELF' : 'BOOKS'}
-        </h1>
+      {/* Simple header - fades on scroll and during transitions */}
+      <AnimatePresence mode="wait">
+        <motion.div 
+          key={showBookshelf ? 'bookshelf-header' : 'books-header'}
+          initial={{ opacity: 0 }}
+          animate={{ 
+            opacity: scrollY > 20 ? Math.max(0, 1 - (scrollY - 20) / 40) : 1,
+            pointerEvents: scrollY > 60 ? 'none' : 'auto'
+          }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3, ease: "easeInOut" }}
+          className="w-full z-40 fixed top-[50px] left-0 right-0 px-4 py-3 flex items-center justify-between"
+        >
+          {/* BOOKS/BOOKSHELF text on left */}
+          <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
+            {showBookshelf ? 'BOOKSHELF' : 'BOOKS'}
+          </h1>
         
         {/* User avatar on right */}
         <div className="relative">
@@ -2321,7 +2432,8 @@ export default function App() {
             )}
           </AnimatePresence>
         </div>
-      </motion.div>
+        </motion.div>
+      </AnimatePresence>
 
       <AnimatePresence mode="wait">
         {showBookshelf ? (
@@ -2330,63 +2442,153 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex-1 flex flex-col items-center justify-center relative pt-20 pb-20 overflow-hidden"
+            transition={{ duration: 0.3 }}
+            className="flex-1 flex flex-col items-center justify-center relative pt-20 overflow-hidden"
+            style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
           >
             {/* Bookshelf View */}
-            <div className="w-full h-full flex flex-col items-center justify-center px-4">
-              <div className="w-full max-w-[1600px] h-full flex flex-col">
-                {/* Shelf Container */}
-                <div 
-                  className="bookshelf-scroll scrollbar-hide flex-1 flex items-end justify-center overflow-x-auto overflow-y-hidden pb-20 px-4"
-                  style={{
-                    scrollSnapType: 'x proximity',
-                    cursor: 'grab',
-                    perspective: '2500px',
-                  } as React.CSSProperties}
-                  onMouseDown={(e) => {
-                    const shelf = e.currentTarget;
-                    const startX = e.pageX - shelf.offsetLeft;
-                    const scrollLeft = shelf.scrollLeft;
-                    let isDown = true;
+            <div 
+              className="w-full h-full flex flex-col items-center px-4 overflow-y-auto ios-scroll"
+              onScroll={(e) => {
+                const target = e.currentTarget;
+                setScrollY(target.scrollTop);
+              }}
+            >
+              <div className="w-full max-w-[1600px] flex flex-col gap-8 py-8">
+                {/* Grouping Selector */}
+                <div className="flex items-center justify-center gap-2 px-4 mb-4">
+                  <button
+                    onClick={() => setBookshelfGrouping('rating')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                      bookshelfGrouping === 'rating'
+                        ? 'bg-opacity-20 text-slate-950'
+                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
+                    }`}
+                  >
+                    Rating
+                  </button>
+                  <button
+                    onClick={() => setBookshelfGrouping('author')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                      bookshelfGrouping === 'author'
+                        ? 'bg-opacity-20 text-slate-950'
+                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
+                    }`}
+                  >
+                    Author
+                  </button>
+                  <button
+                    onClick={() => setBookshelfGrouping('title')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                      bookshelfGrouping === 'title'
+                        ? 'bg-opacity-20 text-slate-950'
+                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
+                    }`}
+                  >
+                    Title
+                  </button>
+                </div>
+                
+                {groupedBooksForBookshelf.map((group, groupIdx) => (
+                  <div key={group.label} className="flex flex-col gap-4">
+                    {/* Shelf Label */}
+                    <h2 className="text-xl font-bold text-slate-950 px-[10vw]">{group.label}</h2>
+                    
+                    {/* Shelf Container */}
+                    <div 
+                      className="bookshelf-scroll scrollbar-hide flex items-end justify-start overflow-x-auto overflow-y-hidden px-[10vw] ios-horizontal-scroll"
+                      style={{
+                        scrollSnapType: 'x proximity',
+                        cursor: 'grab',
+                      } as React.CSSProperties}
+                      onMouseDown={(e) => {
+                        const shelf = e.currentTarget;
+                        const startX = e.pageX - shelf.offsetLeft;
+                        const scrollLeft = shelf.scrollLeft;
+                        let isDown = true;
 
-                    const handleMouseMove = (e: MouseEvent) => {
-                      if (!isDown) return;
-                      e.preventDefault();
-                      const x = e.pageX - shelf.offsetLeft;
-                      const walk = (x - startX) * 2;
-                      shelf.scrollLeft = scrollLeft - walk;
-                    };
+                        const handleMouseMove = (e: MouseEvent) => {
+                          if (!isDown) return;
+                          e.preventDefault();
+                          const x = e.pageX - shelf.offsetLeft;
+                          const walk = (x - startX) * 2;
+                          shelf.scrollLeft = scrollLeft - walk;
+                        };
 
-                    const handleMouseUp = () => {
-                      isDown = false;
-                      document.removeEventListener('mousemove', handleMouseMove);
-                      document.removeEventListener('mouseup', handleMouseUp);
-                    };
+                        const handleMouseUp = () => {
+                          isDown = false;
+                          document.removeEventListener('mousemove', handleMouseMove);
+                          document.removeEventListener('mouseup', handleMouseUp);
+                        };
 
-                    document.addEventListener('mousemove', handleMouseMove);
-                    document.addEventListener('mouseup', handleMouseUp);
-                  }}
-                >
-                  
-                  <div className="flex items-end gap-0.5 min-h-[400px]">
-                    {sortedBooksForBookshelf.map((book, idx) => {
+                        document.addEventListener('mousemove', handleMouseMove);
+                        document.addEventListener('mouseup', handleMouseUp);
+                      }}
+                    >
+                      <div className="flex items-end gap-1 min-h-[400px]">
+                        {group.books.map((book, idx) => {
                       const score = calculateScore(book.ratings);
                       const avgScore = calculateAvg(book.ratings);
                       
-                      // Generate consistent colors based on book ID
+                      // Generate consistent colors and fonts based on book ID
                       const hash = book.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-                      const colors = [
-                        '#f3f3f3', '#1c1c1e', '#a1d821', '#fccf47', '#ff3b30',
-                        '#007aff', '#5856d6', '#ff9500', '#5ac8fa', '#afafb1', '#2c2c2e'
+                      const colorSets = [
+                        { main: "#5199fc", accent: "#afd7fb" },
+                        { main: "#ff9868", accent: "#d06061" },
+                        { main: "#ff5068", accent: "#d93368" },
+                        { main: "#A1D821", accent: "#7ca81a" },
+                        { main: "#FCCF47", accent: "#d4af3b" },
+                        { main: "#5856d6", accent: "#4543a8" },
+                        { main: "#1c1c1e", accent: "#48484a" }
                       ];
-                      const bookColor = colors[hash % colors.length];
-                      const isDark = ['#1c1c1e', '#2c2c2e', '#5856d6', '#007aff', '#ff3b30'].includes(bookColor);
-                      const textColor = isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.8)';
+                      const fonts = ["'Bebas Neue'", "'Oswald'", "'Antonio'", "'Archivo Narrow'"];
+                      const styleSet = colorSets[hash % colorSets.length];
+                      const bookFont = fonts[hash % fonts.length];
                       
-                      // Height based on score (min 200px, max 400px)
-                      const height = score > 0 ? 200 + (score * 40) : 200;
-                      // Width varies slightly (45-70px)
-                      const width = 50 + (hash % 25);
+                      // Calculate tonal text color
+                      const getTonalColor = (hex: string) => {
+                        const r = parseInt(hex.slice(1, 3), 16);
+                        const g = parseInt(hex.slice(3, 5), 16);
+                        const b = parseInt(hex.slice(5, 7), 16);
+                        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+                        const factor = luminance > 0.5 ? -0.55 : 0.65;
+                        const newR = Math.max(0, Math.min(255, Math.round(r + (r * factor))));
+                        const newG = Math.max(0, Math.min(255, Math.round(g + (g * factor))));
+                        const newB = Math.max(0, Math.min(255, Math.round(b + (b * factor))));
+                        return `rgb(${newR}, ${newG}, ${newB})`;
+                      };
+                      const textColor = getTonalColor(styleSet.main);
+                      
+                      // Height based on score (280-420px range)
+                      const height = score > 0 ? 280 + (score * 28) : 280;
+                      // Width varies (55-85px)
+                      const width = 55 + (hash % 30);
+                      
+                      // Font sizing logic - Maximal sizing for vertical text
+                      const availableHeight = height - 80; // 40px buffer for decoration and margin
+                      const availableWidth = width - 10; // 5px padding on each side
+                      let fontSize = availableWidth;
+                      
+                      // If showing author, account for both title and author height
+                      if (bookshelfGrouping === 'author' && book.author) {
+                        const titleHeight = book.title.length * (fontSize * 0.55);
+                        const authorHeight = book.author.length * (fontSize * 0.5 * 0.55); // 50% size
+                        const gap = fontSize * 0.1; // Small gap between title and author
+                        const totalHeight = titleHeight + authorHeight + gap;
+                        
+                        if (totalHeight > availableHeight) {
+                          // Scale down to fit both
+                          fontSize = (availableHeight / (book.title.length * 0.55 + book.author.length * 0.5 * 0.55 + 0.1));
+                        }
+                      } else {
+                        // Only title, use original logic
+                        const estimatedTextLength = book.title.length * (fontSize * 0.55);
+                        if (estimatedTextLength > availableHeight) {
+                          fontSize = (availableHeight / book.title.length) / 0.55;
+                        }
+                      }
+                      
+                      fontSize = Math.max(fontSize, 20);
                       
                       // Find book index in original array for navigation
                       const bookIndex = books.findIndex(b => b.id === book.id);
@@ -2397,127 +2599,117 @@ export default function App() {
                           initial={{ opacity: 0, y: -200 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ 
-                            delay: idx * 0.05, 
+                            delay: (groupIdx * 0.1) + (idx * 0.05), 
                             duration: 0.6,
                             type: "spring",
                             stiffness: 100,
                             damping: 15
                           }}
-                          className="book-spine relative flex-shrink-0 cursor-pointer group"
-                          style={{
-                            height: `${height}px`,
-                            width: `${width}px`,
-                            transformStyle: 'preserve-3d',
-                            transform: 'rotateX(10deg)',
-                            transformOrigin: 'bottom',
-                          } as React.CSSProperties}
-                          onClick={() => {
-                            if (bookIndex !== -1) {
-                              setSelectedIndex(bookIndex);
-                              setShowBookshelf(false);
-                              // Scroll to top
-                              setTimeout(() => {
-                                const main = document.querySelector('main');
-                                if (main) {
-                                  main.scrollTo({ top: 0, behavior: 'smooth' });
-                                }
-                              }, 100);
-                            }
-                          }}
+                          className="flex flex-col items-center"
                         >
+                          {/* Rating - Above the book */}
+                          {avgScore && (
+                            <div className="flex items-center gap-1 mb-3">
+                              <Star size={14} className="fill-amber-400 text-amber-400" />
+                              <span className="font-black text-sm text-slate-950">
+                                {avgScore}
+                              </span>
+                            </div>
+                          )}
+                          
                           {/* Book Spine */}
                           <div
-                            className="relative w-full h-full rounded-sm"
+                            className="book-spine relative flex-shrink-0 cursor-pointer group"
                             style={{
-                              backgroundColor: bookColor,
-                              boxShadow: `
-                                -10px 15px 30px rgba(0,0,0,0.6),
-                                inset 0.5px 0 0 rgba(255,255,255,0.1)
-                              `,
+                              height: `${height}px`,
+                              width: `${width}px`,
+                              backgroundColor: styleSet.main,
+                              color: textColor,
+                            } as React.CSSProperties}
+                            onClick={() => {
+                              if (bookIndex !== -1) {
+                                setScrollY(0); // Reset scroll when switching views
+                                setSelectedIndex(bookIndex);
+                                setShowBookshelf(false);
+                                setTimeout(() => {
+                                  const main = document.querySelector('main');
+                                  if (main) {
+                                    main.scrollTo({ top: 0, behavior: 'smooth' });
+                                  }
+                                }, 100);
+                              }
                             }}
                           >
-                            {/* Top Pages (Sharp Matte Look) */}
-                            <div
-                              className="absolute top-0 left-0 w-full"
-                              style={{
-                                height: '18px',
-                                background: '#ffffff',
-                                transform: 'rotateX(-90deg)',
-                                transformOrigin: 'top',
-                                boxShadow: 'inset 0 0 8px rgba(0,0,0,0.05)',
-                              }}
-                            />
+                            {/* Tooltip */}
+                            {avgScore && (
+                              <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full mb-2 opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none whitespace-nowrap z-50"
+                                style={{
+                                  top: '-65px',
+                                  background: '#1d1d1f',
+                                  color: '#fff',
+                                  padding: '8px 14px',
+                                  borderRadius: '10px',
+                                  fontSize: '0.8rem',
+                                  fontWeight: '700',
+                                  boxShadow: '0 10px 20px rgba(0,0,0,0.1)',
+                                }}
+                              >
+                                <span className="text-[#ffd60a] mr-1">
+                                  {'★'.repeat(Math.floor(parseFloat(avgScore)))}
+                                  {'☆'.repeat(5 - Math.floor(parseFloat(avgScore)))}
+                                </span>
+                                {avgScore}
+                              </div>
+                            )}
                             
-                            {/* Lighting Overlay */}
+                            {/* Decoration Stripes */}
                             <div
-                              className="absolute inset-0 pointer-events-none rounded-sm"
-                              style={{
-                                background: `linear-gradient(90deg, 
-                                  rgba(0,0,0,0.2) 0%, 
-                                  rgba(255,255,255,0.05) 15%, 
-                                  rgba(255,255,255,0) 50%, 
-                                  rgba(0,0,0,0.25) 100%)`,
-                              }}
-                            />
+                              className="absolute top-[15px] left-1/2 -translate-x-1/2 flex flex-col gap-1 opacity-30 z-10"
+                              style={{ width: '60%', color: styleSet.accent }}
+                            >
+                              <div className="h-[3px] w-full rounded-sm" style={{ background: 'currentColor' }} />
+                              <div className="h-[3px] w-full rounded-sm" style={{ background: 'currentColor' }} />
+                            </div>
                             
                             {/* Spine Content */}
                             <div
-                              className="absolute inset-0 flex flex-col items-center justify-between p-2"
+                              className="absolute inset-0 flex items-center justify-center p-2 pointer-events-none z-0"
                               style={{
                                 writingMode: 'vertical-rl',
                                 textOrientation: 'mixed',
                                 transform: 'rotate(180deg)',
-                                color: textColor,
-                                fontFamily: 'system-ui, -apple-system, sans-serif',
+                                fontFamily: bookFont,
                               }}
                             >
-                              {/* Title */}
-                              <div
-                                className="text-center font-bold leading-tight flex-1 flex items-center justify-center"
-                                style={{
-                                  fontSize: `${Math.max(10, Math.min(16, width * 0.25))}px`,
-                                  maxHeight: '70%',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                }}
-                              >
-                                {book.title.toUpperCase()}
-                              </div>
-                              
-                              {/* Rating - Always visible at bottom of spine */}
-                              {avgScore && (
+                              <div className="flex flex-col items-center gap-1">
                                 <div
-                                  className="flex items-center gap-1 mt-2"
+                                  className="text-center leading-[0.85] whitespace-nowrap"
                                   style={{
-                                    writingMode: 'horizontal-tb',
-                                    transform: 'rotate(180deg)',
+                                    fontSize: `${fontSize}px`,
                                   }}
                                 >
-                                  <Star size={Math.max(10, Math.min(14, width * 0.2))} className="fill-amber-400 text-amber-400" />
-                                  <span
-                                    className="font-black"
+                                  {book.title.toUpperCase()}
+                                </div>
+                                {bookshelfGrouping === 'author' && book.author && (
+                                  <div
+                                    className="text-center leading-[0.85] whitespace-nowrap opacity-80"
                                     style={{
-                                      fontSize: `${Math.max(9, Math.min(12, width * 0.18))}px`,
-                                      color: textColor,
+                                      fontSize: `${fontSize * 0.5}px`,
                                     }}
                                   >
-                                    {avgScore}
-                                  </span>
-                                </div>
-                              )}
+                                    {book.author.toUpperCase()}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </motion.div>
                       );
                     })}
+                      </div>
+                    </div>
                   </div>
-                </div>
-                
-                {/* Shelf Base */}
-                <div
-                  className="h-0.5 bg-white/10 w-full mt-4"
-                  style={{ marginTop: '-60px' }}
-                />
+                ))}
               </div>
             </div>
           </motion.main>
@@ -2527,6 +2719,7 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
             ref={(el) => {
               if (el) {
                 // Enable rubber band bounce effect
@@ -2803,6 +2996,7 @@ export default function App() {
           {/* Books button - left (active, circular) */}
           <button
             onClick={() => {
+              setScrollY(0); // Reset scroll when switching views
               setShowBookshelf(false);
               // Scroll to top to show books
               const main = document.querySelector('main');
@@ -2822,6 +3016,7 @@ export default function App() {
           {/* Bookshelf button - middle (circular) */}
           <button
             onClick={() => {
+              setScrollY(0); // Reset scroll when switching views
               setShowBookshelf(!showBookshelf);
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${

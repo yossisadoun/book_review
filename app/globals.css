@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Oswald:wght@600;700&family=Antonio:wght@700&family=Archivo+Narrow:wght@700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -55,11 +57,30 @@ body {
   display: none;
 }
 
+/* iOS-like horizontal scrolling with bounce */
+.ios-horizontal-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: auto; /* Allow bounce at edges like iOS */
+  scroll-behavior: smooth;
+  /* Enable hardware acceleration for smoother scrolling */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+}
+
+@keyframes book-bounce {
+  0% { transform: translateY(0); }
+  40% { transform: translateY(-15px); }
+  80% { transform: translateY(0); }
+  100% { transform: translateY(0); }
+}
+
 .book-spine {
-  transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+  transition: transform 0.3s ease;
+  border-radius: 4px 4px 2px 2px;
+  overflow: hidden;
 }
 
 .book-spine:hover {
-  transform: translateY(-30px) rotateX(0deg) scale(1.05) !important;
+  animation: book-bounce 0.4s ease forwards;
   z-index: 50 !important;
 }
