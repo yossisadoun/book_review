@@ -87,6 +87,18 @@ interface YouTubeVideo {
   videoId: string;
 }
 
+interface RelatedBook {
+  title: string;
+  author: string;
+  reason: string;
+  thumbnail?: string;
+  cover_url?: string;
+  publish_year?: number;
+  wikipedia_url?: string;
+  google_books_url?: string;
+  genre?: string;
+}
+
 // Supabase database schema interface
 interface Book {
   id: string;
@@ -851,6 +863,205 @@ async function getGoogleScholarAnalysis(bookTitle: string, author: string): Prom
   await saveArticlesToDatabase(normalizedTitle, normalizedAuthor, [fallbackArticle]);
   
   return [fallbackArticle];
+}
+
+// --- Related Books (Grok API) ---
+async function getRelatedBooks(bookTitle: string, author: string): Promise<RelatedBook[]> {
+  console.log(`[getRelatedBooks] 🔄 Fetching related books for "${bookTitle}" by ${author}`);
+  
+  // Check database cache first
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = author.toLowerCase().trim();
+    
+    const { data: cachedData, error: cacheError } = await supabase
+      .from('related_books')
+      .select('related_books')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (!cacheError && cachedData && cachedData.related_books && Array.isArray(cachedData.related_books) && cachedData.related_books.length > 0) {
+      console.log(`[getRelatedBooks] ✅ Found ${cachedData.related_books.length} cached related books in database`);
+      return cachedData.related_books as RelatedBook[];
+    } else if (cacheError && cacheError.code !== 'PGRST116') {
+      // PGRST116 is "not found" error, which is fine
+      console.warn('[getRelatedBooks] ⚠️ Error checking cache:', cacheError);
+    }
+  } catch (err) {
+    console.warn('[getRelatedBooks] ⚠️ Error checking cache:', err);
+    // Continue to fetch from Grok
+  }
+  
+  if (!grokApiKey) {
+    console.warn('[getRelatedBooks] ⚠️ Grok API key not found');
+    return [];
+  }
+
+  try {
+    const prompts = await loadPrompts();
+    
+    // Safety check: ensure related_books prompt exists
+    if (!prompts.related_books || !prompts.related_books.prompt) {
+      console.error('[getRelatedBooks] ❌ related_books prompt not found in prompts config');
+      console.error('[getRelatedBooks] Available prompts:', Object.keys(prompts));
+      return [];
+    }
+    
+    const prompt = formatPrompt(prompts.related_books.prompt, { bookTitle, author });
+
+    const payload = {
+      messages: [
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      model: "grok-4-1-fast-non-reasoning",
+      stream: false,
+      temperature: 0.7
+    };
+
+    console.log('[getRelatedBooks] 🔵 Making request to Grok API...');
+    const data = await fetchWithRetry('https://api.x.ai/v1/chat/completions', {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload)
+    }, 2, 3000);
+
+    const content = data.choices?.[0]?.message?.content || '[]';
+    console.log('[getRelatedBooks] 🔵 RAW CONTENT:', content);
+    
+    // Try to extract JSON from the response (Grok might wrap it in markdown)
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    const result = JSON.parse(jsonStr);
+    
+    const relatedBooks: RelatedBook[] = Array.isArray(result) ? result : [];
+    console.log('[getRelatedBooks] ✅ Received', relatedBooks.length, 'related books from Grok');
+    
+    // Enrich each book with Apple Books data (async, in parallel)
+    const enrichedBooks = await Promise.all(
+      relatedBooks.map(async (book) => {
+        try {
+          // Search Apple Books for this book
+          const searchQuery = `${book.title} ${book.author}`;
+          console.log(`[getRelatedBooks] 🔍 Searching Apple Books for: "${searchQuery}"`);
+          
+          const appleBooks = await lookupBooksOnAppleBooks(searchQuery);
+          
+          if (appleBooks.length > 0) {
+            // Find best match (prefer exact title match)
+            const bookTitleLower = book.title.toLowerCase();
+            let bestMatch = appleBooks[0];
+            
+            for (const appleBook of appleBooks) {
+              const appleTitleLower = (appleBook.title || '').toLowerCase();
+              if (appleTitleLower === bookTitleLower) {
+                bestMatch = appleBook;
+                break;
+              }
+            }
+            
+            // Enrich with Apple Books data
+            return {
+              ...book,
+              thumbnail: bestMatch.cover_url || undefined,
+              cover_url: bestMatch.cover_url || undefined,
+              publish_year: bestMatch.publish_year ?? undefined,
+              google_books_url: bestMatch.google_books_url || undefined,
+              genre: bestMatch.genre || undefined,
+            };
+          }
+          
+          return book;
+        } catch (err) {
+          console.error(`[getRelatedBooks] ⚠️ Error enriching book "${book.title}":`, err);
+          return book; // Return original if enrichment fails
+        }
+      })
+    );
+    
+    console.log('[getRelatedBooks] ✅ Enriched', enrichedBooks.length, 'related books');
+    
+    // Save to database cache
+    await saveRelatedBooksToDatabase(bookTitle, author, enrichedBooks);
+    
+    return enrichedBooks;
+  } catch (err: any) {
+    console.error('[getRelatedBooks] ❌ Error:', err);
+    return [];
+  }
+}
+
+// Helper function to save related books to database
+async function saveRelatedBooksToDatabase(bookTitle: string, bookAuthor: string, relatedBooks: RelatedBook[]): Promise<void> {
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = bookAuthor.toLowerCase().trim();
+    
+    // First, try to check if record exists
+    const { data: existing, error: checkError } = await supabase
+      .from('related_books')
+      .select('id')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (checkError && checkError.code !== 'PGRST116') {
+      // PGRST116 is "not found" which is fine
+      console.error('[saveRelatedBooksToDatabase] ❌ Error checking existing record:', checkError);
+    }
+    
+    const recordData = {
+      book_title: normalizedTitle,
+      book_author: normalizedAuthor,
+      related_books: relatedBooks,
+      updated_at: new Date().toISOString(),
+    };
+    
+    let result;
+    if (existing) {
+      // Update existing record
+      result = await supabase
+        .from('related_books')
+        .update(recordData)
+        .eq('book_title', normalizedTitle)
+        .eq('book_author', normalizedAuthor);
+    } else {
+      // Insert new record
+      result = await supabase
+        .from('related_books')
+        .insert(recordData);
+    }
+    
+    if (result.error) {
+      console.error('[saveRelatedBooksToDatabase] ❌ Error saving related books:', {
+        message: result.error.message,
+        code: result.error.code,
+        details: result.error.details,
+        hint: result.error.hint,
+        fullError: result.error
+      });
+      
+      // Check if table doesn't exist
+      if (result.error.code === '42P01' || result.error.message?.includes('does not exist')) {
+        console.error('[saveRelatedBooksToDatabase] ⚠️ Table "related_books" does not exist. Please run the migration in Supabase SQL Editor.');
+      }
+    } else {
+      console.log(`[saveRelatedBooksToDatabase] ✅ Saved ${relatedBooks.length} related books to database`);
+    }
+  } catch (err: any) {
+    console.error('[saveRelatedBooksToDatabase] ❌ Unexpected error:', {
+      message: err?.message,
+      stack: err?.stack,
+      fullError: err
+    });
+  }
 }
 
 // --- YouTube Data API ---
@@ -2020,6 +2231,150 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
   );
 }
 
+interface RelatedBooksProps {
+  books: RelatedBook[];
+  bookId: string;
+  isLoading?: boolean;
+  onAddBook?: (book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) => void;
+}
+
+function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBooksProps) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    // Reset when book changes
+    setCurrentIndex(0);
+    setIsVisible(false);
+    
+    if (books.length === 0) return;
+
+    // Show first book after a short delay
+    const timeout = setTimeout(() => {
+      setIsVisible(true);
+    }, 1000);
+
+    return () => clearTimeout(timeout);
+  }, [books, bookId]);
+
+  function handleNext() {
+    setIsVisible(false);
+    // Wait for fade out, then show next (or loop back to first)
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev + 1) % books.length);
+      setIsVisible(true);
+    }, 300);
+  }
+
+  if (isLoading) {
+    return (
+      <div className="w-full">
+        <motion.div
+          animate={{ opacity: [0.5, 0.8, 0.5] }}
+          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+        >
+          <div className="h-12 flex items-center justify-center">
+            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (books.length === 0 || currentIndex >= books.length) {
+    return (
+      <div className="w-full">
+        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
+          <p className="text-sm text-slate-600 text-center">No related books found</p>
+        </div>
+      </div>
+    );
+  }
+
+  const currentBook = books[currentIndex];
+
+  async function handleAddBook(e: React.MouseEvent) {
+    e.stopPropagation(); // Prevent card flip
+    
+    if (!onAddBook) return;
+    
+    // Convert RelatedBook to Book metadata format
+    const bookMeta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> = {
+      title: currentBook.title,
+      author: currentBook.author,
+      cover_url: currentBook.cover_url || currentBook.thumbnail || null,
+      publish_year: currentBook.publish_year || null,
+      wikipedia_url: currentBook.wikipedia_url || null,
+      google_books_url: currentBook.google_books_url || null,
+      genre: currentBook.genre || undefined,
+    };
+    
+    onAddBook(bookMeta);
+  }
+
+  return (
+    <div
+      onClick={handleNext}
+      className="w-full cursor-pointer"
+    >
+      <AnimatePresence mode="wait">
+        {isVisible && (
+          <motion.div
+            key={`${currentBook.title}-${currentIndex}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+          >
+            <div className="flex items-start gap-3 mb-2">
+              {/* Thumbnail or icon */}
+              {(currentBook.thumbnail || currentBook.cover_url) ? (
+                <img 
+                  src={currentBook.thumbnail || currentBook.cover_url || ''} 
+                  alt={currentBook.title}
+                  className="w-16 h-20 object-cover rounded-lg flex-shrink-0 shadow-sm"
+                />
+              ) : (
+                <div className="w-16 h-20 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                  <BookOpen size={24} className="text-slate-600" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <h3 className="text-xs font-bold text-slate-800 mb-1 line-clamp-2">
+                  {currentBook.title}
+                </h3>
+                <div className="text-[10px] text-slate-600 mb-2">
+                  <span>{currentBook.author}</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-[10px] font-medium text-slate-800 leading-relaxed mb-3">
+              {currentBook.reason}
+            </p>
+            {/* Add Book Button */}
+            {onAddBook && (
+              <button
+                onClick={handleAddBook}
+                className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-all duration-200 active:scale-95 flex items-center justify-center gap-2 mb-2 shadow-sm"
+              >
+                <CheckCircle2 size={14} />
+                Add Book
+              </button>
+            )}
+            {books.length > 1 && (
+              <p className="text-[10px] text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
+                Tap card for next ({currentIndex + 1}/{books.length})
+              </p>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 interface RatingStarsProps {
   value: number | null;
   onRate: (dimension: string, value: number | null) => void;
@@ -2366,6 +2721,8 @@ export default function App() {
   const [analysisArticles, setAnalysisArticles] = useState<Map<string, AnalysisArticle[]>>(new Map());
   const [loadingVideosForBookId, setLoadingVideosForBookId] = useState<string | null>(null);
   const [youtubeVideos, setYoutubeVideos] = useState<Map<string, YouTubeVideo[]>>(new Map());
+  const [loadingRelatedForBookId, setLoadingRelatedForBookId] = useState<string | null>(null);
+  const [relatedBooks, setRelatedBooks] = useState<Map<string, RelatedBook[]>>(new Map());
   const [scrollY, setScrollY] = useState(0);
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
   const [showBookshelf, setShowBookshelf] = useState(false);
@@ -2995,6 +3352,66 @@ export default function App() {
       clearTimeout(fetchTimer);
     };
   }, [selectedIndex, books, youtubeVideos]); // Depend on selectedIndex, books, and youtubeVideos
+
+  // Fetch related books when activeBook changes
+  useEffect(() => {
+    const currentBook = books[selectedIndex];
+    if (!currentBook || !currentBook.title || !currentBook.author) {
+      setLoadingRelatedForBookId(null);
+      return;
+    }
+
+    const bookId = currentBook.id;
+    const related = relatedBooks.get(bookId);
+    
+    // If related books already exist, don't fetch again
+    if (related && related.length > 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    // Set loading state
+    setLoadingRelatedForBookId(bookId);
+
+    // Add a delay to avoid rate limits when scrolling through books
+    const fetchTimer = setTimeout(() => {
+      if (cancelled) return;
+      
+      const bookTitle = currentBook.title;
+      const bookAuthor = currentBook.author;
+      
+      console.log(`[Related Books] 🔄 Fetching for "${bookTitle}" by ${bookAuthor}...`);
+      getRelatedBooks(bookTitle, bookAuthor).then((books) => {
+        if (cancelled) return;
+        
+        // Clear loading state
+        setLoadingRelatedForBookId(null);
+        
+        if (books.length > 0) {
+          console.log(`[Related Books] ✅ Received ${books.length} related books for "${bookTitle}"`);
+          // Store in state
+          setRelatedBooks(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, books);
+            return newMap;
+          });
+        } else {
+          console.log(`[Related Books] ⚠️ No related books found for "${bookTitle}"`);
+        }
+      }).catch((err) => {
+        if (cancelled) return;
+        setLoadingRelatedForBookId(null);
+        console.error('Error fetching related books:', err);
+      });
+    }, 3000); // Delay to avoid rate limits when scrolling
+
+    return () => {
+      cancelled = true;
+      setLoadingRelatedForBookId(null);
+      clearTimeout(fetchTimer);
+    };
+  }, [selectedIndex, books, relatedBooks]); // Depend on selectedIndex, books, and relatedBooks
 
   // Helper function to generate canonical book ID (matches database function)
   function generateCanonicalBookId(title: string, author: string): string {
@@ -4549,6 +4966,59 @@ export default function App() {
                             <Play size={24} className="mx-auto mb-2 text-slate-600" />
                             <p className="text-slate-800 text-sm font-medium mb-1">No videos found</p>
                             <p className="text-slate-600 text-xs">No YouTube videos found for this book or author</p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Related Books - Show below videos */}
+                {(() => {
+                  const related = relatedBooks.get(activeBook.id) || [];
+                  const hasRelated = related.length > 0;
+                  const isLoading = loadingRelatedForBookId === activeBook.id && !hasRelated;
+                  
+                  // Always show the related books section
+                  return (
+                    <div className="w-full space-y-2">
+                      {/* Related Books Header */}
+                      <div className="flex items-center justify-center mb-2">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
+                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">RELATED:</span>
+                          <span className="text-[10px] font-bold text-slate-400">/</span>
+                          <span className="text-[10px] font-bold text-blue-700">Grok</span>
+                        </div>
+                      </div>
+                      {isLoading ? (
+                        // Show loading placeholder
+                        <motion.div
+                          animate={{ opacity: [0.5, 0.8, 0.5] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+                        >
+                          <div className="h-12 flex items-center justify-center">
+                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                          </div>
+                        </motion.div>
+                      ) : hasRelated ? (
+                        <RelatedBooks 
+                          books={related} 
+                          bookId={activeBook.id}
+                          isLoading={false}
+                          onAddBook={handleAddBook}
+                        />
+                      ) : (
+                        // Show no results state
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="w-full bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-white/30 shadow-lg"
+                        >
+                          <div className="text-center">
+                            <BookOpen size={24} className="mx-auto mb-2 text-slate-600" />
+                            <p className="text-slate-800 text-sm font-medium mb-1">No related books found</p>
+                            <p className="text-slate-600 text-xs">No related book recommendations available</p>
                           </div>
                         </motion.div>
                       )}

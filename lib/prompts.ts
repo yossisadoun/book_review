@@ -13,6 +13,9 @@ interface PromptsConfig {
   podcast_episodes: {
     prompt: string;
   };
+  related_books: {
+    prompt: string;
+  };
 }
 
 let promptsCache: PromptsConfig | null = null;
@@ -109,6 +112,21 @@ I want the response to be only the list of results in JSON format.
 Very very concise with minimal description. Include: title, length, air_date, url, platform, episode_summary (short summary of the podcast episode), podcast_summary (short summary of the podcast itself).
 Prioritize podcasts that specialize on book reviews / book club type analysis or discussion / deep interviews with author on the book in question.
 Return ONLY valid JSON in this format: { "episodes": [{"title": "...", "length": "...", "air_date": "...", "url": "...", "platform": "...", "episode_summary": "...", "podcast_summary": "..."}, ...] }`
+      },
+      related_books: {
+        prompt: `Act as a literary expert and book curator. I need recommendations for books that connect to "{bookTitle}" by {author} from unique and interesting angles.
+
+Criteria:
+
+Interesting Angles: Do not just look for "books like this." Look for retellings, shifts in perspective (e.g., the villain's POV), thematic deconstructions, genre-swaps (e.g., a sci-fi version), or meta-fictional responses to the original text.
+
+Real Books Only: Verify that these books actually exist and are published. Do not hallucinate titles.
+
+Quality: The books must be highly regarded or interesting on their own merits.
+
+Return exactly 10 recommendations.
+
+Return ONLY valid JSON in this format (no markdown code blocks, no conversational filler, just raw JSON): [{"title": "Book Title", "author": "Author Name", "reason": "A concise explanation of the specific angle and connection to the source material."}]`
       }
     };
   }
