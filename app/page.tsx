@@ -1904,6 +1904,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
     setLoading(true);
     setError('');
     setSearchResults([]);
+    setSuggestions([]); // Clear suggestions first
     
     let searchPromise: Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>[]>;
     
@@ -1912,18 +1913,28 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
     } else {
       searchPromise = lookupBooksOnWikipedia(titleToSearch);
     }
-    
-    const aiPromise = getAISuggestions(titleToSearch);
 
     try {
-      const [results, aiSuggestions] = await Promise.all([searchPromise, aiPromise]);
-      
-      setSuggestions(aiSuggestions);
+      // First, wait for search results
+      const results = await searchPromise;
       setSearchResults(results);
 
+      // Only call Grok for suggestions if no results came back
       if (results.length === 0) {
         const sourceName = searchSource === 'apple_books' ? 'Apple Books' : 'Wikipedia';
         setError(`No results found on ${sourceName}.`);
+        
+        // Fetch AI suggestions only when no results
+        try {
+          const aiSuggestions = await getAISuggestions(titleToSearch);
+          setSuggestions(aiSuggestions);
+        } catch (aiErr) {
+          console.error('Error fetching AI suggestions:', aiErr);
+          // Don't set error for AI suggestions failure, just leave suggestions empty
+        }
+      } else {
+        // Clear suggestions if we have results
+        setSuggestions([]);
       }
     } catch (err) {
       setError("Search failed. Please try a different title.");
@@ -2039,7 +2050,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
             {/* Loading state */}
             {loading && (
               <div className="flex items-center justify-center py-2">
-                <div className="scale-75">
+                <div className="scale-[0.3]">
                 <BookLoading />
               </div>
               </div>
@@ -2436,14 +2447,15 @@ export default function App() {
 
     // Check if facts already exist in database
     // Be more robust: check for array with length > 0, or try to parse if it's a string
-    const hasFacts = currentBook.author_facts && 
-                     Array.isArray(currentBook.author_facts) && 
-                     currentBook.author_facts.length > 0;
+    const authorFacts = currentBook.author_facts;
+    const hasFacts = authorFacts && 
+                     Array.isArray(authorFacts) && 
+                     authorFacts.length > 0;
     
-    if (hasFacts) {
+    if (hasFacts && authorFacts) {
       // Show loading state briefly even when loading from DB for consistent UX
       const bookId = currentBook.id;
-      const factsCount = currentBook.author_facts.length;
+      const factsCount = authorFacts.length;
       console.log(`[Author Facts] ✅ Found ${factsCount} facts in database for "${currentBook.title}" by ${currentBook.author} - skipping Grok fetch`);
       setLoadingFactsForBookId(bookId);
       setTimeout(() => {
