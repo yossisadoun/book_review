@@ -7,7 +7,6 @@ import {
   ChevronLeft, 
   ChevronRight, 
   BookOpen, 
-  Loader2,
   Trash2,
   CheckCircle2,
   ExternalLink,
@@ -128,6 +127,22 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
       const res = await fetch(url, options);
       if (res.ok) return await res.json();
       
+      // CRITICAL: Log the actual error response body - this will tell us why mobile fails
+      let errorBody = '';
+      try {
+        errorBody = await res.text();
+        console.error(`[fetchWithRetry] HTTP ${res.status} error response:`, errorBody);
+        // Try to parse as JSON if possible
+        try {
+          const errorJson = JSON.parse(errorBody);
+          console.error(`[fetchWithRetry] Parsed error JSON:`, errorJson);
+        } catch (e) {
+          // Not JSON, that's fine
+        }
+      } catch (e) {
+        console.error(`[fetchWithRetry] Could not read error response body:`, e);
+      }
+      
       // Handle rate limiting (429) with exponential backoff
       if (res.status === 429) {
         const retryAfter = res.headers.get('Retry-After');
@@ -143,13 +158,20 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
         continue;
       }
       
+      // For 400 errors, log and throw immediately (don't retry bad requests)
+      if (res.status === 400) {
+        console.error(`[fetchWithRetry] ❌ Bad Request (400) - This often indicates a mobile browser issue`);
+        console.error(`[fetchWithRetry] Error response:`, errorBody);
+        throw new Error(`HTTP 400: ${errorBody || 'Bad Request'}`);
+      }
+      
       if (res.status === 401 || res.status === 403 || res.status >= 500) {
-        if (i === retries - 1) throw new Error(`HTTP ${res.status}`);
+        if (i === retries - 1) throw new Error(`HTTP ${res.status}: ${errorBody || ''}`);
         await new Promise(resolve => setTimeout(resolve, delay));
         delay *= 2;
         continue;
       }
-      throw new Error(`HTTP ${res.status}`);
+      throw new Error(`HTTP ${res.status}: ${errorBody || ''}`);
     } catch (err) {
       if (i === retries - 1) throw err;
       await new Promise(resolve => setTimeout(resolve, delay));
@@ -199,7 +221,8 @@ async function getGrokSuggestions(query: string): Promise<string[]> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${grokApiKey}`
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
       },
       body: JSON.stringify(payload)
     });
@@ -260,7 +283,8 @@ async function getGrokAuthorFacts(bookTitle: string, author: string): Promise<st
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${grokApiKey}`
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
       },
       body: JSON.stringify(payload)
     }, 2, 3000);
@@ -277,10 +301,20 @@ async function getGrokAuthorFacts(bookTitle: string, author: string): Promise<st
   } catch (err: any) {
     console.error('[getGrokAuthorFacts] Error:', err);
     console.error('[getGrokAuthorFacts] Error details:', err.message, err.stack);
-    // Don't silently fail - show the error
+    
+    // Enhanced error logging for mobile debugging
+    if (err.message?.includes('400')) {
+      console.error('[getGrokAuthorFacts] ❌ Bad Request (400) - Mobile browser issue detected');
+      console.error('[getGrokAuthorFacts] Model used:', payload.model);
+      console.error('[getGrokAuthorFacts] Request URL:', url);
+      console.error('[getGrokAuthorFacts] Full error message:', err.message);
+      console.error('[getGrokAuthorFacts] Payload size:', JSON.stringify(payload).length, 'bytes');
+    }
+    
     if (err.message?.includes('403')) {
       console.error('Grok API returned 403 - check your API key permissions');
     }
+    
     return [];
   }
 }
@@ -331,7 +365,8 @@ async function getGrokPodcastEpisodes(bookTitle: string, author: string): Promis
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${grokApiKey}`
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
       },
       body: JSON.stringify(payload)
     }, 2, 3000);
@@ -1288,6 +1323,21 @@ function extractColorsFromImage(imageUrl: string): Promise<string> {
 }
 
 function convertBookToApp(book: Book): BookWithRatings {
+  // Parse author_facts if it's a string (shouldn't happen with JSONB, but be safe)
+  let authorFacts: string[] | undefined = undefined;
+  if (book.author_facts) {
+    if (typeof book.author_facts === 'string') {
+      try {
+        authorFacts = JSON.parse(book.author_facts);
+      } catch (e) {
+        console.warn('[convertBookToApp] Failed to parse author_facts as JSON:', e);
+        authorFacts = undefined;
+      }
+    } else if (Array.isArray(book.author_facts)) {
+      authorFacts = book.author_facts;
+    }
+  }
+  
   return {
     ...book,
     ratings: {
@@ -1297,7 +1347,7 @@ function convertBookToApp(book: Book): BookWithRatings {
       world: book.rating_world ?? null,
       characters: book.rating_characters ?? null,
     },
-    author_facts: book.author_facts || undefined, // Load from database
+    author_facts: authorFacts, // Load from database (properly parsed)
     podcast_episodes: book.podcast_episodes || undefined, // Load from database (legacy)
     podcast_episodes_grok: book.podcast_episodes_grok || undefined, // Load from database
     podcast_episodes_apple: book.podcast_episodes_apple || undefined, // Load from database
@@ -1989,7 +2039,9 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
             {/* Loading state */}
             {loading && (
               <div className="flex items-center justify-center py-2">
-                <Loader2 className="animate-spin text-blue-500" size={20} />
+                <div className="scale-75">
+                <BookLoading />
+              </div>
               </div>
             )}
 
@@ -2383,10 +2435,16 @@ export default function App() {
     }
 
     // Check if facts already exist in database
-    if (currentBook.author_facts && currentBook.author_facts.length > 0) {
+    // Be more robust: check for array with length > 0, or try to parse if it's a string
+    const hasFacts = currentBook.author_facts && 
+                     Array.isArray(currentBook.author_facts) && 
+                     currentBook.author_facts.length > 0;
+    
+    if (hasFacts) {
       // Show loading state briefly even when loading from DB for consistent UX
       const bookId = currentBook.id;
       const factsCount = currentBook.author_facts.length;
+      console.log(`[Author Facts] ✅ Found ${factsCount} facts in database for "${currentBook.title}" by ${currentBook.author} - skipping Grok fetch`);
       setLoadingFactsForBookId(bookId);
       setTimeout(() => {
         console.log(`[Author Facts] ✅ Loaded from database for "${currentBook.title}" by ${currentBook.author}: ${factsCount} facts`);
@@ -2394,6 +2452,15 @@ export default function App() {
       }, 800); // Brief delay to show loading animation
       return;
     }
+    
+    // Log when we're about to fetch (for debugging mobile issue)
+    console.log(`[Author Facts] 🔍 Checking facts for "${currentBook.title}" by ${currentBook.author}:`, {
+      hasAuthorFacts: !!currentBook.author_facts,
+      isArray: Array.isArray(currentBook.author_facts),
+      length: currentBook.author_facts?.length,
+      type: typeof currentBook.author_facts,
+      value: currentBook.author_facts
+    });
 
     let cancelled = false;
     const bookId = currentBook.id;
@@ -3264,13 +3331,6 @@ export default function App() {
                                 className="text-xs text-blue-600 font-medium hover:text-blue-700"
                               >
                                 View Book
-                              </button>
-                              <span className="text-slate-300">•</span>
-                              <button
-                                onClick={() => setEditingNoteBookId(book.id)}
-                                className="text-xs text-blue-600 font-medium hover:text-blue-700"
-                              >
-                                Edit
                               </button>
                             </div>
                           </div>
