@@ -2,13 +2,13 @@
   "name": "BOOK - Book Review App",
   "short_name": "BOOK",
   "description": "A mobile-first book review app",
-  "start_url": "/",
+  "start_url": "/book_review/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#ffffff",
   "icons": [
     {
-      "src": "/icon.png",
+      "src": "/book_review/icon.png",
       "sizes": "180x180",
       "type": "image/png",
       "purpose": "any maskable"
