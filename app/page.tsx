@@ -893,8 +893,17 @@ async function getRelatedBooks(bookTitle: string, author: string): Promise<Relat
     // Continue to fetch from Grok
   }
   
-  if (!grokApiKey) {
-    console.warn('[getRelatedBooks] ⚠️ Grok API key not found');
+  if (!grokApiKey || grokApiKey.trim() === '') {
+    console.warn('[getRelatedBooks] ⚠️ Grok API key not found or empty');
+    console.warn('[getRelatedBooks] Key length:', grokApiKey?.length || 0);
+    console.warn('[getRelatedBooks] ⚠️ Cannot fetch related books without API key. Please check NEXT_PUBLIC_GROK_API_KEY in GitHub secrets.');
+    return [];
+  }
+  
+  // Validate API key format (should be a reasonable length)
+  if (grokApiKey.length < 20) {
+    console.warn('[getRelatedBooks] ⚠️ Grok API key appears to be invalid (too short)');
+    console.warn('[getRelatedBooks] ⚠️ Please verify NEXT_PUBLIC_GROK_API_KEY in GitHub secrets is correct.');
     return [];
   }
 
