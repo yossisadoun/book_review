@@ -1,0 +1,23 @@
+## Error Type
+Build Error
+
+## Error Message
+  x Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+
+## Build Output
+./app/page.tsx
+Error:   x Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+      ,-[/Users/yossi/Cursor/book_review/app/page.tsx:3433:1]
+ 3430 |               )}
+ 3431 |             </AnimatePresence>
+ 3432 |           </div>
+ 3433 |         )}
+      :          ^
+ 3434 |         </motion.div>
+ 3435 |       </AnimatePresence>
+      `----
+
+Caused by:
+    Syntax Error
+
+Next.js version: 15.5.9 (Webpack)

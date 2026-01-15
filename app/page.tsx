@@ -43,6 +43,7 @@ function getAssetPath(path: string): string {
 // --- Types & Constants ---
 const RATING_DIMENSIONS = ['writing', 'insights', 'flow', 'world', 'characters'] as const;
 const grokApiKey = process.env.NEXT_PUBLIC_GROK_API_KEY || "";
+const youtubeApiKey = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY || "";
 
 const GRADIENTS = [
   'from-rose-500 to-pink-600',
@@ -76,10 +77,21 @@ interface AnalysisArticle {
   year?: string;
 }
 
+interface YouTubeVideo {
+  id: string;
+  title: string;
+  description: string;
+  thumbnail: string;
+  channelTitle: string;
+  publishedAt: string;
+  videoId: string;
+}
+
 // Supabase database schema interface
 interface Book {
   id: string;
   user_id: string;
+  canonical_book_id?: string; // Normalized identifier for deduplication
   title: string;
   author: string;
   publish_year?: number | null;
@@ -839,6 +851,77 @@ async function getGoogleScholarAnalysis(bookTitle: string, author: string): Prom
   await saveArticlesToDatabase(normalizedTitle, normalizedAuthor, [fallbackArticle]);
   
   return [fallbackArticle];
+}
+
+// --- YouTube Data API ---
+async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouTubeVideo[]> {
+  console.log(`[getYouTubeVideos] 🔄 Searching YouTube for "${bookTitle}" by ${author}`);
+  
+  if (!youtubeApiKey) {
+    console.warn('[getYouTubeVideos] ⚠️ YouTube API key not found');
+    return [];
+  }
+
+  try {
+    const videos: YouTubeVideo[] = [];
+    
+    // Query 1: Book title + author
+    const query1 = `${bookTitle} ${author}`;
+    const url1 = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query1)}&type=video&maxResults=5&key=${youtubeApiKey}`;
+    
+    console.log(`[getYouTubeVideos] 🔍 Query 1: "${query1}"`);
+    const response1 = await fetch(url1);
+    if (response1.ok) {
+      const data1 = await response1.json();
+      if (data1.items) {
+        data1.items.forEach((item: any) => {
+          videos.push({
+            id: item.id.videoId,
+            videoId: item.id.videoId,
+            title: item.snippet.title,
+            description: item.snippet.description || '',
+            thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url || '',
+            channelTitle: item.snippet.channelTitle,
+            publishedAt: item.snippet.publishedAt,
+          });
+        });
+      }
+    }
+    
+    // Query 2: Author + "interview"
+    const query2 = `${author} interview`;
+    const url2 = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query2)}&type=video&maxResults=5&key=${youtubeApiKey}`;
+    
+    console.log(`[getYouTubeVideos] 🔍 Query 2: "${query2}"`);
+    const response2 = await fetch(url2);
+    if (response2.ok) {
+      const data2 = await response2.json();
+      if (data2.items) {
+        data2.items.forEach((item: any) => {
+          // Avoid duplicates
+          if (!videos.find(v => v.videoId === item.id.videoId)) {
+            videos.push({
+              id: item.id.videoId,
+              videoId: item.id.videoId,
+              title: item.snippet.title,
+              description: item.snippet.description || '',
+              thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url || '',
+              channelTitle: item.snippet.channelTitle,
+              publishedAt: item.snippet.publishedAt,
+            });
+          }
+        });
+      }
+    }
+    
+    // Limit to top 10 videos
+    const limitedVideos = videos.slice(0, 10);
+    console.log(`[getYouTubeVideos] ✅ Found ${limitedVideos.length} videos`);
+    return limitedVideos;
+  } catch (err: any) {
+    console.error('[getYouTubeVideos] ❌ Error:', err);
+    return [];
+  }
 }
 
 // Helper function to save articles to database
@@ -1601,10 +1684,8 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
           className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
         >
-          <div className="space-y-3">
-            <div className="h-4 bg-slate-300/50 rounded animate-pulse" />
-            <div className="h-3 bg-slate-300/50 rounded w-3/4 animate-pulse" />
-            <div className="h-3 bg-slate-300/50 rounded w-2/3 animate-pulse" />
+          <div className="h-12 flex items-center justify-center">
+            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
           </div>
         </motion.div>
       </div>
@@ -1711,6 +1792,130 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
   );
 }
 
+interface YouTubeVideosProps {
+  videos: YouTubeVideo[];
+  bookId: string;
+  isLoading?: boolean;
+}
+
+function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    // Reset when book changes
+    setCurrentIndex(0);
+    setIsVisible(false);
+    
+    if (videos.length === 0) return;
+
+    // Show first video after a short delay
+    const timeout = setTimeout(() => {
+      setIsVisible(true);
+    }, 1000);
+
+    return () => clearTimeout(timeout);
+  }, [videos, bookId]);
+
+  function handleNext() {
+    setIsVisible(false);
+    // Wait for fade out, then show next (or loop back to first)
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev + 1) % videos.length);
+      setIsVisible(true);
+    }, 300);
+  }
+
+  if (isLoading) {
+    return (
+      <div className="w-full">
+        <motion.div
+          animate={{ opacity: [0.5, 0.8, 0.5] }}
+          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+        >
+          <div className="h-12 flex items-center justify-center">
+            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (videos.length === 0 || currentIndex >= videos.length) {
+    return (
+      <div className="w-full">
+        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
+          <p className="text-sm text-slate-600 text-center">No videos found</p>
+        </div>
+      </div>
+    );
+  }
+
+  const currentVideo = videos[currentIndex];
+  const videoUrl = `https://www.youtube.com/watch?v=${currentVideo.videoId}`;
+  const embedUrl = `https://www.youtube.com/embed/${currentVideo.videoId}`;
+
+  return (
+    <div
+      onClick={handleNext}
+      className="w-full cursor-pointer"
+    >
+      <AnimatePresence mode="wait">
+        {isVisible && (
+          <motion.div
+            key={`${currentVideo.videoId}-${currentIndex}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="bg-white/80 backdrop-blur-md rounded-xl overflow-hidden shadow-xl border border-white/30"
+          >
+            <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+              <iframe
+                src={embedUrl}
+                title={currentVideo.title}
+                className="absolute top-0 left-0 w-full h-full"
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+            <div className="p-4">
+              <a 
+                href={videoUrl} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="text-xs font-bold text-blue-700 hover:text-blue-800 hover:underline block mb-2 line-clamp-2"
+              >
+                {currentVideo.title}
+              </a>
+              <div className="text-[10px] text-slate-600 mb-2">
+                <span>{currentVideo.channelTitle}</span>
+                {currentVideo.publishedAt && (
+                  <span> • {new Date(currentVideo.publishedAt).getFullYear()}</span>
+                )}
+              </div>
+              {currentVideo.description && (
+                <p className="text-[10px] text-slate-500 line-clamp-2">
+                  {currentVideo.description}
+                </p>
+              )}
+            </div>
+            {videos.length > 1 && (
+              <p className="text-[10px] text-slate-600 text-center pb-2 font-bold uppercase tracking-wider">
+                Tap for next ({currentIndex + 1}/{videos.length})
+              </p>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 interface AnalysisArticlesProps {
   articles: AnalysisArticle[];
   bookId: string;
@@ -1753,10 +1958,8 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
           className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
         >
-          <div className="space-y-3">
-            <div className="h-4 bg-slate-300/50 rounded animate-pulse" />
-            <div className="h-3 bg-slate-300/50 rounded w-3/4 animate-pulse" />
-            <div className="h-3 bg-slate-300/50 rounded w-2/3 animate-pulse" />
+          <div className="h-12 flex items-center justify-center">
+            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
           </div>
         </motion.div>
       </div>
@@ -2161,6 +2364,8 @@ export default function App() {
   const [loadingPodcastsForBookId, setLoadingPodcastsForBookId] = useState<string | null>(null);
   const [loadingAnalysisForBookId, setLoadingAnalysisForBookId] = useState<string | null>(null);
   const [analysisArticles, setAnalysisArticles] = useState<Map<string, AnalysisArticle[]>>(new Map());
+  const [loadingVideosForBookId, setLoadingVideosForBookId] = useState<string | null>(null);
+  const [youtubeVideos, setYoutubeVideos] = useState<Map<string, YouTubeVideo[]>>(new Map());
   const [scrollY, setScrollY] = useState(0);
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
   const [showBookshelf, setShowBookshelf] = useState(false);
@@ -2216,6 +2421,7 @@ export default function App() {
         const { data, error } = await supabase
           .from('books')
           .select('*')
+          .eq('user_id', user.id) // Explicitly filter by current user
           .order('created_at', { ascending: false });
 
         if (error) {
@@ -2501,7 +2707,8 @@ export default function App() {
             const { error: updateError } = await supabase
               .from('books')
               .update({ author_facts: facts, updated_at: new Date().toISOString() })
-              .eq('id', bookId);
+              .eq('id', bookId)
+              .eq('user_id', user.id); // Ensure user can only update their own books
             
             if (updateError) throw updateError;
             
@@ -2618,7 +2825,8 @@ export default function App() {
             const { error: updateError } = await supabase
               .from('books')
               .update({ [updateField]: episodes, updated_at: new Date().toISOString() })
-              .eq('id', bookId);
+              .eq('id', bookId)
+              .eq('user_id', user.id); // Ensure user can only update their own books
             
             if (updateError) throw updateError;
             
@@ -2726,15 +2934,137 @@ export default function App() {
     };
   }, [selectedIndex, books, analysisArticles]); // Depend on selectedIndex, books, and analysisArticles
 
+  // Fetch YouTube videos for existing books when they're selected (if missing)
+  useEffect(() => {
+    const currentBook = books[selectedIndex];
+    if (!currentBook || !currentBook.title || !currentBook.author) {
+      setLoadingVideosForBookId(null);
+      return;
+    }
+
+    const bookId = currentBook.id;
+    const videos = youtubeVideos.get(bookId);
+    
+    // If videos already exist, don't fetch again
+    if (videos && videos.length > 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    // Set loading state
+    setLoadingVideosForBookId(bookId);
+
+    // Add a delay to avoid rate limits when scrolling through books
+    const fetchTimer = setTimeout(() => {
+      if (cancelled) return;
+      
+      const bookTitle = currentBook.title;
+      const bookAuthor = currentBook.author;
+      
+      console.log(`[YouTube Videos] 🔄 Fetching for "${bookTitle}" by ${bookAuthor}...`);
+      getYouTubeVideos(bookTitle, bookAuthor).then((videos) => {
+        if (cancelled) return;
+        
+        // Clear loading state
+        setLoadingVideosForBookId(null);
+        
+        if (videos.length > 0) {
+          console.log(`[YouTube Videos] ✅ Received ${videos.length} videos for "${bookTitle}"`);
+          // Store in state
+          setYoutubeVideos(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, videos);
+            return newMap;
+          });
+        } else {
+          console.log(`[YouTube Videos] ⚠️ No videos found for "${bookTitle}"`);
+        }
+      }).catch((err) => {
+        if (cancelled) return;
+        setLoadingVideosForBookId(null);
+        console.error('Error fetching YouTube videos:', err);
+      });
+    }, 2500); // Delay to avoid rate limits when scrolling
+
+    return () => {
+      cancelled = true;
+      setLoadingVideosForBookId(null);
+      clearTimeout(fetchTimer);
+    };
+  }, [selectedIndex, books, youtubeVideos]); // Depend on selectedIndex, books, and youtubeVideos
+
+  // Helper function to generate canonical book ID (matches database function)
+  function generateCanonicalBookId(title: string, author: string): string {
+    const normalizedTitle = (title || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    const normalizedAuthor = (author || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    return `${normalizedTitle}|${normalizedAuthor}`;
+  }
+
   async function handleAddBook(meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) {
     if (!user) return;
 
     try {
-      // Ensure all required fields are present and properly formatted
-      // Build bookData without genre first, then conditionally add it if it exists
+      // Generate canonical book ID
+      const canonicalBookId = generateCanonicalBookId(meta.title || '', meta.author || '');
+      
+      // Check if user already has this book
+      const { data: existingBook, error: checkError } = await supabase
+        .from('books')
+        .select('id, title, author')
+        .eq('user_id', user.id)
+        .eq('canonical_book_id', canonicalBookId)
+        .maybeSingle();
+      
+      if (existingBook) {
+        // Find the book in the current books array and navigate to it
+        const existingBookIndex = books.findIndex(book => book.id === existingBook.id);
+        if (existingBookIndex !== -1) {
+          // Book is already loaded, just navigate to it
+          setSelectedIndex(existingBookIndex);
+          setIsAdding(false);
+          // Make sure we're on the books view (not bookshelf/notes)
+          setShowBookshelf(false);
+          setShowNotesView(false);
+        } else {
+          // Book exists in DB but not loaded yet - reload books to include it
+          const { data: allBooks } = await supabase
+            .from('books')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
+          
+          if (allBooks) {
+            const appBooks = allBooks.map(convertBookToApp);
+            setBooks(appBooks);
+            const foundIndex = appBooks.findIndex(book => book.id === existingBook.id);
+            if (foundIndex !== -1) {
+              setSelectedIndex(foundIndex);
+            }
+          }
+          setIsAdding(false);
+          setShowBookshelf(false);
+          setShowNotesView(false);
+        }
+        return;
+      }
+      
+      // Check how many other users have this book (for future feature)
+      const { count: sharedCount } = await supabase
+        .from('books')
+        .select('*', { count: 'exact', head: true })
+        .eq('canonical_book_id', canonicalBookId)
+        .neq('user_id', user.id);
+      
+      if (sharedCount && sharedCount > 0) {
+        console.log(`[handleAddBook] 📚 ${sharedCount} other user(s) also have this book`);
+      }
+
+      // Build bookData
       const bookData: any = {
         title: meta.title || '',
         author: meta.author || 'Unknown Author',
+        canonical_book_id: canonicalBookId,
         publish_year: meta.publish_year ?? null,
         cover_url: meta.cover_url ?? null,
         wikipedia_url: meta.wikipedia_url ?? null,
@@ -2768,6 +3098,12 @@ export default function App() {
           hint: error.hint,
           fullError: error
         });
+        
+        // Handle unique constraint violation (duplicate book)
+        if (error.code === '23505') { // Unique violation
+          alert(`You already have this book in your library.`);
+          return;
+        }
         
         // Check if genre column doesn't exist
         if (error.code === '42703' || (error.message && (error.message.includes('column') || error.message.includes('genre')))) {
@@ -2959,6 +3295,7 @@ export default function App() {
         .from('books')
         .update(updateData)
         .eq('id', id)
+        .eq('user_id', user.id) // Ensure user can only update their own books
         .select();
 
       if (error) {
@@ -3033,7 +3370,8 @@ export default function App() {
       const { error } = await supabase
         .from('books')
         .delete()
-        .eq('id', activeBook.id);
+        .eq('id', activeBook.id)
+        .eq('user_id', user.id); // Ensure user can only delete their own books
 
       if (error) throw error;
 
@@ -3060,7 +3398,8 @@ export default function App() {
           notes: textToSave.trim() || null,
           updated_at: new Date().toISOString()
         })
-        .eq('id', targetBookId);
+        .eq('id', targetBookId)
+        .eq('user_id', user.id); // Ensure user can only update their own books
 
       if (error) throw error;
 
@@ -3372,9 +3711,9 @@ export default function App() {
             <div 
               className="w-full flex flex-col items-center px-4"
             >
-              <div className="w-full max-w-[1600px] flex flex-col gap-6 py-8">
+              <div className="w-full max-w-[1600px] flex flex-col gap-2.5 py-8">
                 {/* Grouping Selector */}
-                <div className="flex items-center justify-center gap-2 px-4 mb-4">
+                <div className="flex items-center justify-center gap-2 px-4 mb-1.5">
                   <button
                     onClick={() => setBookshelfGrouping('rating')}
                     className={`px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
@@ -3418,7 +3757,7 @@ export default function App() {
                 </div>
 
                 {/* Summary Section */}
-                <div className="flex items-center justify-center gap-4 px-4 mb-6">
+                <div className="flex items-center justify-center gap-4 px-4 mb-2.5">
                   {(() => {
                     // Calculate KPIs
                     const totalBooks = books.length;
@@ -3552,10 +3891,10 @@ export default function App() {
                       
                       const textColor = `rgb(${textR}, ${textG}, ${textB})`;
                       
-                      // Height based on score (280-420px range)
-                      const height = score > 0 ? 280 + (score * 28) : 280;
-                      // Width varies (55-85px)
-                      const width = 55 + (hash % 30);
+                      // Height based on score (224-336px range, 20% smaller)
+                      const height = score > 0 ? (280 + (score * 28)) * 0.8 : 280 * 0.8;
+                      // Width varies (44-68px, 20% smaller)
+                      const width = (55 + (hash % 30)) * 0.8;
                       
                       // Font sizing logic - Maximal sizing for vertical text
                       const availableHeight = height - 80; // 40px buffer for decoration and margin
@@ -3827,7 +4166,7 @@ export default function App() {
 
               <AnimatePresence>
                 {isConfirmingDelete && !isShowingNotes && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[60] bg-red-600/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white">
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[60] bg-red-600/20 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white">
                     <AlertCircle size={48} className="mb-4" /><h3 className="text-xl font-bold mb-2">Delete this book?</h3>
                     <div className="flex flex-col w-full gap-2">
                       <button onClick={handleDelete} className="w-full py-3 bg-white text-red-600 rounded-xl font-black active:scale-95 transition-transform">Yes, Remove</button>
@@ -4068,11 +4407,11 @@ export default function App() {
                         // Show loading placeholder
                         <motion.div
                           animate={{ opacity: [0.5, 0.8, 0.5] }}
-                          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                          className="w-full bg-slate-50 rounded-2xl p-6 border border-slate-200"
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
                         >
-                          <div className="text-center text-slate-600 text-sm">
-                            Loading podcasts...
+                          <div className="h-12 flex items-center justify-center">
+                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
                           </div>
                         </motion.div>
                       ) : hasEpisodes ? (
@@ -4129,11 +4468,11 @@ export default function App() {
                         // Show loading placeholder
                         <motion.div
                           animate={{ opacity: [0.5, 0.8, 0.5] }}
-                          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                          className="w-full bg-slate-50 rounded-2xl p-6 border border-slate-200"
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
                         >
-                          <div className="text-center text-slate-600 text-sm">
-                            Loading analysis articles...
+                          <div className="h-12 flex items-center justify-center">
+                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
                           </div>
                         </motion.div>
                       ) : hasArticles ? (
@@ -4154,6 +4493,58 @@ export default function App() {
                             <FileText size={24} className="mx-auto mb-2 text-slate-600" />
                             <p className="text-slate-800 text-sm font-medium mb-1">No analysis articles found</p>
                             <p className="text-slate-600 text-xs">No scholarly articles, reviews, or criticism found for this book on Google Scholar</p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  );
+                })()}
+                
+                {/* YouTube Videos - Show below analysis */}
+                {(() => {
+                  const videos = youtubeVideos.get(activeBook.id) || [];
+                  const hasVideos = videos.length > 0;
+                  const isLoading = loadingVideosForBookId === activeBook.id && !hasVideos;
+                  
+                  // Always show the videos section
+                  return (
+                    <div className="w-full space-y-2">
+                      {/* Videos Header */}
+                      <div className="flex items-center justify-center mb-2">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
+                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">VIDEOS:</span>
+                          <span className="text-[10px] font-bold text-slate-400">/</span>
+                          <span className="text-[10px] font-bold text-blue-700">YouTube</span>
+                        </div>
+                      </div>
+                      {isLoading ? (
+                        // Show loading placeholder
+                        <motion.div
+                          animate={{ opacity: [0.5, 0.8, 0.5] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+                        >
+                          <div className="h-12 flex items-center justify-center">
+                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                          </div>
+                        </motion.div>
+                      ) : hasVideos ? (
+                        <YouTubeVideos 
+                          videos={videos} 
+                          bookId={activeBook.id}
+                          isLoading={false}
+                        />
+                      ) : (
+                        // Show no results state
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="w-full bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-white/30 shadow-lg"
+                        >
+                          <div className="text-center">
+                            <Play size={24} className="mx-auto mb-2 text-slate-600" />
+                            <p className="text-slate-800 text-sm font-medium mb-1">No videos found</p>
+                            <p className="text-slate-600 text-xs">No YouTube videos found for this book or author</p>
                           </div>
                         </motion.div>
                       )}
