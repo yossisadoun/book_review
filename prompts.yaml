@@ -89,6 +89,6 @@ related_books:
 
     Quality: The books must be highly regarded or interesting on their own merits.
 
-    Return no more than 10 recommendations.
+    Return no more than 10 great recommendations.
 
-    Return ONLY valid JSON in this format (no markdown code blocks, no conversational filler, just raw JSON): [{"title": "Book Title", "author": "Author Name", "reason": "A concise explanation of the specific angle and connection to the source material. upto 100 words"}]
+    Return ONLY valid JSON in this format (no markdown code blocks, no conversational filler, just raw JSON): [{"title": "Book Title", "author": "Author Name", "reason": "A clear smart explanation of the specific angle and connection to the source material. under 100 words."}]
