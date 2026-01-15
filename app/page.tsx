@@ -2412,8 +2412,8 @@ export default function App() {
       try {
         // Verify we have a session
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          console.error('No session found when loading books');
+        if (!session || !user) {
+          console.error('No session or user found when loading books');
           setIsLoaded(true);
           return;
         }
@@ -2703,6 +2703,7 @@ export default function App() {
         if (facts.length > 0) {
           console.log(`[Author Facts] ✅ Received ${facts.length} facts from Grok API for "${bookTitle}"`);
           // Save to database
+          if (!user) return; // Safety check
           try {
             const { error: updateError } = await supabase
               .from('books')
@@ -2818,6 +2819,7 @@ export default function App() {
             : 'Apple Podcasts';
           console.log(`[Podcast Episodes] ✅ Received ${episodes.length} episodes from ${sourceName} for "${bookTitle}"`);
           // Save to database with source-specific column
+          if (!user) return; // Safety check
           const updateField = podcastSource === 'curated'
             ? 'podcast_episodes_curated'
             : 'podcast_episodes_apple';
@@ -3271,6 +3273,8 @@ export default function App() {
   }
 
   async function handleRate(id: string, dimension: string, value: number | null) {
+    if (!user) return; // Safety check
+    
     const ratingField = `rating_${dimension}` as 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters';
     
     console.log(`[handleRate] Updating ${ratingField} to ${value} for book ${id}`);
@@ -3364,7 +3368,7 @@ export default function App() {
   }
 
   async function handleDelete() {
-    if (!activeBook) return;
+    if (!activeBook || !user) return;
 
     try {
       const { error } = await supabase
@@ -3387,7 +3391,7 @@ export default function App() {
 
   async function handleSaveNote(text?: string, bookId?: string) {
     const targetBookId = bookId || activeBook?.id;
-    if (!targetBookId) return;
+    if (!targetBookId || !user) return;
     
     const textToSave = text !== undefined ? text : noteText;
 
