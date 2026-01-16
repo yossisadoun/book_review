@@ -5437,14 +5437,17 @@ export default function App() {
                       const newStatus = statuses[nextIndex];
                       handleUpdateReadingStatus(activeBook.id, newStatus);
                     }}
-                    className="absolute top-4 left-4 z-30 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 px-3 py-1.5 rounded-full shadow-lg text-black hover:text-blue-600 active:scale-90 transition-all border border-white/30"
+                    className="absolute top-4 left-4 z-30 w-11 h-11 rounded-full bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 shadow-lg text-black hover:text-blue-600 active:scale-95 transition-all border border-white/30 flex items-center justify-center"
                   >
-                    <span className="text-xs font-bold">
-                      {activeBook.reading_status === 'read_it' ? '✓ Read it' :
-                       activeBook.reading_status === 'reading' ? '📖 Reading' :
-                       activeBook.reading_status === 'want_to_read' ? '📚 Want to read' :
-                       '📖'}
-                    </span>
+                    {activeBook.reading_status === 'read_it' ? (
+                      <CheckCircle2 size={18} className="text-slate-950" />
+                    ) : activeBook.reading_status === 'reading' ? (
+                      <BookOpen size={18} className="text-slate-950" />
+                    ) : activeBook.reading_status === 'want_to_read' ? (
+                      <BookMarked size={18} className="text-slate-950" />
+                    ) : (
+                      <BookOpen size={18} className="text-slate-950 opacity-50" />
+                    )}
                   </motion.button>
                 )}
               </AnimatePresence>
