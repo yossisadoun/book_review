@@ -836,33 +836,17 @@ async function getGoogleScholarAnalysis(bookTitle: string, author: string): Prom
     }
   }
   // All proxies failed - Google Scholar blocks scraping attempts
-  // Results are only available if previously cached in the database
-  console.log(`[getGoogleScholarAnalysis] ⚠️ Unable to fetch fresh results (proxies blocked). Using search URL fallback.`);
+  // Don't save fallback URLs to database - only return for display
+  console.log(`[getGoogleScholarAnalysis] ⚠️ Unable to fetch fresh results (proxies blocked). Returning search URL fallback (not saved to DB).`);
   
   const fallbackArticle: AnalysisArticle = {
     title: `Search Google Scholar for "${bookTitle}" by ${author}`,
-    snippet: `Google Scholar blocks automated access. Click to view search results directly on Google Scholar. Results will be cached if fetched successfully.`,
+    snippet: `Google Scholar blocks automated access. Click to view search results directly on Google Scholar.`,
     url: searchUrl,
   };
   
-  // Only save fallback if we don't already have real cached results
-  try {
-    const { data: existing } = await supabase
-      .from('google_scholar_articles')
-      .select('articles')
-      .eq('book_title', normalizedTitle)
-      .eq('book_author', normalizedAuthor)
-      .maybeSingle();
-    
-    // Only save fallback if we don't have real cached results
-    if (!existing || (existing.articles && existing.articles.length > 0 && existing.articles[0].title?.includes('Search Google Scholar'))) {
-      await saveArticlesToDatabase(normalizedTitle, normalizedAuthor, [fallbackArticle]);
-    }
-  } catch (err) {
-    // If check fails, still save the fallback
-    await saveArticlesToDatabase(normalizedTitle, normalizedAuthor, [fallbackArticle]);
-  }
-  
+  // Return fallback for display, but don't save to database
+  // Only real article results should be cached
   return [fallbackArticle];
 }
 
