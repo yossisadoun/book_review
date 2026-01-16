@@ -3775,26 +3775,33 @@ export default function App() {
     ));
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('books')
         .update({ 
           reading_status: readingStatus,
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .select();
 
       if (error) {
-        console.error('[handleUpdateReadingStatus] Supabase error:', {
-          message: error.message,
-          code: error.code,
-          details: error.details,
-          hint: error.hint,
+        // Log error in multiple ways to catch all possible error formats
+        console.error('[handleUpdateReadingStatus] Supabase error object:', error);
+        console.error('[handleUpdateReadingStatus] Error stringified:', JSON.stringify(error, null, 2));
+        console.error('[handleUpdateReadingStatus] Error details:', {
+          message: error?.message || 'No message',
+          code: error?.code || 'No code',
+          details: error?.details || 'No details',
+          hint: error?.hint || 'No hint',
           fullError: error
         });
         
-        // Check if column doesn't exist
-        if (error.code === '42703' || (error.message && (error.message.includes('column') || error.message.includes('reading_status')))) {
+        // Check if column doesn't exist (common error codes)
+        const errorMessage = error?.message || '';
+        const errorCode = error?.code || '';
+        
+        if (errorCode === '42703' || errorMessage.includes('column') || errorMessage.includes('reading_status') || errorMessage.includes('does not exist')) {
           console.warn('[handleUpdateReadingStatus] ⚠️ reading_status column may not exist. Please run the migration in Supabase SQL Editor.');
           console.warn('[handleUpdateReadingStatus] Migration SQL: See migrations/add_reading_status.sql');
         }
@@ -3806,7 +3813,7 @@ export default function App() {
             : book
         ));
       } else {
-        console.log(`[handleUpdateReadingStatus] ✅ Successfully updated reading_status to ${readingStatus}`);
+        console.log(`[handleUpdateReadingStatus] ✅ Successfully updated reading_status to ${readingStatus}`, data);
       }
     } catch (err: any) {
       console.error('[handleUpdateReadingStatus] ❌ Error updating reading status:', {
