@@ -20,6 +20,7 @@ import {
   FileText,
   Pencil,
   Grid3x3,
+  BookMarked,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
