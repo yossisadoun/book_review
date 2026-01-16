@@ -2123,7 +2123,7 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
     return (
       <div className="w-full">
         <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
-          <p className="text-sm text-slate-600 text-center">No videos found</p>
+          <p className="text-xs text-slate-600 text-center">No videos found</p>
         </div>
       </div>
     );
@@ -2352,7 +2352,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
     return (
       <div className="w-full">
         <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
-          <p className="text-sm text-slate-600 text-center">No related books found</p>
+          <p className="text-xs text-slate-600 text-center">No related books found</p>
         </div>
       </div>
     );
@@ -4975,17 +4975,9 @@ export default function App() {
                         />
                       ) : (
                         // Show no results state
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="w-full bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-white/30 shadow-lg"
-                        >
-                          <div className="text-center">
-                            <Headphones size={24} className="mx-auto mb-2 text-slate-600" />
-                            <p className="text-slate-800 text-sm font-medium mb-1">No podcasts found</p>
-                            <p className="text-slate-600 text-xs">No podcast episodes found for this book</p>
-                          </div>
-                        </motion.div>
+                        <div className="w-full bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
+                          <p className="text-xs text-slate-600 text-center">No podcasts found</p>
+                        </div>
                       )}
                     </div>
                   );
@@ -5036,17 +5028,9 @@ export default function App() {
                         />
                       ) : (
                         // Show no results state (either no articles or only fallback)
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="w-full bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-white/30 shadow-lg"
-                        >
-                          <div className="text-center">
-                            <FileText size={24} className="mx-auto mb-2 text-slate-600" />
-                            <p className="text-slate-800 text-sm font-medium mb-1">No analysis articles found</p>
-                            <p className="text-slate-600 text-xs">No scholarly articles, reviews, or criticism found for this book on Google Scholar</p>
-                          </div>
-                        </motion.div>
+                        <div className="w-full bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
+                          <p className="text-xs text-slate-600 text-center">No analysis found</p>
+                        </div>
                       )}
                     </div>
                   );
@@ -5088,17 +5072,9 @@ export default function App() {
                         />
                       ) : (
                         // Show no results state
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="w-full bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-white/30 shadow-lg"
-                        >
-                          <div className="text-center">
-                            <Play size={24} className="mx-auto mb-2 text-slate-600" />
-                            <p className="text-slate-800 text-sm font-medium mb-1">No videos found</p>
-                            <p className="text-slate-600 text-xs">No YouTube videos found for this book or author</p>
-                          </div>
-                        </motion.div>
+                        <div className="w-full bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
+                          <p className="text-xs text-slate-600 text-center">No videos found</p>
+                        </div>
                       )}
                     </div>
                   );
@@ -5141,17 +5117,9 @@ export default function App() {
                         />
                       ) : (
                         // Show no results state
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="w-full bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-white/30 shadow-lg"
-                        >
-                          <div className="text-center">
-                            <BookOpen size={24} className="mx-auto mb-2 text-slate-600" />
-                            <p className="text-slate-800 text-sm font-medium mb-1">No related books found</p>
-                            <p className="text-slate-600 text-xs">No related book recommendations available</p>
-                          </div>
-                        </motion.div>
+                        <div className="w-full bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
+                          <p className="text-xs text-slate-600 text-center">No related books found</p>
+                        </div>
                       )}
                     </div>
                   );
