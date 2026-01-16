@@ -2414,21 +2414,21 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
                 <div className="text-xs text-slate-600 mb-2">
                   <span>{currentBook.author}</span>
                 </div>
+                {/* Add Book Button */}
+                {onAddBook && (
+                  <button
+                    onClick={handleAddBook}
+                    className="py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded-lg transition-all duration-200 active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                  >
+                    <CheckCircle2 size={10} />
+                    Add Book
+                  </button>
+                )}
               </div>
             </div>
             <p className="text-xs font-medium text-slate-800 leading-relaxed mb-3">
               {currentBook.reason}
             </p>
-            {/* Add Book Button */}
-            {onAddBook && (
-              <button
-                onClick={handleAddBook}
-                className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-all duration-200 active:scale-95 flex items-center justify-center gap-2 mb-2 shadow-sm"
-              >
-                <CheckCircle2 size={14} />
-                Add Book
-              </button>
-            )}
             {books.length > 1 && (
               <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
                 Tap card for next ({currentIndex + 1}/{books.length})
