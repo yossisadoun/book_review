@@ -3408,19 +3408,19 @@ export default function App() {
       return groups;
     } else if (bookshelfGrouping === 'reading_status') {
       const groups: { label: string; books: BookWithRatings[] }[] = [
-        { label: 'Read it', books: [] },
         { label: 'Reading', books: [] },
         { label: 'Want to read', books: [] },
+        { label: 'Read it', books: [] },
         { label: 'TBD', books: [] },
       ];
       
       books.forEach(book => {
         const status = book.reading_status;
-        if (status === 'read_it') {
+        if (status === 'reading') {
           groups[0].books.push(book);
-        } else if (status === 'reading') {
-          groups[1].books.push(book);
         } else if (status === 'want_to_read') {
+          groups[1].books.push(book);
+        } else if (status === 'read_it') {
           groups[2].books.push(book);
         } else {
           // null or undefined reading_status goes to TBD
