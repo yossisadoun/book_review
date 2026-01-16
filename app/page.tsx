@@ -1107,8 +1107,46 @@ async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouT
         });
       }
     } else {
-      const errorData = await response1.json().catch(() => ({}));
-      console.error(`[getYouTubeVideos] ❌ Query 1 failed: ${response1.status} ${response1.statusText}`, errorData);
+      let errorData: any = {};
+      try {
+        const text = await response1.text();
+        if (text) {
+          errorData = JSON.parse(text);
+        }
+      } catch (e) {
+        // If JSON parsing fails, log the raw text
+        console.error('[getYouTubeVideos] ❌ Query 1 error response (raw):', await response1.text().catch(() => 'Could not read response'));
+      }
+      
+      console.error(`[getYouTubeVideos] ❌ Query 1 failed: ${response1.status} ${response1.statusText}`);
+      console.error('[getYouTubeVideos] Error details:', {
+        status: response1.status,
+        statusText: response1.statusText,
+        error: errorData.error || errorData,
+        message: errorData.error?.message || errorData.message || 'No error message',
+        reason: errorData.error?.errors?.[0]?.reason || errorData.reason || 'Unknown reason',
+        domain: errorData.error?.errors?.[0]?.domain || errorData.domain,
+        fullError: errorData
+      });
+      
+      // Provide helpful guidance based on error
+      if (response1.status === 403) {
+        const reason = errorData.error?.errors?.[0]?.reason || errorData.reason || '';
+        if (reason === 'quotaExceeded') {
+          console.error('[getYouTubeVideos] ⚠️ YouTube API quota exceeded. Please check your quota in Google Cloud Console.');
+        } else if (reason === 'accessNotConfigured') {
+          console.error('[getYouTubeVideos] ⚠️ YouTube Data API v3 is not enabled. Enable it in Google Cloud Console.');
+        } else if (reason === 'ipRefererBlocked') {
+          console.error('[getYouTubeVideos] ⚠️ API key restrictions are blocking this request. Check IP/referrer restrictions in Google Cloud Console.');
+        } else {
+          console.error('[getYouTubeVideos] ⚠️ YouTube API returned 403 Forbidden. Possible causes:');
+          console.error('[getYouTubeVideos]   1. Invalid API key');
+          console.error('[getYouTubeVideos]   2. API key restrictions (IP/referrer)');
+          console.error('[getYouTubeVideos]   3. YouTube Data API v3 not enabled');
+          console.error('[getYouTubeVideos]   4. Quota exceeded');
+          console.error('[getYouTubeVideos]   Check NEXT_PUBLIC_YOUTUBE_API_KEY in GitHub secrets and Google Cloud Console settings.');
+        }
+      }
     }
     
     // Query 2: Author + "interview"
@@ -1136,8 +1174,46 @@ async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouT
         });
       }
     } else {
-      const errorData = await response2.json().catch(() => ({}));
-      console.error(`[getYouTubeVideos] ❌ Query 2 failed: ${response2.status} ${response2.statusText}`, errorData);
+      let errorData: any = {};
+      try {
+        const text = await response2.text();
+        if (text) {
+          errorData = JSON.parse(text);
+        }
+      } catch (e) {
+        // If JSON parsing fails, log the raw text
+        console.error('[getYouTubeVideos] ❌ Query 2 error response (raw):', await response2.text().catch(() => 'Could not read response'));
+      }
+      
+      console.error(`[getYouTubeVideos] ❌ Query 2 failed: ${response2.status} ${response2.statusText}`);
+      console.error('[getYouTubeVideos] Error details:', {
+        status: response2.status,
+        statusText: response2.statusText,
+        error: errorData.error || errorData,
+        message: errorData.error?.message || errorData.message || 'No error message',
+        reason: errorData.error?.errors?.[0]?.reason || errorData.reason || 'Unknown reason',
+        domain: errorData.error?.errors?.[0]?.domain || errorData.domain,
+        fullError: errorData
+      });
+      
+      // Provide helpful guidance based on error
+      if (response2.status === 403) {
+        const reason = errorData.error?.errors?.[0]?.reason || errorData.reason || '';
+        if (reason === 'quotaExceeded') {
+          console.error('[getYouTubeVideos] ⚠️ YouTube API quota exceeded. Please check your quota in Google Cloud Console.');
+        } else if (reason === 'accessNotConfigured') {
+          console.error('[getYouTubeVideos] ⚠️ YouTube Data API v3 is not enabled. Enable it in Google Cloud Console.');
+        } else if (reason === 'ipRefererBlocked') {
+          console.error('[getYouTubeVideos] ⚠️ API key restrictions are blocking this request. Check IP/referrer restrictions in Google Cloud Console.');
+        } else {
+          console.error('[getYouTubeVideos] ⚠️ YouTube API returned 403 Forbidden. Possible causes:');
+          console.error('[getYouTubeVideos]   1. Invalid API key');
+          console.error('[getYouTubeVideos]   2. API key restrictions (IP/referrer)');
+          console.error('[getYouTubeVideos]   3. YouTube Data API v3 not enabled');
+          console.error('[getYouTubeVideos]   4. Quota exceeded');
+          console.error('[getYouTubeVideos]   Check NEXT_PUBLIC_YOUTUBE_API_KEY in GitHub secrets and Google Cloud Console settings.');
+        }
+      }
     }
     
     // Limit to top 10 videos
