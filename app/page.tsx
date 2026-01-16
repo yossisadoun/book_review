@@ -1824,7 +1824,7 @@ function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTo
             <p className="text-xs font-medium text-slate-950 leading-relaxed text-center">
               💡 {currentFact}
             </p>
-            <p className="text-[10px] text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
+            <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
               Tap for next ({currentIndex + 1}/{facts.length})
             </p>
           </motion.div>
@@ -2037,7 +2037,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                 );
               })()}
             </div>
-            <div className="text-[10px] text-slate-700 space-y-1 mb-2">
+            <div className="text-xs text-slate-700 space-y-1 mb-2">
               {currentEpisode.podcast_name && (
                 <div className="font-bold text-slate-900">{currentEpisode.podcast_name}</div>
               )}
@@ -2051,15 +2051,15 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                 </div>
               )}
             </div>
-            <p className="text-[10px] font-medium text-slate-800 leading-relaxed mb-1">
+            <p className="text-xs font-medium text-slate-800 leading-relaxed mb-1">
               {currentEpisode.episode_summary}
             </p>
             {currentEpisode.podcast_summary && (
-              <p className="text-[9px] text-slate-600 italic">
+              <p className="text-xs text-slate-600 italic">
                 {currentEpisode.podcast_summary}
               </p>
             )}
-            <p className="text-[10px] text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
+            <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
               Tap for next ({currentIndex + 1}/{episodes.length})
             </p>
           </motion.div>
@@ -2169,20 +2169,20 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
               >
                 {currentVideo.title}
               </a>
-              <div className="text-[10px] text-slate-600 mb-2">
+              <div className="text-xs text-slate-600 mb-2">
                 <span>{currentVideo.channelTitle}</span>
                 {currentVideo.publishedAt && (
                   <span> • {new Date(currentVideo.publishedAt).getFullYear()}</span>
                 )}
               </div>
               {currentVideo.description && (
-                <p className="text-[10px] text-slate-500 line-clamp-2">
+                <p className="text-xs text-slate-500 line-clamp-2">
                   {currentVideo.description}
                 </p>
               )}
             </div>
             {videos.length > 1 && (
-              <p className="text-[10px] text-slate-600 text-center pb-2 font-bold uppercase tracking-wider">
+              <p className="text-xs text-slate-600 text-center pb-2 font-bold uppercase tracking-wider">
                 Tap for next ({currentIndex + 1}/{videos.length})
               </p>
             )}
@@ -2277,17 +2277,17 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
                   {currentArticle.title}
                 </a>
                 {(currentArticle.authors || currentArticle.year) && (
-                  <div className="text-[10px] text-slate-600">
+                  <div className="text-xs text-slate-600">
                     {currentArticle.authors && <span>{currentArticle.authors}</span>}
                     {currentArticle.year && <span> • {currentArticle.year}</span>}
                   </div>
                 )}
               </div>
             </div>
-            <p className="text-[10px] font-medium text-slate-800 leading-relaxed mb-1">
+            <p className="text-xs font-medium text-slate-800 leading-relaxed mb-1">
               {currentArticle.snippet}
             </p>
-            <p className="text-[10px] text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
+            <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
               Tap for next ({currentIndex + 1}/{articles.length})
             </p>
           </motion.div>
@@ -2411,12 +2411,12 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
                 <h3 className="text-xs font-bold text-slate-800 mb-1 line-clamp-2">
                   {currentBook.title}
                 </h3>
-                <div className="text-[10px] text-slate-600 mb-2">
+                <div className="text-xs text-slate-600 mb-2">
                   <span>{currentBook.author}</span>
                 </div>
               </div>
             </div>
-            <p className="text-[10px] font-medium text-slate-800 leading-relaxed mb-3">
+            <p className="text-xs font-medium text-slate-800 leading-relaxed mb-3">
               {currentBook.reason}
             </p>
             {/* Add Book Button */}
@@ -2430,7 +2430,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
               </button>
             )}
             {books.length > 1 && (
-              <p className="text-[10px] text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
+              <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
                 Tap card for next ({currentIndex + 1}/{books.length})
               </p>
             )}
