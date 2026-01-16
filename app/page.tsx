@@ -3785,7 +3785,20 @@ export default function App() {
         .eq('user_id', user.id);
 
       if (error) {
-        console.error('[handleUpdateReadingStatus] Supabase error:', error);
+        console.error('[handleUpdateReadingStatus] Supabase error:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          fullError: error
+        });
+        
+        // Check if column doesn't exist
+        if (error.code === '42703' || (error.message && (error.message.includes('column') || error.message.includes('reading_status')))) {
+          console.warn('[handleUpdateReadingStatus] ⚠️ reading_status column may not exist. Please run the migration in Supabase SQL Editor.');
+          console.warn('[handleUpdateReadingStatus] Migration SQL: See migrations/add_reading_status.sql');
+        }
+        
         // Revert on error
         setBooks(prev => prev.map(book => 
           book.id === id 
@@ -3795,8 +3808,14 @@ export default function App() {
       } else {
         console.log(`[handleUpdateReadingStatus] ✅ Successfully updated reading_status to ${readingStatus}`);
       }
-    } catch (err) {
-      console.error('Error updating reading status:', err);
+    } catch (err: any) {
+      console.error('[handleUpdateReadingStatus] ❌ Error updating reading status:', {
+        message: err?.message,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+        fullError: err
+      });
       // Revert on error
       setBooks(prev => prev.map(book => 
         book.id === id 
