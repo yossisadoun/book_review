@@ -3030,7 +3030,7 @@ export default function App() {
   const [isAdding, setIsAdding] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [selectingReadingStatus, setSelectingReadingStatus] = useState(false);
+  const [selectingReadingStatusInRating, setSelectingReadingStatusInRating] = useState(false);
   const [pendingBookMeta, setPendingBookMeta] = useState<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> | null>(null);
   
   // Swipe detection state for book navigation
@@ -3345,11 +3345,11 @@ export default function App() {
   
   // When editing, show the first dimension that needs rating, or first dimension if all are rated
   const currentEditingDimension = useMemo((): typeof RATING_DIMENSIONS[number] | null => {
-    if (!activeBook || !isEditing) return null;
+    if (!activeBook || !isEditing || selectingReadingStatusInRating) return null;
     if (editingDimension) return editingDimension;
     // Find first unrated dimension, or default to first dimension
     return RATING_DIMENSIONS.find(d => activeBook.ratings[d] === null) || RATING_DIMENSIONS[0];
-  }, [activeBook, isEditing, editingDimension]);
+  }, [activeBook, isEditing, editingDimension, selectingReadingStatusInRating]);
   
   const showRatingOverlay = activeBook && isEditing;
 
@@ -3835,10 +3835,11 @@ export default function App() {
   async function handleAddBook(meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) {
     if (!user) return;
 
-    // Store the book metadata and show reading status selection
+    // Store the book metadata and add the book, then show rating overlay with reading status selection
     setPendingBookMeta(meta);
-    setSelectingReadingStatus(true);
     setIsAdding(false);
+    // Add book without status first, then show rating overlay
+    await handleAddBookWithStatus(null as any); // Add with null status, will update later
   }
 
   async function handleUpdateReadingStatus(id: string, readingStatus: ReadingStatus) {
@@ -3909,10 +3910,9 @@ export default function App() {
     }
   }
 
-  async function handleAddBookWithStatus(readingStatus: ReadingStatus) {
+  async function handleAddBookWithStatus(readingStatus: ReadingStatus | null) {
     if (!user || !pendingBookMeta) return;
 
-    setSelectingReadingStatus(false);
     const meta = pendingBookMeta;
 
     try {
@@ -4047,16 +4047,28 @@ export default function App() {
           setBooks(prev => [newBook, ...prev]);
           setSelectedIndex(0);
           setIsAdding(false);
-          setPendingBookMeta(null);
           // Switch to books view (in case we're on bookshelf/notes screen)
           setShowBookshelf(false);
           setShowNotesView(false);
-          // Automatically open rating overlay for new book only if status is "read_it"
-          if (readingStatus === 'read_it') {
+          
+          // If readingStatus is null, we need to show reading status selection in rating overlay
+          if (readingStatus === null) {
+            setSelectingReadingStatusInRating(true);
+            setTimeout(() => {
+              setIsEditing(true);
+            }, 100);
+          } else if (readingStatus === 'read_it') {
+            // If status is "read_it", proceed to rating dimensions
+            setPendingBookMeta(null);
+            setSelectingReadingStatusInRating(false);
             setTimeout(() => {
               setIsEditing(true);
               setEditingDimension(null); // Will default to first unrated dimension
             }, 100);
+          } else {
+            // For "reading" or "want_to_read", just close
+            setPendingBookMeta(null);
+            setSelectingReadingStatusInRating(false);
           }
           return;
         }
@@ -4071,16 +4083,28 @@ export default function App() {
       setBooks(prev => [newBook, ...prev]);
       setSelectedIndex(0);
       setIsAdding(false);
-      setPendingBookMeta(null);
       // Switch to books view (in case we're on bookshelf/notes screen)
       setShowBookshelf(false);
       setShowNotesView(false);
-      // Automatically open rating overlay for new book only if status is "read_it"
-      if (readingStatus === 'read_it') {
+      
+      // If readingStatus is null, we need to show reading status selection in rating overlay
+      if (readingStatus === null) {
+        setSelectingReadingStatusInRating(true);
+        setTimeout(() => {
+          setIsEditing(true);
+        }, 100);
+      } else if (readingStatus === 'read_it') {
+        // If status is "read_it", proceed to rating dimensions
+        setPendingBookMeta(null);
+        setSelectingReadingStatusInRating(false);
         setTimeout(() => {
           setIsEditing(true);
           setEditingDimension(null); // Will default to first unrated dimension
         }, 100);
+      } else {
+        // For "reading" or "want_to_read", just close
+        setPendingBookMeta(null);
+        setSelectingReadingStatusInRating(false);
       }
 
       // Fetch author facts and podcast episodes asynchronously after book is added and save to DB
@@ -5387,7 +5411,7 @@ export default function App() {
               </AnimatePresence>
 
               <AnimatePresence>
-                {showRatingOverlay && !isConfirmingDelete && !isShowingNotes && currentEditingDimension && (
+                {showRatingOverlay && !isConfirmingDelete && !isShowingNotes && (
                   <motion.div 
                     initial={{ opacity: 0, y: 20 }} 
                     animate={{ opacity: 1, y: 0 }} 
@@ -5395,45 +5419,103 @@ export default function App() {
                     className="absolute bottom-16 left-4 right-4 z-40 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 flex flex-col items-center justify-center p-4 rounded-2xl border border-white/30 shadow-2xl overflow-hidden"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <motion.div 
-                      key={currentEditingDimension} 
-                      initial={{ opacity: 0, scale: 0.9 }} 
-                      animate={{ opacity: 1, scale: 1 }} 
-                      exit={{ opacity: 0, scale: 0.9 }} 
-                      className="w-full"
-                    >
-                      <RatingStars 
-                        dimension={currentEditingDimension} 
-                        value={activeBook.ratings[currentEditingDimension]} 
-                        onRate={(dim, val) => handleRate(activeBook.id, dim, val)} 
-                      />
-                    </motion.div>
-                    {/* Navigation dots and Skip button */}
-                    <div className="flex items-center justify-center gap-3 mt-3">
-                      <div className="flex gap-1.5">
-                        {RATING_DIMENSIONS.map((dim, idx) => (
-                          <button
-                            key={dim}
-                            onClick={() => setEditingDimension(dim)}
-                            className={`w-2 h-2 rounded-full transition-all ${
-                              dim === currentEditingDimension 
-                                ? 'bg-blue-600 w-6' 
-                                : 'bg-slate-400'
-                            }`}
-                          />
-                        ))}
-                      </div>
-                      <button
-                        onClick={() => {
-                          if (activeBook && currentEditingDimension) {
-                            handleRate(activeBook.id, currentEditingDimension, null);
-                          }
-                        }}
-                        className="px-3 py-1 text-xs font-medium text-black hover:text-slate-800 active:scale-95 transition-all"
+                    {selectingReadingStatusInRating ? (
+                      // Reading Status Selection
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.9 }} 
+                        animate={{ opacity: 1, scale: 1 }} 
+                        exit={{ opacity: 0, scale: 0.9 }} 
+                        className="w-full flex flex-col items-center gap-4"
                       >
-                        Skip
-                      </button>
-                    </div>
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950 mb-2">Reading Status</h3>
+                        <div className="flex flex-col gap-3 w-full">
+                          <button
+                            onClick={async () => {
+                              if (activeBook && pendingBookMeta) {
+                                await handleUpdateReadingStatus(activeBook.id, 'read_it');
+                                setSelectingReadingStatusInRating(false);
+                                setPendingBookMeta(null);
+                                // Proceed to rating dimensions
+                                setEditingDimension(null);
+                              }
+                            }}
+                            className="flex flex-col items-center gap-2 px-6 py-4 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all"
+                          >
+                            <CheckCircle2 size={32} className="text-slate-950" />
+                            <span className="text-xs font-bold text-slate-950">Read it</span>
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (activeBook && pendingBookMeta) {
+                                await handleUpdateReadingStatus(activeBook.id, 'reading');
+                                setSelectingReadingStatusInRating(false);
+                                setPendingBookMeta(null);
+                                setIsEditing(false);
+                              }
+                            }}
+                            className="flex flex-col items-center gap-2 px-6 py-4 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all"
+                          >
+                            <BookOpen size={32} className="text-slate-950" />
+                            <span className="text-xs font-bold text-slate-950">Reading</span>
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (activeBook && pendingBookMeta) {
+                                await handleUpdateReadingStatus(activeBook.id, 'want_to_read');
+                                setSelectingReadingStatusInRating(false);
+                                setPendingBookMeta(null);
+                                setIsEditing(false);
+                              }
+                            }}
+                            className="flex flex-col items-center gap-2 px-6 py-4 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all"
+                          >
+                            <BookMarked size={32} className="text-slate-950" />
+                            <span className="text-xs font-bold text-slate-950">Want to read</span>
+                          </button>
+                        </div>
+                      </motion.div>
+                    ) : currentEditingDimension ? (
+                      // Rating Dimensions
+                      <motion.div 
+                        key={currentEditingDimension} 
+                        initial={{ opacity: 0, scale: 0.9 }} 
+                        animate={{ opacity: 1, scale: 1 }} 
+                        exit={{ opacity: 0, scale: 0.9 }} 
+                        className="w-full"
+                      >
+                        <RatingStars 
+                          dimension={currentEditingDimension} 
+                          value={activeBook.ratings[currentEditingDimension]} 
+                          onRate={(dim, val) => handleRate(activeBook.id, dim, val)} 
+                        />
+                        {/* Navigation dots and Skip button */}
+                        <div className="flex items-center justify-center gap-3 mt-3">
+                          <div className="flex gap-1.5">
+                            {RATING_DIMENSIONS.map((dim, idx) => (
+                              <button
+                                key={dim}
+                                onClick={() => setEditingDimension(dim)}
+                                className={`w-2 h-2 rounded-full transition-all ${
+                                  dim === currentEditingDimension 
+                                    ? 'bg-blue-600 w-6' 
+                                    : 'bg-slate-400'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => {
+                              if (activeBook && currentEditingDimension) {
+                                handleRate(activeBook.id, currentEditingDimension, null);
+                              }
+                            }}
+                            className="px-3 py-1 text-xs font-medium text-black hover:text-slate-800 active:scale-95 transition-all"
+                          >
+                            Skip
+                          </button>
+                        </div>
+                      </motion.div>
+                    ) : null}
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -5449,53 +5531,6 @@ export default function App() {
                 />
               )}
 
-              {/* Reading Status Selection Overlay */}
-              <AnimatePresence>
-                {selectingReadingStatus && pendingBookMeta && (
-                  <>
-                    <motion.div 
-                      initial={{ opacity: 0 }} 
-                      animate={{ opacity: 1 }} 
-                      exit={{ opacity: 0 }} 
-                      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
-                      onClick={() => {
-                        setSelectingReadingStatus(false);
-                        setPendingBookMeta(null);
-                      }}
-                    >
-                      <motion.div 
-                        initial={{ opacity: 0, scale: 0.9, y: 20 }} 
-                        animate={{ opacity: 1, scale: 1, y: 0 }} 
-                        exit={{ opacity: 0, scale: 0.9, y: 20 }} 
-                        className="bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-2xl border border-white/30 shadow-2xl p-6 max-w-sm w-full"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <h3 className="text-lg font-bold text-slate-950 mb-4 text-center">How would you like to categorize this book?</h3>
-                        <div className="flex flex-col gap-3">
-                          <button
-                            onClick={() => handleAddBookWithStatus('read_it')}
-                            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold active:scale-95 transition-all"
-                          >
-                            Read it
-                          </button>
-                          <button
-                            onClick={() => handleAddBookWithStatus('reading')}
-                            className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold active:scale-95 transition-all"
-                          >
-                            Reading
-                          </button>
-                          <button
-                            onClick={() => handleAddBookWithStatus('want_to_read')}
-                            className="px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold active:scale-95 transition-all"
-                          >
-                            Want to read
-                          </button>
-                        </div>
-                      </motion.div>
-                    </motion.div>
-                  </>
-                )}
-              </AnimatePresence>
 
               {/* Reading Status Indicator Button - top left */}
               <AnimatePresence>
