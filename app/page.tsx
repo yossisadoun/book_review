@@ -5103,6 +5103,24 @@ export default function App() {
               )}
             </div>
             
+            {/* Navigation arrows - always visible, below cover */}
+            {books.length > 1 && (
+              <div className="w-full flex items-center justify-center gap-4 mt-2">
+                <button 
+                  onClick={() => setSelectedIndex(prev => (prev > 0 ? prev - 1 : books.length - 1))} 
+                  className="p-2 text-white drop-shadow-lg active:scale-95 transition-transform"
+                >
+                  <ChevronLeft size={25} />
+                </button>
+                <button 
+                  onClick={() => setSelectedIndex(prev => (prev < books.length - 1 ? prev + 1 : 0))} 
+                  className="p-2 text-white drop-shadow-lg active:scale-95 transition-transform"
+                >
+                  <ChevronRight size={25} />
+                </button>
+              </div>
+            )}
+            
             {/* Info box - always open, below cover and above facts */}
             {!showRatingOverlay && (
               <motion.div
