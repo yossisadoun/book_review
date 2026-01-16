@@ -2922,40 +2922,36 @@ export default function App() {
       
       return groups.filter(group => group.books.length > 0);
     } else { // genre
-      const groups: { label: string; books: BookWithRatings[] }[] = [
-        { label: 'A-D', books: [] },
-        { label: 'E-H', books: [] },
-        { label: 'I-M', books: [] },
-        { label: 'N-S', books: [] },
-        { label: 'T-Z', books: [] },
-      ];
+      // Group by actual genre name
+      const genreMap = new Map<string, BookWithRatings[]>();
       
       books.forEach(book => {
-        // Group by first letter of genre, or 'Z' if no genre
-        const genreFirstLetter = book.genre?.[0]?.toUpperCase() || 'Z';
-        const range = getAlphabeticalRange(genreFirstLetter);
-        const groupIndex = groups.findIndex(g => g.label === range);
-        if (groupIndex !== -1) {
-          groups[groupIndex].books.push(book);
+        const genre = book.genre || 'No Genre';
+        if (!genreMap.has(genre)) {
+          genreMap.set(genre, []);
         }
+        genreMap.get(genre)!.push(book);
       });
       
-      // Sort each group by genre, then by title
-      groups.forEach(group => {
-        group.books.sort((a, b) => {
-          const genreA = (a.genre || 'ZZZ').toUpperCase();
-          const genreB = (b.genre || 'ZZZ').toUpperCase();
-          if (genreA !== genreB) {
-            return genreA.localeCompare(genreB);
-          }
-          // If same genre, sort by title
-          const titleA = (a.title || '').toUpperCase();
-          const titleB = (b.title || '').toUpperCase();
-          return titleA.localeCompare(titleB);
+      // Convert to groups array and sort by genre name
+      const groups: { label: string; books: BookWithRatings[] }[] = Array.from(genreMap.entries())
+        .map(([genre, books]) => ({
+          label: genre,
+          books: books.sort((a, b) => {
+            // Sort books within each genre by title
+            const titleA = (a.title || '').toUpperCase();
+            const titleB = (b.title || '').toUpperCase();
+            return titleA.localeCompare(titleB);
+          })
+        }))
+        .sort((a, b) => {
+          // Sort groups by genre name (put "No Genre" at the end)
+          if (a.label === 'No Genre') return 1;
+          if (b.label === 'No Genre') return -1;
+          return a.label.localeCompare(b.label);
         });
-      });
       
-      return groups.filter(group => group.books.length > 0);
+      return groups;
     }
   }, [books, bookshelfGrouping]);
   
@@ -3911,16 +3907,27 @@ export default function App() {
                 : 'linear-gradient(to bottom, rgba(248, 250, 252, 1), rgba(248, 250, 252, 0))'
           }}
         >
-          {/* BOOKS/BOOKSHELF/NOTES text on left */}
-          <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
-            {isShowingNotes && activeBook 
-              ? `${activeBook.title} notes` 
-              : showNotesView 
-                ? 'NOTES' 
-                : showBookshelf 
-                  ? 'BOOKSHELF' 
-                  : 'BOOKS'}
-          </h1>
+          {/* BOOKS/BOOKSHELF/NOTES text on left with icon */}
+          <div className="flex items-center gap-3">
+            {isShowingNotes && activeBook ? (
+              <Pencil size={24} className="text-slate-950" />
+            ) : showNotesView ? (
+              <Pencil size={24} className="text-slate-950" />
+            ) : showBookshelf ? (
+              <Library size={24} className="text-slate-950" />
+            ) : (
+              <BookOpen size={24} className="text-slate-950" />
+            )}
+            <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
+              {isShowingNotes && activeBook 
+                ? `${activeBook.title} notes` 
+                : showNotesView 
+                  ? 'NOTES' 
+                  : showBookshelf 
+                    ? 'BOOKSHELF' 
+                    : 'BOOKS'}
+            </h1>
+          </div>
         
         {/* User avatar on right */}
         <div className="relative">
@@ -4524,7 +4531,12 @@ export default function App() {
           </div>
         ) : (
           <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">
-            <div className="relative w-full aspect-[2/3] rounded-3xl shadow-2xl border border-white/30 overflow-hidden group">
+            <div 
+              className="relative w-full aspect-[2/3] overflow-hidden group rounded-lg"
+              style={{
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04)',
+              }}
+            >
               {/* Front side - Book cover */}
               <AnimatePresence mode="wait">
                 {!isShowingNotes && (
@@ -4537,11 +4549,34 @@ export default function App() {
                     className="absolute inset-0 w-full h-full"
                   >
                     <AnimatePresence mode='wait'>
-                      <motion.div key={activeBook.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="w-full h-full">
+                      <motion.div key={activeBook.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="relative w-full h-full rounded-lg overflow-hidden">
                         {activeBook.cover_url ? (
-                          <img src={activeBook.cover_url} alt={activeBook.title} className="w-full h-full object-cover" />
+                          <>
+                            <img src={activeBook.cover_url} alt={activeBook.title} className="w-full h-full object-cover" />
+                            {/* Skeuomorphic book effect overlay */}
+                            <div 
+                              className="absolute inset-0 pointer-events-none rounded-lg"
+                              style={{
+                                background: `linear-gradient(to right,
+                                  rgba(0,0,0,0.02) 0%,
+                                  rgba(0,0,0,0.05) 0.75%,
+                                  rgba(255,255,255,0.5) 1.0%,
+                                  rgba(255,255,255,0.6) 1.3%,
+                                  rgba(255,255,255,0.5) 1.4%,
+                                  rgba(255,255,255,0.3) 1.5%,
+                                  rgba(255,255,255,0.3) 2.4%,
+                                  rgba(0,0,0,0.05) 2.7%,
+                                  rgba(0,0,0,0.05) 3.5%,
+                                  rgba(255,255,255,0.3) 4%,
+                                  rgba(255,255,255,0.3) 4.5%,
+                                  rgba(244,244,244,0.1) 5.4%,
+                                  rgba(244,244,244,0.1) 99%,
+                                  rgba(144,144,144,0.2) 100%)`
+                              }}
+                            />
+                          </>
                         ) : (
-                          <div className={`w-full h-full flex flex-col items-center justify-center p-8 text-center bg-gradient-to-br ${getGradient(activeBook.id)} text-white`}>
+                          <div className={`w-full h-full flex flex-col items-center justify-center p-8 text-center bg-gradient-to-br ${getGradient(activeBook.id)} text-white rounded-lg`}>
                             <BookOpen size={48} className="mb-4 opacity-30" />
                           </div>
                         )}
