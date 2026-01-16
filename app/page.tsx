@@ -1238,15 +1238,44 @@ async function saveArticlesToDatabase(bookTitle: string, bookAuthor: string, art
   }
 }
 
-async function getPodcastEpisodes(bookTitle: string, author: string, source: 'apple' | 'curated' = 'curated'): Promise<PodcastEpisode[]> {
-  console.log(`[getPodcastEpisodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${author} from ${source}`);
-  if (source === 'curated') {
-    return getCuratedPodcastEpisodes(bookTitle, author);
-  }
-  if (source === 'apple') {
-    return getApplePodcastEpisodes(bookTitle, author);
-  }
-  return getGrokPodcastEpisodes(bookTitle, author);
+async function getPodcastEpisodes(bookTitle: string, author: string): Promise<PodcastEpisode[]> {
+  console.log(`[getPodcastEpisodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${author} from both sources`);
+  
+  // Fetch both sources in parallel
+  const [curatedEpisodes, appleEpisodes] = await Promise.all([
+    getCuratedPodcastEpisodes(bookTitle, author).catch(err => {
+      console.error('[getPodcastEpisodes] ⚠️ Error fetching curated episodes:', err);
+      return [];
+    }),
+    getApplePodcastEpisodes(bookTitle, author).catch(err => {
+      console.error('[getPodcastEpisodes] ⚠️ Error fetching Apple episodes:', err);
+      return [];
+    })
+  ]);
+  
+  // Combine: curated first, then Apple (avoid duplicates by URL)
+  const seenUrls = new Set<string>();
+  const combined: PodcastEpisode[] = [];
+  
+  // Add curated episodes first
+  curatedEpisodes.forEach(ep => {
+    if (ep.url && !seenUrls.has(ep.url)) {
+      seenUrls.add(ep.url);
+      combined.push(ep);
+    }
+  });
+  
+  // Add Apple episodes (excluding duplicates)
+  appleEpisodes.forEach(ep => {
+    if (ep.url && !seenUrls.has(ep.url)) {
+      seenUrls.add(ep.url);
+      combined.push(ep);
+    }
+  });
+  
+  console.log(`[getPodcastEpisodes] ✅ Combined ${combined.length} episodes (${curatedEpisodes.length} curated + ${appleEpisodes.length} Apple, ${curatedEpisodes.length + appleEpisodes.length - combined.length} duplicates removed)`);
+  
+  return combined;
 }
 
 // --- Apple Books API (iTunes Search) ---
@@ -2773,24 +2802,7 @@ export default function App() {
     return 'rating';
   });
   const [backgroundGradient, setBackgroundGradient] = useState<string>('241,245,249,226,232,240'); // Default slate colors as RGB
-  const [podcastSource, setPodcastSource] = useState<'apple' | 'curated'>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('podcastSource');
-      // Migrate old 'grok' values to 'curated'
-      if (saved === 'grok') {
-        localStorage.setItem('podcastSource', 'curated');
-        return 'curated';
-      }
-      return (saved as 'apple' | 'curated') || 'curated';
-    }
-    return 'curated';
-  });
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('podcastSource', podcastSource);
-    }
-  }, [podcastSource]);
+  // Podcast source selector removed - now always fetches from both sources
 
   // Load books from Supabase
   useEffect(() => {
@@ -3148,32 +3160,39 @@ export default function App() {
 
     const bookId = currentBook.id; // Define bookId early
 
-    // Check if podcasts already exist in database for the selected source
-    const sourceEpisodes = podcastSource === 'curated'
-      ? currentBook.podcast_episodes_curated
-      : currentBook.podcast_episodes_apple;
+    // Check if podcasts already exist in database (both sources)
+    const curatedEpisodes = currentBook.podcast_episodes_curated || [];
+    const appleEpisodes = currentBook.podcast_episodes_apple || [];
+    const legacyEpisodes = currentBook.podcast_episodes || [];
     
-    // Fallback to legacy podcast_episodes if source-specific doesn't exist
-    const episodes = sourceEpisodes || currentBook.podcast_episodes;
+    // Combine episodes: curated first, then Apple, then legacy
+    const seenUrls = new Set<string>();
+    const combinedEpisodes: PodcastEpisode[] = [];
     
-    if (episodes && episodes.length > 0) {
+    [...curatedEpisodes, ...appleEpisodes, ...legacyEpisodes].forEach(ep => {
+      if (ep.url && !seenUrls.has(ep.url)) {
+        seenUrls.add(ep.url);
+        combinedEpisodes.push(ep);
+      }
+    });
+    
+    if (combinedEpisodes.length > 0) {
       // Show loading state briefly even when loading from DB for consistent UX
       setLoadingPodcastsForBookId(bookId);
       setTimeout(() => {
-        const sourceName = podcastSource === 'curated' 
-          ? 'Curated' 
-          : 'Apple Podcasts';
-        console.log(`[Podcast Episodes] ✅ Loaded ${episodes.length} episodes from database (${sourceName}) for "${currentBook.title}" by ${currentBook.author}`);
+        console.log(`[Podcast Episodes] ✅ Loaded ${combinedEpisodes.length} episodes from database (${curatedEpisodes.length} curated + ${appleEpisodes.length} Apple) for "${currentBook.title}" by ${currentBook.author}`);
         setLoadingPodcastsForBookId(null);
         
         // Update local state with source-specific episodes if we used legacy data
-        if (!sourceEpisodes && currentBook.podcast_episodes) {
-          const updateField = podcastSource === 'curated'
-            ? 'podcast_episodes_curated'
-            : 'podcast_episodes_apple';
+        if (legacyEpisodes.length > 0 && (!curatedEpisodes.length && !appleEpisodes.length)) {
+          // Migrate legacy data to curated
           setBooks(prev => prev.map(book => 
             book.id === currentBook.id 
-              ? { ...book, [updateField]: currentBook.podcast_episodes }
+              ? { 
+                  ...book, 
+                  podcast_episodes_curated: legacyEpisodes,
+                  podcast_episodes_apple: []
+                }
               : book
           ));
         }
@@ -3192,60 +3211,72 @@ export default function App() {
       
       const bookTitle = currentBook.title;
       const bookAuthor = currentBook.author;
-      const sourceName = podcastSource === 'curated' 
-        ? 'Curated' 
-        : 'Apple Podcasts';
       
-      console.log(`[Podcast Episodes] 🔄 Fetching from ${sourceName} for "${bookTitle}" by ${bookAuthor}...`);
-      getPodcastEpisodes(bookTitle, bookAuthor, podcastSource).then(async (episodes) => {
+      console.log(`[Podcast Episodes] 🔄 Fetching from both sources (Curated + Apple) for "${bookTitle}" by ${bookAuthor}...`);
+      getPodcastEpisodes(bookTitle, bookAuthor).then(async (allEpisodes) => {
         if (cancelled) return;
         
         // Clear loading state
         setLoadingPodcastsForBookId(null);
         
-        if (episodes.length > 0) {
-          const sourceName = podcastSource === 'curated' 
-            ? 'Curated' 
-            : 'Apple Podcasts';
-          console.log(`[Podcast Episodes] ✅ Received ${episodes.length} episodes from ${sourceName} for "${bookTitle}"`);
-          // Save to database with source-specific column
+        if (allEpisodes.length > 0) {
+          console.log(`[Podcast Episodes] ✅ Received ${allEpisodes.length} combined episodes for "${bookTitle}"`);
+          
+          // Separate episodes by source
+          const curated: PodcastEpisode[] = [];
+          const apple: PodcastEpisode[] = [];
+          
+          allEpisodes.forEach(ep => {
+            if (ep.platform === 'Curated') {
+              curated.push(ep);
+            } else {
+              apple.push(ep);
+            }
+          });
+          
+          // Save to database with both source-specific columns
           if (!user) return; // Safety check
-          const updateField = podcastSource === 'curated'
-            ? 'podcast_episodes_curated'
-            : 'podcast_episodes_apple';
           try {
             const { error: updateError } = await supabase
               .from('books')
-              .update({ [updateField]: episodes, updated_at: new Date().toISOString() })
+              .update({ 
+                podcast_episodes_curated: curated,
+                podcast_episodes_apple: apple,
+                updated_at: new Date().toISOString() 
+              })
               .eq('id', bookId)
               .eq('user_id', user.id); // Ensure user can only update their own books
             
             if (updateError) throw updateError;
             
-            console.log(`[Podcast Episodes] 💾 Saved ${episodes.length} episodes to database for "${bookTitle}"`);
+            console.log(`[Podcast Episodes] 💾 Saved ${curated.length} curated + ${apple.length} Apple episodes to database for "${bookTitle}"`);
             
-            // Update local state with source-specific episodes
+            // Update local state with both source-specific episodes
             setBooks(prev => prev.map(book => 
               book.id === bookId 
-                ? { ...book, [updateField]: episodes }
+                ? { 
+                    ...book, 
+                    podcast_episodes_curated: curated,
+                    podcast_episodes_apple: apple
+                  }
                 : book
             ));
           } catch (err: any) {
             console.error('[Podcast Episodes] ❌ Error saving to database:', err);
             console.error('[Podcast Episodes] Error details:', err.message, err.code, err.details);
-            if (err.code === '42703' || err.message?.includes('column') || err.message?.includes('podcast_episodes')) {
-              console.error('[Podcast Episodes] ⚠️ Database column "podcast_episodes" may not exist. Run this SQL in Supabase:');
-              console.error('ALTER TABLE public.books ADD COLUMN IF NOT EXISTS podcast_episodes jsonb;');
-            }
             // Still update local state even if DB save fails
             setBooks(prev => prev.map(book => 
               book.id === bookId 
-                ? { ...book, [updateField]: episodes }
+                ? { 
+                    ...book, 
+                    podcast_episodes_curated: curated,
+                    podcast_episodes_apple: apple
+                  }
                 : book
             ));
           }
         } else {
-          console.log(`[Podcast Episodes] ⚠️ No episodes received from Grok API for "${bookTitle}"`);
+          console.log(`[Podcast Episodes] ⚠️ No episodes found for "${bookTitle}"`);
         }
       }).catch(err => {
         if (!cancelled) {
@@ -3260,7 +3291,7 @@ export default function App() {
       setLoadingPodcastsForBookId(null);
       clearTimeout(fetchTimer);
     };
-  }, [selectedIndex, books, podcastSource]); // Depend on selectedIndex, books, and podcastSource
+  }, [selectedIndex, books]); // Removed podcastSource dependency
 
   // Load analysis articles from Google Scholar
   useEffect(() => {
@@ -3654,47 +3685,63 @@ export default function App() {
           console.error(`[Author Facts] ❌ Error fetching from Grok API for "${meta.title}":`, err);
         });
 
-        // Fetch podcast episodes
-        const sourceName = podcastSource === 'curated' 
-          ? 'Curated' 
-          : 'Apple Podcasts';
-        console.log(`[Podcast Episodes] 🔄 Fetching from ${sourceName} for new book "${meta.title}" by ${meta.author}...`);
+        // Fetch podcast episodes from both sources
+        console.log(`[Podcast Episodes] 🔄 Fetching from both sources (Curated + Apple) for new book "${meta.title}" by ${meta.author}...`);
         setLoadingPodcastsForBookId(newBook.id);
-        getPodcastEpisodes(meta.title, meta.author, podcastSource).then(async (episodes) => {
+        getPodcastEpisodes(meta.title, meta.author).then(async (allEpisodes) => {
           setLoadingPodcastsForBookId(null);
-          if (episodes.length > 0) {
-            console.log(`[Podcast Episodes] ✅ Received ${episodes.length} episodes from ${sourceName} for "${meta.title}"`);
-            // Save to database with source-specific column
-            const updateField = podcastSource === 'curated'
-              ? 'podcast_episodes_curated'
-              : 'podcast_episodes_apple';
+          if (allEpisodes.length > 0) {
+            console.log(`[Podcast Episodes] ✅ Received ${allEpisodes.length} combined episodes for "${meta.title}"`);
+            
+            // Separate episodes by source
+            const curated: PodcastEpisode[] = [];
+            const apple: PodcastEpisode[] = [];
+            
+            allEpisodes.forEach(ep => {
+              if (ep.platform === 'Curated') {
+                curated.push(ep);
+              } else {
+                apple.push(ep);
+              }
+            });
+            
+            // Save to database with both source-specific columns
             try {
               const { error: updateError } = await supabase
                 .from('books')
-                .update({ [updateField]: episodes, updated_at: new Date().toISOString() })
-                .eq('id', newBook.id);
+                .update({ 
+                  podcast_episodes_curated: curated,
+                  podcast_episodes_apple: apple,
+                  updated_at: new Date().toISOString() 
+                })
+                .eq('id', newBook.id)
+                .eq('user_id', user.id);
               
               if (updateError) throw updateError;
               
-              console.log(`[Podcast Episodes] 💾 Saved ${episodes.length} episodes to database (${podcastSource}) for "${meta.title}"`);
+              console.log(`[Podcast Episodes] 💾 Saved ${curated.length} curated + ${apple.length} Apple episodes to database for "${meta.title}"`);
               
-              // Update local state with source-specific episodes
+              // Update local state with both source-specific episodes
               setBooks(prev => prev.map(book => 
                 book.id === newBook.id 
-                  ? { ...book, [updateField]: episodes }
+                  ? { 
+                      ...book, 
+                      podcast_episodes_curated: curated,
+                      podcast_episodes_apple: apple
+                    }
                   : book
               ));
             } catch (err: any) {
               console.error('[Podcast Episodes] ❌ Error saving to database:', err);
               console.error('[Podcast Episodes] Error details:', err.message, err.code, err.details);
-              if (err.code === '42703' || err.message?.includes('column')) {
-                console.error(`[Podcast Episodes] ⚠️ Database column "${updateField}" may not exist. Run this SQL in Supabase:`);
-                console.error(`ALTER TABLE public.books ADD COLUMN IF NOT EXISTS ${updateField} jsonb;`);
-              }
               // Still update local state even if DB save fails
               setBooks(prev => prev.map(book => 
                 book.id === newBook.id 
-                  ? { ...book, [updateField]: episodes }
+                  ? { 
+                      ...book, 
+                      podcast_episodes_curated: curated,
+                      podcast_episodes_apple: apple
+                    }
                   : book
               ));
             }
@@ -4862,11 +4909,22 @@ export default function App() {
                 {/* Podcast Episodes - Show below author facts */}
                 {(() => {
                   // Get episodes for the selected source
-                  const sourceEpisodes = podcastSource === 'curated'
-                    ? activeBook.podcast_episodes_curated
-                    : activeBook.podcast_episodes_apple;
-                  // Fallback to legacy podcast_episodes if source-specific doesn't exist
-                  const episodes = sourceEpisodes || activeBook.podcast_episodes || [];
+                  // Combine episodes from both sources: curated first, then Apple, then legacy
+                  const curatedEpisodes = activeBook.podcast_episodes_curated || [];
+                  const appleEpisodes = activeBook.podcast_episodes_apple || [];
+                  const legacyEpisodes = activeBook.podcast_episodes || [];
+                  
+                  // Combine episodes, avoiding duplicates by URL
+                  const seenUrls = new Set<string>();
+                  const episodes: PodcastEpisode[] = [];
+                  
+                  [...curatedEpisodes, ...appleEpisodes, ...legacyEpisodes].forEach(ep => {
+                    if (ep.url && !seenUrls.has(ep.url)) {
+                      seenUrls.add(ep.url);
+                      episodes.push(ep);
+                    }
+                  });
+                  
                   const hasEpisodes = episodes.length > 0;
                   // Only show loading if we don't have episodes yet. Once loaded, always show.
                   const isLoading = loadingPodcastsForBookId === activeBook.id && !hasEpisodes;
@@ -4874,27 +4932,13 @@ export default function App() {
                   // Always show the podcast section
                   return (
                     <div className="w-full space-y-2">
-                      {/* Podcast Source Toggle */}
+                      {/* Podcast Header */}
                       <div className="flex items-center justify-center mb-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            // Toggle between: curated -> apple -> curated
-                            setPodcastSource(podcastSource === 'curated' ? 'apple' : 'curated');
-                            // Episodes will be loaded automatically via useEffect dependency on podcastSource
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md hover:bg-white/85 active:scale-95 transition-all border border-white/30 shadow-sm"
-                        >
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
                           <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">PODCASTS:</span>
                           <span className="text-[10px] font-bold text-slate-400">/</span>
-                          <span className={`text-[10px] font-bold transition-colors ${podcastSource === 'curated' ? 'text-blue-700' : 'text-slate-600'}`}>
-                            Curated
-                          </span>
-                          <span className="text-[10px] font-bold text-slate-400">/</span>
-                          <span className={`text-[10px] font-bold transition-colors ${podcastSource === 'apple' ? 'text-blue-700' : 'text-slate-600'}`}>
-                            Apple
-                          </span>
-                        </button>
+                          <span className="text-[10px] font-bold text-blue-700">Curated + Apple</span>
+                        </div>
                       </div>
                       {isLoading ? (
                         // Show loading placeholder
@@ -4924,7 +4968,7 @@ export default function App() {
                           <div className="text-center">
                             <Headphones size={24} className="mx-auto mb-2 text-slate-600" />
                             <p className="text-slate-800 text-sm font-medium mb-1">No podcasts found</p>
-                            <p className="text-slate-600 text-xs">Try switching to {podcastSource === 'curated' ? 'Apple' : 'Curated'} or search for a different book</p>
+                            <p className="text-slate-600 text-xs">No podcast episodes found for this book</p>
                           </div>
                         </motion.div>
                       )}
