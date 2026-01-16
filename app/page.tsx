@@ -1068,6 +1068,30 @@ async function saveRelatedBooksToDatabase(bookTitle: string, bookAuthor: string,
 async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouTubeVideo[]> {
   console.log(`[getYouTubeVideos] 🔄 Searching YouTube for "${bookTitle}" by ${author}`);
   
+  // Check database cache first
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = author.toLowerCase().trim();
+    
+    const { data: cachedData, error: cacheError } = await supabase
+      .from('youtube_videos')
+      .select('videos')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (!cacheError && cachedData && cachedData.videos && Array.isArray(cachedData.videos) && cachedData.videos.length > 0) {
+      console.log(`[getYouTubeVideos] ✅ Found ${cachedData.videos.length} cached videos in database`);
+      return cachedData.videos as YouTubeVideo[];
+    } else if (cacheError && cacheError.code !== 'PGRST116') {
+      // PGRST116 is "not found" error, which is fine
+      console.warn('[getYouTubeVideos] ⚠️ Error checking cache:', cacheError);
+    }
+  } catch (err) {
+    console.warn('[getYouTubeVideos] ⚠️ Error checking cache:', err);
+    // Continue to fetch
+  }
+  
   if (!youtubeApiKey || youtubeApiKey.trim() === '') {
     console.warn('[getYouTubeVideos] ⚠️ YouTube API key not found or empty');
     console.warn('[getYouTubeVideos] Key length:', youtubeApiKey?.length || 0);
@@ -1219,6 +1243,12 @@ async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouT
     // Limit to top 10 videos
     const limitedVideos = videos.slice(0, 10);
     console.log(`[getYouTubeVideos] ✅ Found ${limitedVideos.length} videos`);
+    
+    // Save to database
+    if (limitedVideos.length > 0) {
+      await saveYouTubeVideosToDatabase(bookTitle, author, limitedVideos);
+    }
+    
     return limitedVideos;
   } catch (err: any) {
     console.error('[getYouTubeVideos] ❌ Error:', err);
