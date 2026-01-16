@@ -3946,7 +3946,8 @@ export default function App() {
     setPendingBookMeta(meta);
     setIsAdding(false);
     // Add book without status first, then show rating overlay
-    await handleAddBookWithStatus(null as any); // Add with null status, will update later
+    // Pass meta directly to avoid race conditions with state updates
+    await handleAddBookWithStatus(null as any, meta); // Add with null status, will update later
   }
 
   async function handleUpdateReadingStatus(id: string, readingStatus: ReadingStatus) {
@@ -4017,10 +4018,10 @@ export default function App() {
     }
   }
 
-  async function handleAddBookWithStatus(readingStatus: ReadingStatus | null) {
-    if (!user || !pendingBookMeta) return;
-
-    const meta = pendingBookMeta;
+  async function handleAddBookWithStatus(readingStatus: ReadingStatus | null, metaOverride?: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) {
+    // Use metaOverride if provided (to avoid race conditions), otherwise use pendingBookMeta
+    const meta = metaOverride || pendingBookMeta;
+    if (!user || !meta) return;
 
     try {
       // Generate canonical book ID
