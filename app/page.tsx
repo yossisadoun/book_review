@@ -5330,18 +5330,10 @@ export default function App() {
                                     fontSize: `${fontSize}px`,
                                   }}
                                 >
-                                  {book.title.toUpperCase()}
+                                  {bookshelfGrouping === 'author' 
+                                    ? (book.author || 'Unknown Author').toUpperCase()
+                                    : book.title.toUpperCase()}
                                 </div>
-                                {bookshelfGrouping === 'author' && book.author && (
-                                  <div
-                                    className="text-center leading-[0.85] whitespace-nowrap opacity-80"
-                                    style={{
-                                      fontSize: `${fontSize * 0.5}px`,
-                                    }}
-                                  >
-                                    {book.author.toUpperCase()}
-                                  </div>
-                                )}
                               </div>
                             </div>
                             
