@@ -5416,6 +5416,12 @@ export default function App() {
         {books.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
             <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
+            <button
+              onClick={() => setIsAdding(true)}
+              className="px-6 py-3 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-xl border border-white/30 shadow-lg font-bold text-slate-950 hover:bg-opacity-20 active:scale-95 transition-all"
+            >
+              Add first book
+            </button>
           </div>
         ) : (
           <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">
