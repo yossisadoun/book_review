@@ -3127,6 +3127,7 @@ export default function App() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [selectingReadingStatusInRating, setSelectingReadingStatusInRating] = useState(false);
+  const [selectingReadingStatusForExisting, setSelectingReadingStatusForExisting] = useState(false);
   const [pendingBookMeta, setPendingBookMeta] = useState<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> | null>(null);
   
   // Swipe detection state for book navigation
@@ -3459,6 +3460,7 @@ export default function App() {
   }, [activeBook, isEditing, editingDimension, selectingReadingStatusInRating]);
   
   const showRatingOverlay = activeBook && isEditing;
+  const showReadingStatusSelection = selectingReadingStatusInRating || selectingReadingStatusForExisting;
 
   useEffect(() => {
     setIsEditing(false);
@@ -5545,7 +5547,7 @@ export default function App() {
                     className="absolute bottom-16 left-4 right-4 z-40 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 flex flex-col items-center justify-center p-4 rounded-2xl border border-white/30 shadow-2xl overflow-hidden"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {selectingReadingStatusInRating ? (
+                    {showReadingStatusSelection ? (
                       // Reading Status Selection
                       <motion.div 
                         initial={{ opacity: 0, scale: 0.9 }} 
@@ -5558,12 +5560,17 @@ export default function App() {
                         <div className="flex flex-row gap-3 w-full justify-center">
                           <button
                             onClick={async () => {
-                              if (activeBook && pendingBookMeta) {
+                              if (activeBook) {
                                 await handleUpdateReadingStatus(activeBook.id, 'read_it');
                                 setSelectingReadingStatusInRating(false);
+                                setSelectingReadingStatusForExisting(false);
                                 setPendingBookMeta(null);
-                                // Proceed to rating dimensions
-                                setEditingDimension(null);
+                                // If this is a new book, proceed to rating dimensions
+                                if (selectingReadingStatusInRating && pendingBookMeta) {
+                                  setEditingDimension(null);
+                                } else {
+                                  setIsEditing(false);
+                                }
                               }
                             }}
                             className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
@@ -5573,9 +5580,10 @@ export default function App() {
                           </button>
                           <button
                             onClick={async () => {
-                              if (activeBook && pendingBookMeta) {
+                              if (activeBook) {
                                 await handleUpdateReadingStatus(activeBook.id, 'reading');
                                 setSelectingReadingStatusInRating(false);
+                                setSelectingReadingStatusForExisting(false);
                                 setPendingBookMeta(null);
                                 setIsEditing(false);
                               }
@@ -5587,9 +5595,10 @@ export default function App() {
                           </button>
                           <button
                             onClick={async () => {
-                              if (activeBook && pendingBookMeta) {
+                              if (activeBook) {
                                 await handleUpdateReadingStatus(activeBook.id, 'want_to_read');
                                 setSelectingReadingStatusInRating(false);
+                                setSelectingReadingStatusForExisting(false);
                                 setPendingBookMeta(null);
                                 setIsEditing(false);
                               }
@@ -5599,6 +5608,22 @@ export default function App() {
                             <BookMarked size={28} className="text-slate-950" />
                             <span className="text-xs font-bold text-slate-950">Want to read</span>
                           </button>
+                          {/* TBD option for existing books */}
+                          {selectingReadingStatusForExisting && (
+                            <button
+                              onClick={async () => {
+                                if (activeBook) {
+                                  await handleUpdateReadingStatus(activeBook.id, null);
+                                  setSelectingReadingStatusForExisting(false);
+                                  setIsEditing(false);
+                                }
+                              }}
+                              className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
+                            >
+                              <span className="w-7 h-7" />
+                              <span className="text-xs font-bold text-slate-950">TBD</span>
+                            </button>
+                          )}
                         </div>
                       </motion.div>
                     ) : currentEditingDimension ? (
@@ -5668,12 +5693,9 @@ export default function App() {
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3, delay: 0.3 }}
                     onClick={() => {
-                      // Cycle through reading statuses
-                      const statuses: ReadingStatus[] = ['read_it', 'reading', 'want_to_read', null];
-                      const currentIndex = statuses.indexOf(activeBook.reading_status || null);
-                      const nextIndex = (currentIndex + 1) % statuses.length;
-                      const newStatus = statuses[nextIndex];
-                      handleUpdateReadingStatus(activeBook.id, newStatus);
+                      // Open reading status selection interface
+                      setSelectingReadingStatusForExisting(true);
+                      setIsEditing(true);
                     }}
                     className="absolute top-4 left-4 z-30 w-11 h-11 rounded-full bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 shadow-lg text-black hover:text-blue-600 active:scale-95 transition-all border border-white/30 flex items-center justify-center"
                   >
