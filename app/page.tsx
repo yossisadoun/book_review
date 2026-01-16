@@ -19,6 +19,7 @@ import {
   Play,
   FileText,
   Pencil,
+  Grid3x3,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -2992,6 +2993,7 @@ export default function App() {
   const [scrollY, setScrollY] = useState(0);
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
   const [showBookshelf, setShowBookshelf] = useState(false);
+  const [showBookshelfCovers, setShowBookshelfCovers] = useState(false);
   const [showNotesView, setShowNotesView] = useState(false);
   const [editingNoteBookId, setEditingNoteBookId] = useState<string | null>(null);
   const [bookshelfGrouping, setBookshelfGrouping] = useState<'rating' | 'author' | 'title' | 'genre'>(() => {
@@ -4225,6 +4227,8 @@ export default function App() {
               <Pencil size={24} className="text-slate-950" />
             ) : showNotesView ? (
               <Pencil size={24} className="text-slate-950" />
+            ) : showBookshelfCovers ? (
+              <Grid3x3 size={24} className="text-slate-950" />
             ) : showBookshelf ? (
               <Library size={24} className="text-slate-950" />
             ) : (
@@ -4235,7 +4239,9 @@ export default function App() {
                 ? `${activeBook.title} notes` 
                 : showNotesView 
                   ? 'NOTES' 
-                  : showBookshelf 
+                  : showBookshelfCovers
+                    ? 'BOOKSHELF'
+                    : showBookshelf 
                     ? 'BOOKSHELF' 
                     : 'BOOKS'}
             </h1>
@@ -5362,6 +5368,7 @@ export default function App() {
             onClick={() => {
               setScrollY(0); // Reset scroll when switching views
               setShowBookshelf(false);
+              setShowBookshelfCovers(false);
               setShowNotesView(false);
               // Scroll to top to show books
               const main = document.querySelector('main');
@@ -5383,6 +5390,7 @@ export default function App() {
             onClick={() => {
               setScrollY(0); // Reset scroll when switching views
               setShowBookshelf(!showBookshelf);
+              setShowBookshelfCovers(false);
               setShowNotesView(false);
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
@@ -5394,12 +5402,30 @@ export default function App() {
             <Library size={18} className="text-slate-950" />
           </button>
 
-          {/* Notes button - between bookshelf and search */}
+          {/* Bookshelf Covers button - between bookshelf and notes */}
+          <button
+            onClick={() => {
+              setScrollY(0); // Reset scroll when switching views
+              setShowBookshelfCovers(!showBookshelfCovers);
+              setShowBookshelf(false);
+              setShowNotesView(false);
+            }}
+            className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
+              showBookshelfCovers 
+                ? 'bg-white/40 hover:bg-white/50' 
+                : 'bg-white/20 hover:bg-white/30'
+            }`}
+          >
+            <Grid3x3 size={18} className="text-slate-950" />
+          </button>
+
+          {/* Notes button - between bookshelf covers and search */}
           <button
             onClick={() => {
               setScrollY(0); // Reset scroll when switching views
               setShowNotesView(!showNotesView);
               setShowBookshelf(false);
+              setShowBookshelfCovers(false);
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
               showNotesView 
