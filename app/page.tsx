@@ -1269,6 +1269,72 @@ async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouT
   }
 }
 
+// --- Save YouTube Videos to Database ---
+async function saveYouTubeVideosToDatabase(bookTitle: string, bookAuthor: string, videos: YouTubeVideo[]): Promise<void> {
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = bookAuthor.toLowerCase().trim();
+    
+    // First, try to check if record exists
+    const { data: existing, error: checkError } = await supabase
+      .from('youtube_videos')
+      .select('id')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (checkError && checkError.code !== 'PGRST116') {
+      // PGRST116 is "not found" which is fine
+      console.error('[saveYouTubeVideosToDatabase] ❌ Error checking existing record:', checkError);
+    }
+    
+    const recordData = {
+      book_title: normalizedTitle,
+      book_author: normalizedAuthor,
+      videos: videos,
+      updated_at: new Date().toISOString(),
+    };
+    
+    let result;
+    if (existing) {
+      // Update existing record
+      result = await supabase
+        .from('youtube_videos')
+        .update(recordData)
+        .eq('book_title', normalizedTitle)
+        .eq('book_author', normalizedAuthor);
+    } else {
+      // Insert new record
+      result = await supabase
+        .from('youtube_videos')
+        .insert(recordData);
+    }
+    
+    if (result.error) {
+      console.error('[saveYouTubeVideosToDatabase] ❌ Error saving videos:', {
+        message: result.error.message,
+        code: result.error.code,
+        details: result.error.details,
+        hint: result.error.hint,
+        fullError: result.error
+      });
+      
+      // Check if table doesn't exist
+      if (result.error.code === '42P01' || result.error.message?.includes('does not exist')) {
+        console.error('[saveYouTubeVideosToDatabase] ⚠️ Table "youtube_videos" does not exist. Please run the migration in Supabase SQL Editor.');
+      }
+    } else {
+      console.log(`[saveYouTubeVideosToDatabase] ✅ Saved ${videos.length} videos to database`);
+    }
+  } catch (err: any) {
+    console.error('[saveYouTubeVideosToDatabase] ❌ Unexpected error:', {
+      message: err?.message,
+      stack: err?.stack,
+      fullError: err
+    });
+  }
+}
+
 // Helper function to save articles to database
 async function saveArticlesToDatabase(bookTitle: string, bookAuthor: string, articles: AnalysisArticle[]): Promise<void> {
   try {
