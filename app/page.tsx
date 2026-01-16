@@ -690,17 +690,178 @@ async function getGoogleScholarAnalysis(bookTitle: string, author: string): Prom
   // Google Scholar search URL
   const searchUrl = `https://scholar.google.com/scholar?q=${encodedQuery}&hl=en&as_sdt=0,5`;
   
-  // Note: Google Scholar blocks direct scraping and CORS proxies are unreliable (403 errors are common)
-  // We only use cached results from the database. If no cache exists, we provide the search URL.
-  // To get actual article results, users need to visit Google Scholar directly or we need a server-side solution.
+  // Try to fetch via proxy services (these are unreliable but worth trying)
+  // If all fail, we'll return the search URL as fallback
+  const proxyConfigs = [
+    { 
+      url: `https://api.allorigins.win/get?url=${encodeURIComponent(searchUrl)}`,
+      parser: async (response: Response) => {
+        const data = await response.json();
+        return data.contents;
+      }
+    },
+    { 
+      url: `https://corsproxy.io/?${encodeURIComponent(searchUrl)}`,
+      parser: async (response: Response) => await response.text()
+    },
+    { 
+      url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(searchUrl)}`,
+      parser: async (response: Response) => await response.text()
+    },
+  ];
+  
+  // Try each proxy silently (don't log errors for 403/500 which are expected)
+  for (let i = 0; i < proxyConfigs.length; i++) {
+    const config = proxyConfigs[i];
+    
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+      
+      const response = await fetch(config.url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        // Silently skip 403/500 errors (expected from proxies)
+        continue;
+      }
+      
+      const html = await config.parser(response);
+      
+      if (!html || typeof html !== 'string' || html.length < 100) {
+        continue;
+      }
+      
+      // Parse HTML to extract articles
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      
+      const articles: AnalysisArticle[] = [];
+      
+      // Try multiple selectors as Google Scholar HTML structure may vary
+      let resultElements = doc.querySelectorAll('.gs_ri');
+      if (resultElements.length === 0) {
+        resultElements = doc.querySelectorAll('[data-rp]');
+      }
+      if (resultElements.length === 0) {
+        resultElements = doc.querySelectorAll('.gs_r');
+      }
+      if (resultElements.length === 0) {
+        resultElements = doc.querySelectorAll('div[class*="gs"]');
+      }
+      
+      resultElements.forEach((element, index) => {
+        if (index >= 10) return; // Limit to 10 results
+        
+        // Try multiple selectors for title and link
+        let titleElement = element.querySelector('.gs_rt a') || 
+                          element.querySelector('h3 a') ||
+                          element.querySelector('h3.gs_rt a') ||
+                          element.querySelector('a[data-clk]') ||
+                          element.querySelector('a[href*="/scholar?"]');
+        
+        const title = titleElement?.textContent?.trim() || '';
+        let url = titleElement?.getAttribute('href') || '';
+        
+        // Skip if no title or URL found
+        if (!title || !url) return;
+        
+        // Fix relative URLs and extract actual article URLs
+        if (url.startsWith('/url?q=')) {
+          // Google Scholar redirect URL - extract the actual article URL
+          const match = url.match(/url\?q=([^&]+)/);
+          if (match) {
+            url = decodeURIComponent(match[1]);
+          }
+        } else if (url.startsWith('/scholar?')) {
+          // This is a Google Scholar link, not an article - skip it
+          return;
+        } else if (url.startsWith('/')) {
+          url = `https://scholar.google.com${url}`;
+        } else if (!url.startsWith('http')) {
+          url = `https://scholar.google.com/${url}`;
+        }
+        
+        // Only include if it's a real article URL (not a Google Scholar page)
+        if (!url.startsWith('http') || url.includes('scholar.google.com/scholar')) {
+          return;
+        }
+        
+        // Try multiple selectors for snippet
+        const snippetElement = element.querySelector('.gs_rs') || 
+                              element.querySelector('.gs_rsb') ||
+                              element.querySelector('.gs_s') ||
+                              element.querySelector('[class*="snippet"]');
+        const snippet = snippetElement?.textContent?.trim() || '';
+        
+        // Try multiple selectors for authors
+        const authorsElement = element.querySelector('.gs_a') || 
+                              element.querySelector('.gs_authors') ||
+                              element.querySelector('[class*="author"]');
+        const authorsText = authorsElement?.textContent?.trim() || '';
+        const yearMatch = authorsText.match(/\d{4}/);
+        const year = yearMatch ? yearMatch[0] : undefined;
+        
+        articles.push({
+          title,
+          snippet: snippet ? (snippet.substring(0, 200) + (snippet.length > 200 ? '...' : '')) : 'No snippet available.',
+          url,
+          authors: authorsText || undefined,
+          year,
+        });
+      });
+      
+      if (articles.length > 0) {
+        console.log(`[getGoogleScholarAnalysis] ✅ Successfully fetched ${articles.length} articles from proxy ${i + 1}`);
+        
+        // Save to database
+        await saveArticlesToDatabase(normalizedTitle, normalizedAuthor, articles);
+        
+        return articles;
+      }
+    } catch (err: any) {
+      // Silently handle errors (proxies are unreliable)
+      // Only log unexpected errors
+      if (err.name !== 'AbortError' && !err.message?.includes('CORS') && !err.message?.includes('Failed to fetch') && !err.message?.includes('blocked')) {
+        console.warn(`[getGoogleScholarAnalysis] ⚠️ Proxy ${i + 1} unexpected error:`, err.message);
+      }
+      // Continue to next proxy
+    }
+  }
+  // All proxies failed - Google Scholar blocks scraping attempts
+  // Results are only available if previously cached in the database
+  console.log(`[getGoogleScholarAnalysis] ⚠️ Unable to fetch fresh results (proxies blocked). Using search URL fallback.`);
+  
   const fallbackArticle: AnalysisArticle = {
     title: `Search Google Scholar for "${bookTitle}" by ${author}`,
-    snippet: `Click to view Google Scholar search results for analysis, reviews, and criticism of this book. Individual article links require visiting Google Scholar directly.`,
+    snippet: `Google Scholar blocks automated access. Click to view search results directly on Google Scholar. Results will be cached if fetched successfully.`,
     url: searchUrl,
   };
   
-  // Save fallback to database so we don't keep trying
-  await saveArticlesToDatabase(normalizedTitle, normalizedAuthor, [fallbackArticle]);
+  // Only save fallback if we don't already have real cached results
+  try {
+    const { data: existing } = await supabase
+      .from('google_scholar_articles')
+      .select('articles')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    // Only save fallback if we don't have real cached results
+    if (!existing || (existing.articles && existing.articles.length > 0 && existing.articles[0].title?.includes('Search Google Scholar'))) {
+      await saveArticlesToDatabase(normalizedTitle, normalizedAuthor, [fallbackArticle]);
+    }
+  } catch (err) {
+    // If check fails, still save the fallback
+    await saveArticlesToDatabase(normalizedTitle, normalizedAuthor, [fallbackArticle]);
+  }
   
   return [fallbackArticle];
 }
