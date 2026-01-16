@@ -4970,9 +4970,9 @@ export default function App() {
                                 </div>
                               )}
                             </div>
-                            {/* Book Title */}
+                            {/* Book Title or Author */}
                             <p className="text-xs font-medium text-slate-800 text-center line-clamp-2 px-1">
-                              {book.title}
+                              {bookshelfGrouping === 'author' ? (book.author || 'Unknown Author') : book.title}
                             </p>
                           </motion.div>
                         );
