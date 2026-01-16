@@ -3376,15 +3376,20 @@ export default function App() {
       
       return groups.filter(group => group.books.length > 0);
     } else if (bookshelfGrouping === 'genre') {
-      // Group by actual genre name
+      // Group by actual genre name (case-insensitive)
       const genreMap = new Map<string, BookWithRatings[]>();
+      const genreDisplayNames = new Map<string, string>(); // Store original case for display
       
       books.forEach(book => {
         const genre = book.genre || 'No Genre';
-        if (!genreMap.has(genre)) {
-          genreMap.set(genre, []);
+        const genreLower = genre.toLowerCase();
+        
+        // Use lowercase as key for case-insensitive grouping
+        if (!genreMap.has(genreLower)) {
+          genreMap.set(genreLower, []);
+          genreDisplayNames.set(genreLower, genre); // Store first occurrence's case for display
         }
-        genreMap.get(genre)!.push(book);
+        genreMap.get(genreLower)!.push(book);
       });
       
       // Convert to groups array and sort by genre name
