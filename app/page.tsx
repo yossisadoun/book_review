@@ -5235,7 +5235,7 @@ export default function App() {
                 (el.style as any).webkitOverflowScrolling = 'touch';
               }
             }}
-            className="flex-1 flex flex-col items-center justify-start p-4 relative pt-28 overflow-y-auto pb-20 ios-scroll"
+            className="flex-1 flex flex-col items-center justify-start p-4 relative pt-28 overflow-y-auto pb-20 ios-scroll min-h-0"
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
