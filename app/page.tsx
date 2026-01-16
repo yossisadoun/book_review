@@ -2854,6 +2854,37 @@ export default function App() {
   // All hooks must be called before any conditional returns
   const activeBook = books[selectedIndex] || null;
   const [editingDimension, setEditingDimension] = useState<typeof RATING_DIMENSIONS[number] | null>(null);
+
+  // Memoize combined podcast episodes to prevent recalculation on every render
+  const combinedPodcastEpisodes = useMemo(() => {
+    if (!activeBook) return [];
+    
+    const curatedEpisodes = activeBook.podcast_episodes_curated || [];
+    const appleEpisodes = activeBook.podcast_episodes_apple || [];
+    const legacyEpisodes = activeBook.podcast_episodes || [];
+    
+    // Combine episodes, avoiding duplicates by URL
+    const seenUrls = new Set<string>();
+    const episodes: PodcastEpisode[] = [];
+    
+    [...curatedEpisodes, ...appleEpisodes, ...legacyEpisodes].forEach(ep => {
+      if (ep.url && !seenUrls.has(ep.url)) {
+        seenUrls.add(ep.url);
+        episodes.push(ep);
+      }
+    });
+    
+    return episodes;
+  }, [
+    activeBook?.id, 
+    activeBook?.podcast_episodes_curated?.length || 0, 
+    activeBook?.podcast_episodes_apple?.length || 0, 
+    activeBook?.podcast_episodes?.length || 0,
+    // Also include a stable reference check using episode URLs
+    (activeBook?.podcast_episodes_curated || []).map(e => e.url).join(','),
+    (activeBook?.podcast_episodes_apple || []).map(e => e.url).join(','),
+    (activeBook?.podcast_episodes || []).map(e => e.url).join(',')
+  ]);
   
   // Save bookshelf grouping preference
   useEffect(() => {
@@ -4908,26 +4939,10 @@ export default function App() {
                 
                 {/* Podcast Episodes - Show below author facts */}
                 {(() => {
-                  // Get episodes for the selected source
-                  // Combine episodes from both sources: curated first, then Apple, then legacy
-                  const curatedEpisodes = activeBook.podcast_episodes_curated || [];
-                  const appleEpisodes = activeBook.podcast_episodes_apple || [];
-                  const legacyEpisodes = activeBook.podcast_episodes || [];
-                  
-                  // Combine episodes, avoiding duplicates by URL
-                  const seenUrls = new Set<string>();
-                  const episodes: PodcastEpisode[] = [];
-                  
-                  [...curatedEpisodes, ...appleEpisodes, ...legacyEpisodes].forEach(ep => {
-                    if (ep.url && !seenUrls.has(ep.url)) {
-                      seenUrls.add(ep.url);
-                      episodes.push(ep);
-                    }
-                  });
-                  
+                  const episodes = combinedPodcastEpisodes;
                   const hasEpisodes = episodes.length > 0;
                   // Only show loading if we don't have episodes yet. Once loaded, always show.
-                  const isLoading = loadingPodcastsForBookId === activeBook.id && !hasEpisodes;
+                  const isLoading = activeBook && loadingPodcastsForBookId === activeBook.id && !hasEpisodes;
                   
                   // Always show the podcast section
                   return (
@@ -4955,7 +4970,7 @@ export default function App() {
                         // Show episodes - once loaded, always show
                         <PodcastEpisodes 
                           episodes={episodes} 
-                          bookId={activeBook.id}
+                          bookId={activeBook?.id || ''}
                           isLoading={false}
                         />
                       ) : (
