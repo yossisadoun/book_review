@@ -4797,7 +4797,7 @@ export default function App() {
                 <div className="flex items-center justify-center gap-2 px-4 mb-1.5">
                   <button
                     onClick={() => setBookshelfGrouping('rating')}
-                    className={`px-[3.2] py-[1.6] rounded-lg font-bold text-xs transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
                       bookshelfGrouping === 'rating'
                         ? 'bg-opacity-20 text-slate-950'
                         : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
@@ -4807,7 +4807,7 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => setBookshelfGrouping('author')}
-                    className={`px-[3.2] py-[1.6] rounded-lg font-bold text-xs transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
                       bookshelfGrouping === 'author'
                         ? 'bg-opacity-20 text-slate-950'
                         : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
@@ -4817,7 +4817,7 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => setBookshelfGrouping('title')}
-                    className={`px-[3.2] py-[1.6] rounded-lg font-bold text-xs transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
                       bookshelfGrouping === 'title'
                         ? 'bg-opacity-20 text-slate-950'
                         : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
@@ -4827,7 +4827,7 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => setBookshelfGrouping('genre')}
-                    className={`px-[3.2] py-[1.6] rounded-lg font-bold text-xs transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
                       bookshelfGrouping === 'genre'
                         ? 'bg-opacity-20 text-slate-950'
                         : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
@@ -4837,7 +4837,7 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => setBookshelfGrouping('reading_status')}
-                    className={`px-[3.2] py-[1.6] rounded-lg font-bold text-xs transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
                       bookshelfGrouping === 'reading_status'
                         ? 'bg-opacity-20 text-slate-950'
                         : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
@@ -5006,7 +5006,7 @@ export default function App() {
                 <div className="flex items-center justify-center gap-2 px-4 mb-1.5">
                   <button
                     onClick={() => setBookshelfGrouping('rating')}
-                    className={`px-[3.2] py-[1.6] rounded-lg font-bold text-xs transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
                       bookshelfGrouping === 'rating'
                         ? 'bg-opacity-20 text-slate-950'
                         : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
@@ -5016,7 +5016,7 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => setBookshelfGrouping('author')}
-                    className={`px-[3.2] py-[1.6] rounded-lg font-bold text-xs transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
                       bookshelfGrouping === 'author'
                         ? 'bg-opacity-20 text-slate-950'
                         : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
@@ -5026,7 +5026,7 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => setBookshelfGrouping('title')}
-                    className={`px-[3.2] py-[1.6] rounded-lg font-bold text-xs transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
                       bookshelfGrouping === 'title'
                         ? 'bg-opacity-20 text-slate-950'
                         : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
@@ -5036,7 +5036,7 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => setBookshelfGrouping('genre')}
-                    className={`px-[3.2] py-[1.6] rounded-lg font-bold text-xs transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
                       bookshelfGrouping === 'genre'
                         ? 'bg-opacity-20 text-slate-950'
                         : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
@@ -5046,7 +5046,7 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => setBookshelfGrouping('reading_status')}
-                    className={`px-[3.2] py-[1.6] rounded-lg font-bold text-xs transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
                       bookshelfGrouping === 'reading_status'
                         ? 'bg-opacity-20 text-slate-950'
                         : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
