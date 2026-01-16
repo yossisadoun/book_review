@@ -4914,6 +4914,7 @@ export default function App() {
                           {group.label === 'Read it' && <CheckCircle2 size={20} className="text-slate-950" />}
                           {group.label === 'Reading' && <BookOpen size={20} className="text-slate-950" />}
                           {group.label === 'Want to read' && <BookMarked size={20} className="text-slate-950" />}
+                          {group.label === 'TBD' && <span className="w-5 h-5" />}
                         </>
                       )}
                     </h2>
@@ -5125,6 +5126,7 @@ export default function App() {
                           {group.label === 'Read it' && <CheckCircle2 size={20} className="text-slate-950" />}
                           {group.label === 'Reading' && <BookOpen size={20} className="text-slate-950" />}
                           {group.label === 'Want to read' && <BookMarked size={20} className="text-slate-950" />}
+                          {group.label === 'TBD' && <span className="w-5 h-5" />}
                         </>
                       )}
                     </h2>
