@@ -5425,10 +5425,11 @@ export default function App() {
                         initial={{ opacity: 0, scale: 0.9 }} 
                         animate={{ opacity: 1, scale: 1 }} 
                         exit={{ opacity: 0, scale: 0.9 }} 
-                        className="w-full flex flex-col items-center gap-4"
+                        className="w-full flex flex-col items-center justify-center"
+                        style={{ minHeight: '120px' }}
                       >
-                        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950 mb-2">Reading Status</h3>
-                        <div className="flex flex-col gap-3 w-full">
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950 mb-4">Reading Status</h3>
+                        <div className="flex flex-row gap-3 w-full justify-center">
                           <button
                             onClick={async () => {
                               if (activeBook && pendingBookMeta) {
@@ -5439,9 +5440,9 @@ export default function App() {
                                 setEditingDimension(null);
                               }
                             }}
-                            className="flex flex-col items-center gap-2 px-6 py-4 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all"
+                            className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
                           >
-                            <CheckCircle2 size={32} className="text-slate-950" />
+                            <CheckCircle2 size={28} className="text-slate-950" />
                             <span className="text-xs font-bold text-slate-950">Read it</span>
                           </button>
                           <button
@@ -5453,9 +5454,9 @@ export default function App() {
                                 setIsEditing(false);
                               }
                             }}
-                            className="flex flex-col items-center gap-2 px-6 py-4 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all"
+                            className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
                           >
-                            <BookOpen size={32} className="text-slate-950" />
+                            <BookOpen size={28} className="text-slate-950" />
                             <span className="text-xs font-bold text-slate-950">Reading</span>
                           </button>
                           <button
@@ -5467,9 +5468,9 @@ export default function App() {
                                 setIsEditing(false);
                               }
                             }}
-                            className="flex flex-col items-center gap-2 px-6 py-4 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all"
+                            className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
                           >
-                            <BookMarked size={32} className="text-slate-950" />
+                            <BookMarked size={28} className="text-slate-950" />
                             <span className="text-xs font-bold text-slate-950">Want to read</span>
                           </button>
                         </div>
