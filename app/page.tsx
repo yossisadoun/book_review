@@ -1761,6 +1761,9 @@ interface AuthorFactsTooltipsProps {
 function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTooltipsProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+  const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  const minSwipeDistance = 50;
 
   useEffect(() => {
     // Reset when book changes
@@ -1786,6 +1789,29 @@ function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTo
     }, 300);
   }
 
+  function handlePrev() {
+    setIsVisible(false);
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev > 0 ? prev - 1 : facts.length - 1));
+      setIsVisible(true);
+    }, 300);
+  }
+
+  const handleSwipe = () => {
+    if (!touchStart || !touchEnd) return;
+    const distanceX = touchStart.x - touchEnd.x;
+    const distanceY = touchStart.y - touchEnd.y;
+    if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
+      if (distanceX > 0) {
+        handleNext(); // Swipe left = next
+      } else {
+        handlePrev(); // Swipe right = prev
+      }
+    }
+    setTouchStart(null);
+    setTouchEnd(null);
+  };
+
   if (isLoading) {
     return (
       <div className="w-full">
@@ -1809,6 +1835,17 @@ function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTo
   return (
     <div
       onClick={handleNext}
+      onTouchStart={(e) => {
+        const touch = e.touches[0];
+        setTouchStart({ x: touch.clientX, y: touch.clientY });
+      }}
+      onTouchMove={(e) => {
+        if (touchStart) {
+          const touch = e.touches[0];
+          setTouchEnd({ x: touch.clientX, y: touch.clientY });
+        }
+      }}
+      onTouchEnd={handleSwipe}
       className="w-full cursor-pointer"
     >
       <AnimatePresence mode="wait">
@@ -1845,6 +1882,9 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
   const [isVisible, setIsVisible] = useState(false);
   const [playingAudioUrl, setPlayingAudioUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+  const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  const minSwipeDistance = 50;
 
   useEffect(() => {
     // Reset when book changes
@@ -1883,6 +1923,29 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
       setIsVisible(true);
     }, 300);
   }
+
+  function handlePrev() {
+    setIsVisible(false);
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev > 0 ? prev - 1 : episodes.length - 1));
+      setIsVisible(true);
+    }, 300);
+  }
+
+  const handleSwipe = () => {
+    if (!touchStart || !touchEnd) return;
+    const distanceX = touchStart.x - touchEnd.x;
+    const distanceY = touchStart.y - touchEnd.y;
+    if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
+      if (distanceX > 0) {
+        handleNext(); // Swipe left = next
+      } else {
+        handlePrev(); // Swipe right = prev
+      }
+    }
+    setTouchStart(null);
+    setTouchEnd(null);
+  };
 
   function handlePlay(e: React.MouseEvent, episode: PodcastEpisode) {
     e.stopPropagation(); // Prevent card tap navigation
@@ -1976,6 +2039,17 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
   return (
     <div
       onClick={handleNext}
+      onTouchStart={(e) => {
+        const touch = e.touches[0];
+        setTouchStart({ x: touch.clientX, y: touch.clientY });
+      }}
+      onTouchMove={(e) => {
+        if (touchStart) {
+          const touch = e.touches[0];
+          setTouchEnd({ x: touch.clientX, y: touch.clientY });
+        }
+      }}
+      onTouchEnd={handleSwipe}
       className="w-full cursor-pointer"
     >
       <AnimatePresence mode="wait">
@@ -2078,6 +2152,9 @@ interface YouTubeVideosProps {
 function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+  const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  const minSwipeDistance = 50;
 
   useEffect(() => {
     // Reset when book changes
@@ -2102,6 +2179,29 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
       setIsVisible(true);
     }, 300);
   }
+
+  function handlePrev() {
+    setIsVisible(false);
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev > 0 ? prev - 1 : videos.length - 1));
+      setIsVisible(true);
+    }, 300);
+  }
+
+  const handleSwipe = () => {
+    if (!touchStart || !touchEnd) return;
+    const distanceX = touchStart.x - touchEnd.x;
+    const distanceY = touchStart.y - touchEnd.y;
+    if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
+      if (distanceX > 0) {
+        handleNext(); // Swipe left = next
+      } else {
+        handlePrev(); // Swipe right = prev
+      }
+    }
+    setTouchStart(null);
+    setTouchEnd(null);
+  };
 
   if (isLoading) {
     return (
@@ -2136,6 +2236,17 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
   return (
     <div
       onClick={handleNext}
+      onTouchStart={(e) => {
+        const touch = e.touches[0];
+        setTouchStart({ x: touch.clientX, y: touch.clientY });
+      }}
+      onTouchMove={(e) => {
+        if (touchStart) {
+          const touch = e.touches[0];
+          setTouchEnd({ x: touch.clientX, y: touch.clientY });
+        }
+      }}
+      onTouchEnd={handleSwipe}
       className="w-full cursor-pointer"
     >
       <AnimatePresence mode="wait">
@@ -2202,6 +2313,9 @@ interface AnalysisArticlesProps {
 function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArticlesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+  const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  const minSwipeDistance = 50;
 
   useEffect(() => {
     // Reset when book changes
@@ -2227,6 +2341,29 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
     }, 300);
   }
 
+  function handlePrev() {
+    setIsVisible(false);
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev > 0 ? prev - 1 : articles.length - 1));
+      setIsVisible(true);
+    }, 300);
+  }
+
+  const handleSwipe = () => {
+    if (!touchStart || !touchEnd) return;
+    const distanceX = touchStart.x - touchEnd.x;
+    const distanceY = touchStart.y - touchEnd.y;
+    if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
+      if (distanceX > 0) {
+        handleNext(); // Swipe left = next
+      } else {
+        handlePrev(); // Swipe right = prev
+      }
+    }
+    setTouchStart(null);
+    setTouchEnd(null);
+  };
+
   if (isLoading) {
     return (
       <div className="w-full">
@@ -2250,6 +2387,17 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
   return (
     <div
       onClick={handleNext}
+      onTouchStart={(e) => {
+        const touch = e.touches[0];
+        setTouchStart({ x: touch.clientX, y: touch.clientY });
+      }}
+      onTouchMove={(e) => {
+        if (touchStart) {
+          const touch = e.touches[0];
+          setTouchEnd({ x: touch.clientX, y: touch.clientY });
+        }
+      }}
+      onTouchEnd={handleSwipe}
       className="w-full cursor-pointer"
     >
       <AnimatePresence mode="wait">
@@ -2307,6 +2455,9 @@ interface RelatedBooksProps {
 function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBooksProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+  const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  const minSwipeDistance = 50;
 
   useEffect(() => {
     // Reset when book changes
@@ -2331,6 +2482,29 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
       setIsVisible(true);
     }, 300);
   }
+
+  function handlePrev() {
+    setIsVisible(false);
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev > 0 ? prev - 1 : books.length - 1));
+      setIsVisible(true);
+    }, 300);
+  }
+
+  const handleSwipe = () => {
+    if (!touchStart || !touchEnd) return;
+    const distanceX = touchStart.x - touchEnd.x;
+    const distanceY = touchStart.y - touchEnd.y;
+    if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
+      if (distanceX > 0) {
+        handleNext(); // Swipe left = next
+      } else {
+        handlePrev(); // Swipe right = prev
+      }
+    }
+    setTouchStart(null);
+    setTouchEnd(null);
+  };
 
   if (isLoading) {
     return (
@@ -2382,6 +2556,17 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
   return (
     <div
       onClick={handleNext}
+      onTouchStart={(e) => {
+        const touch = e.touches[0];
+        setTouchStart({ x: touch.clientX, y: touch.clientY });
+      }}
+      onTouchMove={(e) => {
+        if (touchStart) {
+          const touch = e.touches[0];
+          setTouchEnd({ x: touch.clientX, y: touch.clientY });
+        }
+      }}
+      onTouchEnd={handleSwipe}
       className="w-full cursor-pointer"
     >
       <AnimatePresence mode="wait">
@@ -2776,6 +2961,36 @@ export default function App() {
   const [isAdding, setIsAdding] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  
+  // Swipe detection state for book navigation
+  const [bookTouchStart, setBookTouchStart] = useState<{ x: number; y: number } | null>(null);
+  const [bookTouchEnd, setBookTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  
+  // Minimum swipe distance (in pixels)
+  const minSwipeDistance = 50;
+  
+  // Handle book navigation swipe
+  const handleBookSwipe = () => {
+    if (!bookTouchStart || !bookTouchEnd) return;
+    
+    const distanceX = bookTouchStart.x - bookTouchEnd.x;
+    const distanceY = bookTouchStart.y - bookTouchEnd.y;
+    
+    // Only handle horizontal swipes (ignore if vertical scroll is more dominant)
+    if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
+      if (distanceX > 0) {
+        // Swipe left = next book
+        setSelectedIndex(prev => (prev < books.length - 1 ? prev + 1 : 0));
+      } else {
+        // Swipe right = previous book
+        setSelectedIndex(prev => (prev > 0 ? prev - 1 : books.length - 1));
+      }
+    }
+    
+    // Reset touch state
+    setBookTouchStart(null);
+    setBookTouchEnd(null);
+  };
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isShowingNotes, setIsShowingNotes] = useState(false);
   const [noteText, setNoteText] = useState('');
@@ -4617,6 +4832,11 @@ export default function App() {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
             }}
+            onTouchStart={(e) => {
+              // Track touch start for book navigation swipe
+              const touch = e.touches[0];
+              setBookTouchStart({ x: touch.clientX, y: touch.clientY });
+            }}
             onTouchMove={(e) => {
               // Allow native bounce on touch devices
               const target = e.currentTarget;
@@ -4624,10 +4844,21 @@ export default function App() {
               const isAtTop = scrollTop === 0;
               const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
               
+              // Track touch end for swipe detection (only at top/bottom to avoid scroll interference)
+              if ((isAtTop || isAtBottom) && bookTouchStart) {
+                const touch = e.touches[0];
+                setBookTouchEnd({ x: touch.clientX, y: touch.clientY });
+              }
+              
               // Let native bounce behavior work
               if (isAtTop || isAtBottom) {
                 // Native iOS bounce will handle this
                 return;
+              }
+            }}
+            onTouchEnd={() => {
+              if (bookTouchStart && bookTouchEnd) {
+                handleBookSwipe();
               }
             }}
           >
