@@ -6023,24 +6023,7 @@ export default function App() {
             <BookOpen size={18} className="text-slate-950" />
           </button>
 
-          {/* Bookshelf button - middle (circular) */}
-          <button
-            onClick={() => {
-              setScrollY(0); // Reset scroll when switching views
-              setShowBookshelf(!showBookshelf);
-              setShowBookshelfCovers(false);
-              setShowNotesView(false);
-            }}
-            className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
-              showBookshelf 
-                ? 'bg-white/40 hover:bg-white/50' 
-                : 'bg-white/20 hover:bg-white/30'
-            }`}
-          >
-            <Library size={18} className="text-slate-950" />
-          </button>
-
-          {/* Bookshelf Covers button - between bookshelf and notes */}
+          {/* Bookshelf button - middle (circular, grid view) */}
           <button
             onClick={() => {
               setScrollY(0); // Reset scroll when switching views
@@ -6054,7 +6037,7 @@ export default function App() {
                 : 'bg-white/20 hover:bg-white/30'
             }`}
           >
-            <Grid3x3 size={18} className="text-slate-950" />
+            <Library size={18} className="text-slate-950" />
           </button>
 
           {/* Notes button - between bookshelf covers and search */}
