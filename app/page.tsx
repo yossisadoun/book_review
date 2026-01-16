@@ -1077,8 +1077,17 @@ async function saveRelatedBooksToDatabase(bookTitle: string, bookAuthor: string,
 async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouTubeVideo[]> {
   console.log(`[getYouTubeVideos] 🔄 Searching YouTube for "${bookTitle}" by ${author}`);
   
-  if (!youtubeApiKey) {
-    console.warn('[getYouTubeVideos] ⚠️ YouTube API key not found');
+  if (!youtubeApiKey || youtubeApiKey.trim() === '') {
+    console.warn('[getYouTubeVideos] ⚠️ YouTube API key not found or empty');
+    console.warn('[getYouTubeVideos] Key length:', youtubeApiKey?.length || 0);
+    console.warn('[getYouTubeVideos] ⚠️ Please check NEXT_PUBLIC_YOUTUBE_API_KEY in GitHub secrets');
+    return [];
+  }
+  
+  // Validate API key format (YouTube API keys typically start with specific patterns)
+  if (youtubeApiKey.length < 20) {
+    console.warn('[getYouTubeVideos] ⚠️ YouTube API key appears to be invalid (too short)');
+    console.warn('[getYouTubeVideos] ⚠️ Please verify NEXT_PUBLIC_YOUTUBE_API_KEY in GitHub secrets is correct');
     return [];
   }
 
@@ -1106,6 +1115,9 @@ async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouT
           });
         });
       }
+    } else {
+      const errorData = await response1.json().catch(() => ({}));
+      console.error(`[getYouTubeVideos] ❌ Query 1 failed: ${response1.status} ${response1.statusText}`, errorData);
     }
     
     // Query 2: Author + "interview"
@@ -1132,6 +1144,9 @@ async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouT
           }
         });
       }
+    } else {
+      const errorData = await response2.json().catch(() => ({}));
+      console.error(`[getYouTubeVideos] ❌ Query 2 failed: ${response2.status} ${response2.statusText}`, errorData);
     }
     
     // Limit to top 10 videos
@@ -1140,6 +1155,19 @@ async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouT
     return limitedVideos;
   } catch (err: any) {
     console.error('[getYouTubeVideos] ❌ Error:', err);
+    console.error('[getYouTubeVideos] Error details:', {
+      message: err.message,
+      name: err.name,
+      stack: err.stack
+    });
+    
+    // Check for specific API errors
+    if (err.message?.includes('403') || err.message?.includes('Forbidden')) {
+      console.error('[getYouTubeVideos] ⚠️ YouTube API returned 403 - check API key permissions and quota');
+    } else if (err.message?.includes('400') || err.message?.includes('Bad Request')) {
+      console.error('[getYouTubeVideos] ⚠️ YouTube API returned 400 - check API key validity');
+    }
+    
     return [];
   }
 }
