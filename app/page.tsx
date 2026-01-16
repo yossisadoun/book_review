@@ -101,6 +101,8 @@ interface RelatedBook {
 }
 
 // Supabase database schema interface
+type ReadingStatus = 'read_it' | 'reading' | 'want_to_read' | null;
+
 interface Book {
   id: string;
   user_id: string;
@@ -117,6 +119,7 @@ interface Book {
   rating_flow?: number | null;
   rating_world?: number | null;
   rating_characters?: number | null;
+  reading_status?: ReadingStatus; // Reading status: 'read_it', 'reading', 'want_to_read', or null
   author_facts?: string[] | null; // JSON array of author facts
   podcast_episodes?: PodcastEpisode[] | null; // JSON array of podcast episodes (deprecated - use source-specific columns)
   podcast_episodes_grok?: PodcastEpisode[] | null; // JSON array of podcast episodes from Grok
@@ -136,6 +139,7 @@ interface BookWithRatings extends Omit<Book, 'rating_writing' | 'rating_insights
     world: number | null;
     characters: number | null;
   };
+  reading_status?: ReadingStatus; // Reading status
   author_facts?: string[]; // Fun facts about the author
   podcast_episodes?: PodcastEpisode[]; // Podcast episodes about the book (deprecated - use source-specific)
   podcast_episodes_grok?: PodcastEpisode[]; // Podcast episodes from Grok
@@ -1693,6 +1697,7 @@ function convertBookToApp(book: Book): BookWithRatings {
       world: book.rating_world ?? null,
       characters: book.rating_characters ?? null,
     },
+    reading_status: book.reading_status || null, // Load reading status from database
     author_facts: authorFacts, // Load from database (properly parsed)
     podcast_episodes: book.podcast_episodes || undefined, // Load from database (legacy)
     podcast_episodes_grok: book.podcast_episodes_grok || undefined, // Load from database
@@ -1716,6 +1721,7 @@ function convertBookToDb(book: BookWithRatings): Omit<Book, 'id' | 'user_id' | '
     rating_flow: book.ratings.flow,
     rating_world: book.ratings.world,
     rating_characters: book.ratings.characters,
+    reading_status: book.reading_status || null,
   };
 }
 
@@ -2947,6 +2953,8 @@ export default function App() {
   const [isAdding, setIsAdding] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [selectingReadingStatus, setSelectingReadingStatus] = useState(false);
+  const [pendingBookMeta, setPendingBookMeta] = useState<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> | null>(null);
   
   // Swipe detection state for book navigation
   const [bookTouchStart, setBookTouchStart] = useState<{ x: number; y: number } | null>(null);
@@ -2996,10 +3004,10 @@ export default function App() {
   const [showBookshelfCovers, setShowBookshelfCovers] = useState(false);
   const [showNotesView, setShowNotesView] = useState(false);
   const [editingNoteBookId, setEditingNoteBookId] = useState<string | null>(null);
-  const [bookshelfGrouping, setBookshelfGrouping] = useState<'rating' | 'author' | 'title' | 'genre'>(() => {
+  const [bookshelfGrouping, setBookshelfGrouping] = useState<'rating' | 'author' | 'title' | 'genre' | 'reading_status'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('bookshelfGrouping');
-      return (saved as 'rating' | 'author' | 'title' | 'genre') || 'rating';
+      return (saved as 'rating' | 'author' | 'title' | 'genre' | 'reading_status') || 'rating';
     }
     return 'rating';
   });
@@ -3194,7 +3202,7 @@ export default function App() {
       });
       
       return groups.filter(group => group.books.length > 0);
-    } else { // genre
+    } else if (bookshelfGrouping === 'genre') {
       // Group by actual genre name
       const genreMap = new Map<string, BookWithRatings[]>();
       
@@ -3225,7 +3233,37 @@ export default function App() {
         });
       
       return groups;
+    } else if (bookshelfGrouping === 'reading_status') {
+      const groups: { label: string; books: BookWithRatings[] }[] = [
+        { label: 'Read it', books: [] },
+        { label: 'Reading', books: [] },
+        { label: 'Want to read', books: [] },
+      ];
+      
+      books.forEach(book => {
+        const status = book.reading_status;
+        if (status === 'read_it') {
+          groups[0].books.push(book);
+        } else if (status === 'reading') {
+          groups[1].books.push(book);
+        } else if (status === 'want_to_read') {
+          groups[2].books.push(book);
+        }
+      });
+      
+      // Sort each group by rating descending
+      groups.forEach(group => {
+        group.books.sort((a, b) => {
+          const scoreA = calculateScore(a.ratings);
+          const scoreB = calculateScore(b.ratings);
+          return scoreB - scoreA;
+        });
+      });
+      
+      return groups.filter(group => group.books.length > 0);
     }
+    // Default fallback (should never happen)
+    return [];
   }, [books, bookshelfGrouping]);
   
   // When editing, show the first dimension that needs rating, or first dimension if all are rated
@@ -3720,6 +3758,60 @@ export default function App() {
   async function handleAddBook(meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) {
     if (!user) return;
 
+    // Store the book metadata and show reading status selection
+    setPendingBookMeta(meta);
+    setSelectingReadingStatus(true);
+    setIsAdding(false);
+  }
+
+  async function handleUpdateReadingStatus(id: string, readingStatus: ReadingStatus) {
+    if (!user) return;
+    
+    // Optimistic update
+    setBooks(prev => prev.map(book => 
+      book.id === id 
+        ? { ...book, reading_status: readingStatus }
+        : book
+    ));
+
+    try {
+      const { error } = await supabase
+        .from('books')
+        .update({ 
+          reading_status: readingStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('[handleUpdateReadingStatus] Supabase error:', error);
+        // Revert on error
+        setBooks(prev => prev.map(book => 
+          book.id === id 
+            ? { ...book, reading_status: activeBook?.reading_status || null }
+            : book
+        ));
+      } else {
+        console.log(`[handleUpdateReadingStatus] ✅ Successfully updated reading_status to ${readingStatus}`);
+      }
+    } catch (err) {
+      console.error('Error updating reading status:', err);
+      // Revert on error
+      setBooks(prev => prev.map(book => 
+        book.id === id 
+          ? { ...book, reading_status: activeBook?.reading_status || null }
+          : book
+      ));
+    }
+  }
+
+  async function handleAddBookWithStatus(readingStatus: ReadingStatus) {
+    if (!user || !pendingBookMeta) return;
+
+    setSelectingReadingStatus(false);
+    const meta = pendingBookMeta;
+
     try {
       // Generate canonical book ID
       const canonicalBookId = generateCanonicalBookId(meta.title || '', meta.author || '');
@@ -3738,7 +3830,7 @@ export default function App() {
         if (existingBookIndex !== -1) {
           // Book is already loaded, just navigate to it
           setSelectedIndex(existingBookIndex);
-          setIsAdding(false);
+          setPendingBookMeta(null);
           // Make sure we're on the books view (not bookshelf/notes)
           setShowBookshelf(false);
           setShowNotesView(false);
@@ -3758,7 +3850,7 @@ export default function App() {
               setSelectedIndex(foundIndex);
             }
           }
-          setIsAdding(false);
+          setPendingBookMeta(null);
           setShowBookshelf(false);
           setShowNotesView(false);
         }
@@ -3791,6 +3883,7 @@ export default function App() {
         rating_flow: null,
         rating_world: null,
         rating_characters: null,
+        reading_status: readingStatus,
       };
       
       // Only include genre if it exists (column may not exist in database yet)
@@ -3851,14 +3944,17 @@ export default function App() {
           setBooks(prev => [newBook, ...prev]);
           setSelectedIndex(0);
           setIsAdding(false);
+          setPendingBookMeta(null);
           // Switch to books view (in case we're on bookshelf/notes screen)
           setShowBookshelf(false);
           setShowNotesView(false);
-          // Automatically open rating overlay for new book
-          setTimeout(() => {
-            setIsEditing(true);
-            setEditingDimension(null); // Will default to first unrated dimension
-          }, 100);
+          // Automatically open rating overlay for new book only if status is "read_it"
+          if (readingStatus === 'read_it') {
+            setTimeout(() => {
+              setIsEditing(true);
+              setEditingDimension(null); // Will default to first unrated dimension
+            }, 100);
+          }
           return;
         }
         
@@ -3872,14 +3968,17 @@ export default function App() {
       setBooks(prev => [newBook, ...prev]);
       setSelectedIndex(0);
       setIsAdding(false);
+      setPendingBookMeta(null);
       // Switch to books view (in case we're on bookshelf/notes screen)
       setShowBookshelf(false);
       setShowNotesView(false);
-      // Automatically open rating overlay for new book
-      setTimeout(() => {
-        setIsEditing(true);
-        setEditingDimension(null); // Will default to first unrated dimension
-      }, 100);
+      // Automatically open rating overlay for new book only if status is "read_it"
+      if (readingStatus === 'read_it') {
+        setTimeout(() => {
+          setIsEditing(true);
+          setEditingDimension(null); // Will default to first unrated dimension
+        }, 100);
+      }
 
       // Fetch author facts and podcast episodes asynchronously after book is added and save to DB
       if (meta.title && meta.author) {
@@ -4509,6 +4608,16 @@ export default function App() {
                   >
                     Genre
                   </button>
+                  <button
+                    onClick={() => setBookshelfGrouping('reading_status')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                      bookshelfGrouping === 'reading_status'
+                        ? 'bg-opacity-20 text-slate-950'
+                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
+                    }`}
+                  >
+                    Status
+                  </button>
                 </div>
 
                 {/* Summary Section */}
@@ -4697,6 +4806,16 @@ export default function App() {
                     }`}
                   >
                     Genre
+                  </button>
+                  <button
+                    onClick={() => setBookshelfGrouping('reading_status')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                      bookshelfGrouping === 'reading_status'
+                        ? 'bg-opacity-20 text-slate-950'
+                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
+                    }`}
+                  >
+                    Status
                   </button>
                 </div>
 
@@ -5226,6 +5345,82 @@ export default function App() {
                   }}
                 />
               )}
+
+              {/* Reading Status Selection Overlay */}
+              <AnimatePresence>
+                {selectingReadingStatus && pendingBookMeta && (
+                  <>
+                    <motion.div 
+                      initial={{ opacity: 0 }} 
+                      animate={{ opacity: 1 }} 
+                      exit={{ opacity: 0 }} 
+                      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+                      onClick={() => {
+                        setSelectingReadingStatus(false);
+                        setPendingBookMeta(null);
+                      }}
+                    >
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.9, y: 20 }} 
+                        animate={{ opacity: 1, scale: 1, y: 0 }} 
+                        exit={{ opacity: 0, scale: 0.9, y: 20 }} 
+                        className="bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-2xl border border-white/30 shadow-2xl p-6 max-w-sm w-full"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <h3 className="text-lg font-bold text-slate-950 mb-4 text-center">How would you like to categorize this book?</h3>
+                        <div className="flex flex-col gap-3">
+                          <button
+                            onClick={() => handleAddBookWithStatus('read_it')}
+                            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold active:scale-95 transition-all"
+                          >
+                            Read it
+                          </button>
+                          <button
+                            onClick={() => handleAddBookWithStatus('reading')}
+                            className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold active:scale-95 transition-all"
+                          >
+                            Reading
+                          </button>
+                          <button
+                            onClick={() => handleAddBookWithStatus('want_to_read')}
+                            className="px-6 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold active:scale-95 transition-all"
+                          >
+                            Want to read
+                          </button>
+                        </div>
+                      </motion.div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+
+              {/* Reading Status Indicator Button - top left */}
+              <AnimatePresence>
+                {!isShowingNotes && activeBook && (
+                  <motion.button 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3, delay: 0.3 }}
+                    onClick={() => {
+                      // Cycle through reading statuses
+                      const statuses: ReadingStatus[] = ['read_it', 'reading', 'want_to_read', null];
+                      const currentIndex = statuses.indexOf(activeBook.reading_status || null);
+                      const nextIndex = (currentIndex + 1) % statuses.length;
+                      const newStatus = statuses[nextIndex];
+                      handleUpdateReadingStatus(activeBook.id, newStatus);
+                    }}
+                    className="absolute top-4 left-4 z-30 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 px-3 py-1.5 rounded-full shadow-lg text-black hover:text-blue-600 active:scale-90 transition-all border border-white/30"
+                  >
+                    <span className="text-xs font-bold">
+                      {activeBook.reading_status === 'read_it' ? '✓ Read it' :
+                       activeBook.reading_status === 'reading' ? '📖 Reading' :
+                       activeBook.reading_status === 'want_to_read' ? '📚 Want to read' :
+                       '📖'}
+                    </span>
+                  </motion.button>
+                )}
+              </AnimatePresence>
 
               {/* Pencil button - top right */}
               <AnimatePresence>
