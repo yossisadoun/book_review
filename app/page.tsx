@@ -3315,6 +3315,7 @@ export default function App() {
         { label: 'Read it', books: [] },
         { label: 'Reading', books: [] },
         { label: 'Want to read', books: [] },
+        { label: 'TBD', books: [] },
       ];
       
       books.forEach(book => {
@@ -3325,6 +3326,9 @@ export default function App() {
           groups[1].books.push(book);
         } else if (status === 'want_to_read') {
           groups[2].books.push(book);
+        } else {
+          // null or undefined reading_status goes to TBD
+          groups[3].books.push(book);
         }
       });
       
