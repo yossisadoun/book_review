@@ -4448,6 +4448,195 @@ export default function App() {
               })()}
             </div>
           </motion.main>
+        ) : showBookshelfCovers ? (
+          <motion.main
+            key="bookshelf-covers"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
+            style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            onScroll={(e) => {
+              const target = e.currentTarget;
+              setScrollY(target.scrollTop);
+            }}
+          >
+            {/* Bookshelf Covers View */}
+            <div 
+              className="w-full flex flex-col items-center px-4"
+            >
+              <div className="w-full max-w-[1600px] flex flex-col gap-2.5 py-8">
+                {/* Grouping Selector */}
+                <div className="flex items-center justify-center gap-2 px-4 mb-1.5">
+                  <button
+                    onClick={() => setBookshelfGrouping('rating')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                      bookshelfGrouping === 'rating'
+                        ? 'bg-opacity-20 text-slate-950'
+                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
+                    }`}
+                  >
+                    Rating
+                  </button>
+                  <button
+                    onClick={() => setBookshelfGrouping('author')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                      bookshelfGrouping === 'author'
+                        ? 'bg-opacity-20 text-slate-950'
+                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
+                    }`}
+                  >
+                    Author
+                  </button>
+                  <button
+                    onClick={() => setBookshelfGrouping('title')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                      bookshelfGrouping === 'title'
+                        ? 'bg-opacity-20 text-slate-950'
+                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
+                    }`}
+                  >
+                    Title
+                  </button>
+                  <button
+                    onClick={() => setBookshelfGrouping('genre')}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
+                      bookshelfGrouping === 'genre'
+                        ? 'bg-opacity-20 text-slate-950'
+                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
+                    }`}
+                  >
+                    Genre
+                  </button>
+                </div>
+
+                {/* Summary Section */}
+                <div className="flex items-center justify-center gap-4 px-4 mb-2.5">
+                  {(() => {
+                    // Calculate KPIs
+                    const totalBooks = books.length;
+                    const booksWithRatings = books.filter(book => {
+                      const values = Object.values(book.ratings).filter(v => v != null) as number[];
+                      return values.length > 0;
+                    });
+                    const totalUnrated = totalBooks - booksWithRatings.length;
+                    
+                    // Calculate average score across all books
+                    let avgScore = 0;
+                    if (booksWithRatings.length > 0) {
+                      const totalScore = booksWithRatings.reduce((sum, book) => {
+                        return sum + calculateScore(book.ratings);
+                      }, 0);
+                      avgScore = totalScore / booksWithRatings.length;
+                    }
+
+                    return (
+                      <>
+                        {/* Total Books KPI */}
+                        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-lg flex flex-col items-center min-w-[100px]">
+                          <span className="text-lg font-bold text-slate-950 mb-1">
+                            {totalBooks}
+                          </span>
+                          <span className="text-xs text-slate-600 font-medium">Total</span>
+                        </div>
+
+                        {/* Average Score KPI */}
+                        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-lg flex flex-col items-center min-w-[100px]">
+                          <span className="text-lg font-bold text-slate-950 mb-1">
+                            {avgScore > 0 ? avgScore.toFixed(1) : '—'}
+                          </span>
+                          <span className="text-xs text-slate-600 font-medium">Rating</span>
+                        </div>
+
+                        {/* Unrated KPI */}
+                        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-lg flex flex-col items-center min-w-[100px]">
+                          <span className="text-lg font-bold text-slate-950 mb-1">
+                            {totalUnrated}
+                          </span>
+                          <span className="text-xs text-slate-600 font-medium">Unrated</span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+                
+                {groupedBooksForBookshelf.map((group, groupIdx) => (
+                  <div 
+                    key={group.label} 
+                    className="flex flex-col gap-4 rounded-2xl overflow-hidden"
+                    style={{
+                      background: 'linear-gradient(to bottom, #FEFEFE, #F0F0F0)',
+                      padding: '2rem 0',
+                    }}
+                  >
+                    {/* Shelf Label */}
+                    <h2 className="text-xl font-bold text-slate-950 px-[10vw]">{group.label}</h2>
+                    
+                    {/* Covers Grid */}
+                    <div className="px-[10vw] grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4">
+                      {group.books.map((book, idx) => {
+                        const bookIndex = books.findIndex(b => b.id === book.id);
+                        const avgScore = calculateAvg(book.ratings);
+                        
+                        return (
+                          <motion.div
+                            key={book.id}
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            transition={{ 
+                              delay: (groupIdx * 0.05) + (idx * 0.02), 
+                              duration: 0.3,
+                            }}
+                            className="flex flex-col items-center cursor-pointer group"
+                            onClick={() => {
+                              if (bookIndex !== -1) {
+                                setScrollY(0);
+                                setSelectedIndex(bookIndex);
+                                setShowBookshelfCovers(false);
+                                setTimeout(() => {
+                                  const main = document.querySelector('main');
+                                  if (main) {
+                                    main.scrollTo({ top: 0, behavior: 'smooth' });
+                                  }
+                                }, 100);
+                              }
+                            }}
+                          >
+                            {/* Book Cover */}
+                            <div className="relative w-full aspect-[2/3] rounded-lg overflow-hidden shadow-lg mb-2 group-hover:scale-105 transition-transform">
+                              {book.cover_url ? (
+                                <img 
+                                  src={book.cover_url} 
+                                  alt={book.title}
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${getGradient(book.id)}`}>
+                                  <BookOpen size={32} className="text-white opacity-30" />
+                                </div>
+                              )}
+                              {/* Rating Badge */}
+                              {avgScore && (
+                                <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
+                                  <Star size={12} className="fill-amber-400 text-amber-400" />
+                                  <span className="text-xs font-bold text-white">{avgScore}</span>
+                                </div>
+                              )}
+                            </div>
+                            {/* Book Title */}
+                            <p className="text-xs font-medium text-slate-800 text-center line-clamp-2 px-1">
+                              {book.title}
+                            </p>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.main>
         ) : showBookshelf ? (
           <motion.main
             key="bookshelf"
