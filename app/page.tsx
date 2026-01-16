@@ -4807,7 +4807,16 @@ export default function App() {
                     }}
                   >
                     {/* Shelf Label */}
-                    <h2 className="text-xl font-bold text-slate-950 px-[10vw]">{group.label}</h2>
+                    <h2 className="text-xl font-bold text-slate-950 px-[10vw] flex items-center gap-2">
+                      {group.label}
+                      {bookshelfGrouping === 'reading_status' && (
+                        <>
+                          {group.label === 'Read it' && <CheckCircle2 size={20} className="text-slate-950" />}
+                          {group.label === 'Reading' && <BookOpen size={20} className="text-slate-950" />}
+                          {group.label === 'Want to read' && <BookMarked size={20} className="text-slate-950" />}
+                        </>
+                      )}
+                    </h2>
                     
                     {/* Covers Grid */}
                     <div className="px-[10vw] grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4">
