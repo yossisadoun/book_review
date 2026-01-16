@@ -3849,6 +3849,9 @@ export default function App() {
           setBooks(prev => [newBook, ...prev]);
           setSelectedIndex(0);
           setIsAdding(false);
+          // Switch to books view (in case we're on bookshelf/notes screen)
+          setShowBookshelf(false);
+          setShowNotesView(false);
           // Automatically open rating overlay for new book
           setTimeout(() => {
             setIsEditing(true);
@@ -3867,6 +3870,9 @@ export default function App() {
       setBooks(prev => [newBook, ...prev]);
       setSelectedIndex(0);
       setIsAdding(false);
+      // Switch to books view (in case we're on bookshelf/notes screen)
+      setShowBookshelf(false);
+      setShowNotesView(false);
       // Automatically open rating overlay for new book
       setTimeout(() => {
         setIsEditing(true);
