@@ -3394,8 +3394,8 @@ export default function App() {
       
       // Convert to groups array and sort by genre name
       const groups: { label: string; books: BookWithRatings[] }[] = Array.from(genreMap.entries())
-        .map(([genre, books]) => ({
-          label: genre,
+        .map(([genreLower, books]) => ({
+          label: genreDisplayNames.get(genreLower) || genreLower, // Use original case for display
           books: books.sort((a, b) => {
             // Sort books within each genre by title
             const titleA = (a.title || '').toUpperCase();
@@ -3404,10 +3404,12 @@ export default function App() {
           })
         }))
         .sort((a, b) => {
-          // Sort groups by genre name (put "No Genre" at the end)
-          if (a.label === 'No Genre') return 1;
-          if (b.label === 'No Genre') return -1;
-          return a.label.localeCompare(b.label);
+          // Sort groups by genre name (case-insensitive, put "No Genre" at the end)
+          const labelA = a.label.toLowerCase();
+          const labelB = b.label.toLowerCase();
+          if (labelA === 'no genre') return 1;
+          if (labelB === 'no genre') return -1;
+          return labelA.localeCompare(labelB);
         });
       
       return groups;
