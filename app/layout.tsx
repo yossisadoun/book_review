@@ -3,9 +3,9 @@ import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 
 // Get basePath for metadata (handles GitHub Pages basePath)
-// Since we're using static export for GitHub Pages, always use /book_review
+// In development, basePath is empty; in production (GitHub Pages), it's /book_review
 // Next.js metadata doesn't automatically apply basePath from next.config.ts
-const basePath = '/book_review';
+const basePath = process.env.NODE_ENV === 'production' ? '/book_review' : '';
 
 export const metadata: Metadata = {
   title: "BOOK - Book Review App",

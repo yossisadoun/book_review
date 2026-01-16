@@ -732,7 +732,10 @@ async function getGoogleScholarAnalysis(bookTitle: string, author: string): Prom
       clearTimeout(timeoutId);
       
       if (!response.ok) {
-        console.warn(`[getGoogleScholarAnalysis] ⚠️ Proxy ${i + 1} returned status ${response.status}`);
+        // Only log if it's not a common error (403, 500 are expected from proxies)
+        if (response.status !== 403 && response.status !== 500) {
+          console.warn(`[getGoogleScholarAnalysis] ⚠️ Proxy ${i + 1} returned status ${response.status}`);
+        }
         continue;
       }
       
@@ -845,14 +848,17 @@ async function getGoogleScholarAnalysis(bookTitle: string, author: string): Prom
       } else if (err.message?.includes('CORS') || err.message?.includes('Failed to fetch')) {
         console.warn(`[getGoogleScholarAnalysis] ⚠️ Proxy ${i + 1} CORS/network error:`, err.message);
       } else {
-        console.warn(`[getGoogleScholarAnalysis] ⚠️ Proxy ${i + 1} error:`, err.message);
+        // Only log non-CORS errors (CORS errors are expected and noisy)
+        if (!err.message?.includes('CORS') && !err.message?.includes('Failed to fetch') && !err.message?.includes('blocked')) {
+          console.warn(`[getGoogleScholarAnalysis] ⚠️ Proxy ${i + 1} error:`, err.message);
+        }
       }
       // Continue to next proxy
     }
   }
   
-  // All proxies failed - return search URL as fallback
-  console.warn('[getGoogleScholarAnalysis] ⚠️ All proxies failed, returning search URL');
+  // All proxies failed - return search URL as fallback (silently, this is expected)
+  // console.warn('[getGoogleScholarAnalysis] ⚠️ All proxies failed, returning search URL');
   const fallbackArticle: AnalysisArticle = {
     title: `Search Google Scholar for "${bookTitle}" by ${author}`,
     snippet: `Click to view Google Scholar search results for analysis, reviews, and criticism of this book. Individual article links require visiting Google Scholar directly.`,
@@ -5102,24 +5108,6 @@ export default function App() {
                 </>
               )}
             </div>
-            
-            {/* Navigation arrows - always visible, below cover */}
-            {books.length > 1 && (
-              <div className="w-full flex items-center justify-center gap-4 mt-2">
-                <button 
-                  onClick={() => setSelectedIndex(prev => (prev > 0 ? prev - 1 : books.length - 1))} 
-                  className="p-2 text-white drop-shadow-lg active:scale-95 transition-transform"
-                >
-                  <ChevronLeft size={25} />
-                </button>
-                <button 
-                  onClick={() => setSelectedIndex(prev => (prev < books.length - 1 ? prev + 1 : 0))} 
-                  className="p-2 text-white drop-shadow-lg active:scale-95 transition-transform"
-                >
-                  <ChevronRight size={25} />
-                </button>
-              </div>
-            )}
             
             {/* Info box - always open, below cover and above facts */}
             {!showRatingOverlay && (
