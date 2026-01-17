@@ -115,6 +115,7 @@ interface Book {
   cover_url?: string | null;
   wikipedia_url?: string | null;
   google_books_url?: string | null;
+  summary?: string | null; // Book synopsis/summary from Apple Books or Wikipedia
   rating_writing?: number | null;
   rating_insights?: number | null;
   rating_flow?: number | null;
@@ -1496,6 +1497,18 @@ async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book, 'id' |
       
       // Get Apple Books URL
       const appleBooksUrl = item.trackViewUrl || null;
+      
+      // Extract summary/description from Apple Books
+      // iTunes API provides description which is typically a synopsis
+      let summary: string | undefined = undefined;
+      if (item.description) {
+        // Clean up description: remove HTML tags
+        const cleanedDesc = item.description
+          .replace(/<[^>]*>/g, '') // Remove HTML tags
+          .replace(/\s+/g, ' ') // Normalize whitespace
+          .trim();
+        summary = cleanedDesc;
+      }
 
       return {
         title: title,
@@ -1505,6 +1518,7 @@ async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book, 'id' |
         cover_url: coverUrl,
         wikipedia_url: null,
         google_books_url: appleBooksUrl,
+        summary: summary || null,
       };
     });
 
@@ -1703,6 +1717,14 @@ async function lookupBooksOnWikipedia(query: string): Promise<Omit<Book, 'id' | 
       const qid = await getWikidataItemForTitle(pageTitle, lang);
       const { author, publishYear, genre } = qid ? await getAuthorAndYearFromWikidata(qid, lang) : { author: summaryData.extract?.split('(')[0]?.trim() || 'Unknown Author', publishYear: undefined, genre: undefined };
       
+      // Extract summary from Wikipedia extract
+      // Wikipedia extract is typically a short synopsis of the book
+      let summary: string | undefined = undefined;
+      if (summaryData.extract) {
+        const cleanedExtract = summaryData.extract.trim();
+        summary = cleanedExtract;
+      }
+      
       return {
         title: summaryData.title || pageTitle,
         author: author,
@@ -1711,6 +1733,7 @@ async function lookupBooksOnWikipedia(query: string): Promise<Omit<Book, 'id' | 
         cover_url: summaryData.thumbnail?.source?.replace('http://', 'https://') || null,
         wikipedia_url: summaryData.content_urls?.desktop?.page || null,
         google_books_url: null,
+        summary: summary || null,
       };
     })
   );
@@ -1755,6 +1778,13 @@ async function lookupBookOnWikipedia(query: string): Promise<Omit<Book, 'id' | '
     genre = wdData.genre;
   }
 
+  // Extract summary from Wikipedia extract
+  let summary: string | undefined = undefined;
+  if (summaryData.extract) {
+    const cleanedExtract = summaryData.extract.trim();
+    summary = cleanedExtract;
+  }
+
   return {
     title: summaryData.title || pageTitle,
     author: author,
@@ -1762,6 +1792,7 @@ async function lookupBookOnWikipedia(query: string): Promise<Omit<Book, 'id' | '
     genre: genre,
     cover_url: summaryData.thumbnail?.source || summaryData.originalimage?.source || null,
     wikipedia_url: summaryData.content_urls?.desktop?.page || null,
+    summary: summary || null,
   };
 }
 
@@ -1889,6 +1920,7 @@ function convertBookToDb(book: BookWithRatings): Omit<Book, 'id' | 'user_id' | '
     cover_url: book.cover_url,
     wikipedia_url: book.wikipedia_url,
     google_books_url: book.google_books_url,
+    summary: book.summary || null,
     rating_writing: book.ratings.writing,
     rating_insights: book.ratings.insights,
     rating_flow: book.ratings.flow,
@@ -2722,16 +2754,21 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
     <div
       onClick={handleNext}
       onTouchStart={(e) => {
+        e.stopPropagation(); // Prevent book navigation swipe
         const touch = e.touches[0];
         setTouchStart({ x: touch.clientX, y: touch.clientY });
       }}
       onTouchMove={(e) => {
+        e.stopPropagation(); // Prevent book navigation swipe
         if (touchStart) {
           const touch = e.touches[0];
           setTouchEnd({ x: touch.clientX, y: touch.clientY });
         }
       }}
-      onTouchEnd={handleSwipe}
+      onTouchEnd={(e) => {
+        e.stopPropagation(); // Prevent book navigation swipe
+        handleSwipe();
+      }}
       className="w-full cursor-pointer"
     >
       <AnimatePresence mode="wait">
@@ -4090,6 +4127,7 @@ export default function App() {
         cover_url: meta.cover_url ?? null,
         wikipedia_url: meta.wikipedia_url ?? null,
         google_books_url: meta.google_books_url ?? null,
+        summary: meta.summary ?? null,
         user_id: user.id,
         rating_writing: null,
         rating_insights: null,
@@ -4564,7 +4602,7 @@ export default function App() {
             ) : showNotesView ? (
               <Pencil size={24} className="text-slate-950" />
             ) : showBookshelfCovers ? (
-              <Grid3x3 size={24} className="text-slate-950" />
+              <Library size={24} className="text-slate-950" />
             ) : showBookshelf ? (
               <Library size={24} className="text-slate-950" />
             ) : (
@@ -4913,11 +4951,11 @@ export default function App() {
                     className="flex flex-col gap-4 rounded-2xl overflow-hidden"
                     style={{
                       background: 'linear-gradient(to bottom, #FEFEFE, #F0F0F0)',
-                      padding: '2rem 0',
+                      padding: '0.8rem 0',
                     }}
                   >
                     {/* Shelf Label */}
-                    <h2 className="text-xl font-bold text-slate-950 px-[10vw] flex items-center gap-2">
+                    <h2 className="text-xl font-bold text-slate-950 px-[4vw] flex items-center gap-2">
                       {group.label}
                       {bookshelfGrouping === 'reading_status' && (
                         <>
@@ -4930,7 +4968,7 @@ export default function App() {
                     </h2>
                     
                     {/* Covers Grid */}
-                    <div className="px-[10vw] grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4">
+                    <div className="px-[4vw] grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4">
                       {group.books.map((book, idx) => {
                         const bookIndex = books.findIndex(b => b.id === book.id);
                         const avgScore = calculateAvg(book.ratings);
@@ -5606,24 +5644,8 @@ export default function App() {
                             className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
                           >
                             <BookMarked size={28} className="text-slate-950" />
-                            <span className="text-xs font-bold text-slate-950">Want to read</span>
+                            <span className="text-xs font-bold text-slate-950">Want to</span>
                           </button>
-                          {/* TBD option for existing books */}
-                          {selectingReadingStatusForExisting && (
-                            <button
-                              onClick={async () => {
-                                if (activeBook) {
-                                  await handleUpdateReadingStatus(activeBook.id, null);
-                                  setSelectingReadingStatusForExisting(false);
-                                  setIsEditing(false);
-                                }
-                              }}
-                              className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
-                            >
-                              <span className="w-7 h-7" />
-                              <span className="text-xs font-bold text-slate-950">TBD</span>
-                            </button>
-                          )}
                         </div>
                       </motion.div>
                     ) : currentEditingDimension ? (
@@ -5672,13 +5694,15 @@ export default function App() {
                 )}
               </AnimatePresence>
               
-              {/* Click outside to close rating overlay */}
-              {showRatingOverlay && (
+              {/* Click outside to close rating overlay or reading status selection */}
+              {(showRatingOverlay || selectingReadingStatusForExisting) && (
                 <div 
                   className="fixed inset-0 z-30"
                   onClick={() => {
                     setIsEditing(false);
                     setEditingDimension(null);
+                    setSelectingReadingStatusForExisting(false);
+                    setSelectingReadingStatusInRating(false);
                   }}
                 />
               )}
@@ -5784,7 +5808,13 @@ export default function App() {
                 <div className="bg-white/80 backdrop-blur-md shadow-xl border border-white/30 rounded-2xl px-4 py-3 mx-auto">
                   {/* Line 1: Title */}
                   <h2 className="text-sm font-black text-slate-950 leading-tight line-clamp-2 mb-2">{activeBook.title}</h2>
-                  {/* Line 2: Author, Year, Source */}
+                  {/* Line 2: Summary/Synopsis */}
+                  {activeBook.summary && (
+                    <p className="text-xs text-slate-700 leading-relaxed mb-2">
+                      {activeBook.summary.length > 2000 ? activeBook.summary.substring(0, 2000) + '...' : activeBook.summary}
+                    </p>
+                  )}
+                  {/* Line 3: Author, Year, Source */}
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-xs font-bold text-slate-800">{activeBook.author}</p>
                     {activeBook.publish_year && (
