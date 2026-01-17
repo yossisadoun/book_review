@@ -1465,8 +1465,8 @@ async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book, 'id' |
       return bExact - aExact;
     });
     
-    // Take top 6 results
-    const topResults = sortedResults.slice(0, 6);
+    // Take top 7 results
+    const topResults = sortedResults.slice(0, 7);
     
     const books = topResults.map((item: any) => {
       const title = item.trackName || query;
@@ -1699,7 +1699,7 @@ async function getAuthorAndYearFromWikidata(qid: string, lang = 'en'): Promise<{
 
 async function lookupBooksOnWikipedia(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>[]> {
   const lang = isHebrew(query) ? 'he' : 'en';
-  const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=6`;
+  const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=7`;
   const searchData = await fetchWithRetry(searchUrl);
   const results = searchData.query?.search || [];
   
@@ -1707,9 +1707,9 @@ async function lookupBooksOnWikipedia(query: string): Promise<Omit<Book, 'id' | 
     return [];
   }
   
-  // Process top 6 results
+  // Process top 7 results
   const books = await Promise.all(
-    results.slice(0, 6).map(async (result: any) => {
+    results.slice(0, 7).map(async (result: any) => {
       const pageTitle = result.title;
       const summaryUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle.replace(/ /g, '_'))}`;
       const summaryData = await fetchWithRetry(summaryUrl);
@@ -2889,26 +2889,8 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [searchResults, setSearchResults] = useState<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>[]>([]);
-  const [searchSource, setSearchSource] = useState<'wikipedia' | 'apple_books'>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('searchSource');
-      // Migrate old values
-      if (saved === 'google_books' || saved === 'grok') {
-        localStorage.setItem('searchSource', 'apple_books');
-        return 'apple_books';
-      }
-      return (saved as 'wikipedia' | 'apple_books') || 'wikipedia';
-    }
-    return 'wikipedia';
-  });
+  const [searchResults, setSearchResults] = useState<(Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> & { source?: 'apple_books' | 'wikipedia' })[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('searchSource', searchSource);
-    }
-  }, [searchSource]);
 
   async function handleSearch(titleToSearch = query) {
     if (!titleToSearch.trim()) return;
@@ -2916,24 +2898,35 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
     setError('');
     setSearchResults([]);
     setSuggestions([]); // Clear suggestions first
-    
-    let searchPromise: Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>[]>;
-    
-    if (searchSource === 'apple_books') {
-      searchPromise = lookupBooksOnAppleBooks(titleToSearch);
-    } else {
-      searchPromise = lookupBooksOnWikipedia(titleToSearch);
-    }
 
     try {
-      // First, wait for search results
-      const results = await searchPromise;
-      setSearchResults(results);
+      // Start both searches simultaneously
+      const applePromise = lookupBooksOnAppleBooks(titleToSearch).then(results => 
+        results.slice(0, 7).map(book => ({ ...book, source: 'apple_books' as const }))
+      ).catch(() => []);
+      
+      const wikiPromise = lookupBooksOnWikipedia(titleToSearch).then(results => 
+        results.slice(0, 7).map(book => ({ ...book, source: 'wikipedia' as const }))
+      ).catch(() => []);
 
-      // Only call Grok for suggestions if no results came back
-      if (results.length === 0) {
-        const sourceName = searchSource === 'apple_books' ? 'Apple Books' : 'Wikipedia';
-        setError(`No results found on ${sourceName}.`);
+      // Show Apple Books results as soon as they return
+      const appleResults = await applePromise;
+      if (appleResults.length > 0) {
+        setSearchResults(appleResults);
+        setSuggestions([]);
+      }
+
+      // Wait for Wikipedia results and append them
+      const wikiResults = await wikiPromise;
+      if (wikiResults.length > 0) {
+        // Append Wikipedia results to existing Apple Books results
+        setSearchResults(prev => [...prev, ...wikiResults]);
+      }
+
+      // Check if we have any results after both complete
+      const combinedResults = [...appleResults, ...wikiResults];
+      if (combinedResults.length === 0) {
+        setError(`No results found.`);
         
         // Fetch AI suggestions only when no results
         try {
@@ -2943,9 +2936,6 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
           console.error('Error fetching AI suggestions:', aiErr);
           // Don't set error for AI suggestions failure, just leave suggestions empty
         }
-      } else {
-        // Clear suggestions if we have results
-        setSuggestions([]);
       }
     } catch (err) {
       setError("Search failed. Please try a different title.");
@@ -2954,8 +2944,10 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
     }
   }
   
-  function handleSelectBook(book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) {
-    onAdd(book);
+  function handleSelectBook(book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> & { source?: 'apple_books' | 'wikipedia' }) {
+    // Remove source property before adding to database
+    const { source, ...bookWithoutSource } = book;
+    onAdd(bookWithoutSource);
     setQuery('');
     setSuggestions([]);
     setSearchResults([]);
@@ -3038,26 +3030,6 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
               />
             </div>
 
-            {/* Search Source Toggle - simplified */}
-            <div className="flex items-center justify-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  // Toggle between: wikipedia -> apple_books -> wikipedia
-                  setSearchSource(prev => prev === 'wikipedia' ? 'apple_books' : 'wikipedia');
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/80 backdrop-blur-md hover:bg-white/85 active:scale-95 transition-all text-xs border border-white/30 shadow-sm"
-              >
-                <span className={`font-medium transition-colors ${searchSource === 'wikipedia' ? 'text-blue-700' : 'text-slate-700'}`}>
-                  Wikipedia
-                </span>
-                <span className="text-slate-400">/</span>
-                <span className={`font-medium transition-colors ${searchSource === 'apple_books' ? 'text-blue-700' : 'text-slate-700'}`}>
-                  Apple Books
-                </span>
-              </button>
-            </div>
-            
             {/* Loading state */}
             {loading && (
               <div className="flex items-center justify-center py-2">
@@ -3103,15 +3075,24 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
                       <div className="flex-1 min-w-0">
                         <h3 className="text-sm font-bold text-slate-950 truncate">{book.title}</h3>
                         <p className="text-xs text-slate-800 truncate">{book.author}</p>
-                        {book.publish_year && (
-                          <p className="text-[10px] text-slate-600 mt-0.5">{book.publish_year}</p>
-                        )}
+                        <div className="flex items-center gap-2 mt-1">
+                          {book.publish_year && (
+                            <p className="text-[10px] text-slate-600">{book.publish_year}</p>
+                          )}
+                          {book.source && (
+                            <>
+                              {book.publish_year && <span className="text-slate-400">•</span>}
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                book.source === 'apple_books' 
+                                  ? 'text-blue-700 bg-blue-100' 
+                                  : 'text-purple-700 bg-purple-100'
+                              }`}>
+                                {book.source === 'apple_books' ? 'Apple Books' : 'Wikipedia'}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      {i === 0 && (
-                        <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-1 rounded">
-                          Top
-                        </span>
-                      )}
                     </motion.button>
                   ))}
                 </motion.div>
@@ -4729,7 +4710,21 @@ export default function App() {
                     key={book.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="bg-white/80 backdrop-blur-md rounded-2xl p-4 border border-white/30 shadow-lg"
+                    className="bg-white/80 backdrop-blur-md rounded-2xl p-4 border border-white/30 shadow-lg cursor-pointer hover:shadow-xl transition-shadow"
+                    onClick={() => {
+                      // Only navigate if not editing
+                      if (editingNoteBookId !== book.id) {
+                        // Find book index and navigate to it, then open notes
+                        const bookIndex = books.findIndex(b => b.id === book.id);
+                        if (bookIndex !== -1) {
+                          setSelectedIndex(bookIndex);
+                          setShowNotesView(false);
+                          setTimeout(() => {
+                            setIsShowingNotes(true);
+                          }, 300);
+                        }
+                      }
+                    }}
                   >
                     <div className="flex gap-4">
                       {/* Book Cover */}
@@ -4753,7 +4748,7 @@ export default function App() {
                         <p className="text-xs text-slate-600 mb-2">{book.author}</p>
                         
                         {editingNoteBookId === book.id ? (
-                          <div className="space-y-2">
+                          <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
                             <textarea
                               value={book.notes || ''}
                               onChange={(e) => {
@@ -4792,27 +4787,9 @@ export default function App() {
                           </div>
                         ) : (
                           <div>
-                            <p className="text-xs text-slate-700 leading-relaxed line-clamp-3 mb-2">
+                            <p className="text-xs text-slate-700 leading-relaxed line-clamp-3">
                               {book.notes}
                             </p>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => {
-                                  // Find book index and navigate to it, then open notes
-                                  const bookIndex = books.findIndex(b => b.id === book.id);
-                                  if (bookIndex !== -1) {
-                                    setSelectedIndex(bookIndex);
-                                    setShowNotesView(false);
-                                    setTimeout(() => {
-                                      setIsShowingNotes(true);
-                                    }, 300);
-                                  }
-                                }}
-                                className="text-xs text-blue-600 font-medium hover:text-blue-700"
-                              >
-                                View Book
-                              </button>
-                            </div>
                           </div>
                         )}
                       </div>
@@ -4894,56 +4871,6 @@ export default function App() {
                     Status
                   </button>
                 </div>
-
-                {/* Summary Section */}
-                <div className="flex items-center justify-center gap-4 px-4 mb-2.5">
-                  {(() => {
-                    // Calculate KPIs
-                    const totalBooks = books.length;
-                    const booksWithRatings = books.filter(book => {
-                      const values = Object.values(book.ratings).filter(v => v != null) as number[];
-                      return values.length > 0;
-                    });
-                    const totalUnrated = totalBooks - booksWithRatings.length;
-                    
-                    // Calculate average score across all books
-                    let avgScore = 0;
-                    if (booksWithRatings.length > 0) {
-                      const totalScore = booksWithRatings.reduce((sum, book) => {
-                        return sum + calculateScore(book.ratings);
-                      }, 0);
-                      avgScore = totalScore / booksWithRatings.length;
-                    }
-
-                    return (
-                      <>
-                        {/* Total Books KPI */}
-                        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-lg flex flex-col items-center min-w-[100px]">
-                          <span className="text-lg font-bold text-slate-950 mb-1">
-                            {totalBooks}
-                          </span>
-                          <span className="text-xs text-slate-600 font-medium">Total</span>
-                        </div>
-
-                        {/* Average Score KPI */}
-                        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-lg flex flex-col items-center min-w-[100px]">
-                          <span className="text-lg font-bold text-slate-950 mb-1">
-                            {avgScore > 0 ? avgScore.toFixed(1) : '—'}
-                          </span>
-                          <span className="text-xs text-slate-600 font-medium">Rating</span>
-                        </div>
-
-                        {/* Unrated KPI */}
-                        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-lg flex flex-col items-center min-w-[100px]">
-                          <span className="text-lg font-bold text-slate-950 mb-1">
-                            {totalUnrated}
-                          </span>
-                          <span className="text-xs text-slate-600 font-medium">Unrated</span>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
                 
                 {groupedBooksForBookshelf.map((group, groupIdx) => (
                   <div 
@@ -4956,7 +4883,7 @@ export default function App() {
                   >
                     {/* Shelf Label */}
                     <h2 className="text-xl font-bold text-slate-950 px-[4vw] flex items-center gap-2">
-                      {group.label}
+                      {group.label} ({group.books.length})
                       {bookshelfGrouping === 'reading_status' && (
                         <>
                           {group.label === 'Read it' && <CheckCircle2 size={20} className="text-slate-950" />}
@@ -5854,12 +5781,14 @@ export default function App() {
             {/* Author Facts Tooltips - Show below cover with spacing */}
             {!showRatingOverlay && (
               <>
-                {/* Facts: Only show loading if we don't have facts yet. Once loaded, always show. */}
+                {/* Facts: Only show if we have facts or are loading */}
                 {(() => {
                   const hasFacts = activeBook.author_facts && activeBook.author_facts.length > 0;
                   const isLoadingFacts = loadingFactsForBookId === activeBook.id && !hasFacts;
                   
-                  // Always render the component - it will handle showing loading or facts
+                  // Only render if loading or has facts
+                  if (!isLoadingFacts && !hasFacts) return null;
+                  
                   return (
                     <AuthorFactsTooltips 
                       facts={activeBook.author_facts || []} 
@@ -5876,7 +5805,9 @@ export default function App() {
                   // Only show loading if we don't have episodes yet. Once loaded, always show.
                   const isLoading = activeBook && loadingPodcastsForBookId === activeBook.id && !hasEpisodes;
                   
-                  // Always show the podcast section
+                  // Only show the podcast section if loading or has episodes
+                  if (!isLoading && !hasEpisodes) return null;
+                  
                   return (
                     <div className="w-full space-y-2">
                       {/* Podcast Header */}
@@ -5898,18 +5829,13 @@ export default function App() {
                             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
                           </div>
                         </motion.div>
-                      ) : hasEpisodes ? (
-                        // Show episodes - once loaded, always show
+                      ) : (
+                        // Show episodes
                         <PodcastEpisodes 
                           episodes={episodes} 
                           bookId={activeBook?.id || ''}
                           isLoading={false}
                         />
-                      ) : (
-                        // Show no results state
-                        <div className="w-full bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
-                          <p className="text-xs text-slate-600 text-center">No podcasts found</p>
-                        </div>
                       )}
                     </div>
                   );
@@ -5929,7 +5855,9 @@ export default function App() {
                   const hasArticles = hasRealArticles;
                   const isLoading = loadingAnalysisForBookId === activeBook.id && !hasArticles && !hasOnlyFallback;
                   
-                  // Always show the analysis section
+                  // Only show the analysis section if loading or has articles
+                  if (!isLoading && !hasArticles) return null;
+                  
                   return (
                     <div className="w-full space-y-2">
                       {/* Analysis Header */}
@@ -5951,18 +5879,13 @@ export default function App() {
                             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
                           </div>
                         </motion.div>
-                      ) : hasArticles ? (
-                        // Show articles - once loaded, always show
+                      ) : (
+                        // Show articles
                         <AnalysisArticles 
                           articles={articles} 
                           bookId={activeBook.id}
                           isLoading={false}
                         />
-                      ) : (
-                        // Show no results state (either no articles or only fallback)
-                        <div className="w-full bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
-                          <p className="text-xs text-slate-600 text-center">No analysis found</p>
-                        </div>
                       )}
                     </div>
                   );
@@ -5974,7 +5897,9 @@ export default function App() {
                   const hasVideos = videos.length > 0;
                   const isLoading = loadingVideosForBookId === activeBook.id && !hasVideos;
                   
-                  // Always show the videos section
+                  // Only show the videos section if loading or has videos
+                  if (!isLoading && !hasVideos) return null;
+                  
                   return (
                     <div className="w-full space-y-2">
                       {/* Videos Header */}
@@ -5996,17 +5921,12 @@ export default function App() {
                             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
                           </div>
                         </motion.div>
-                      ) : hasVideos ? (
+                      ) : (
                         <YouTubeVideos 
                           videos={videos} 
                           bookId={activeBook.id}
                           isLoading={false}
                         />
-                      ) : (
-                        // Show no results state
-                        <div className="w-full bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
-                          <p className="text-xs text-slate-600 text-center">No videos found</p>
-                        </div>
                       )}
                     </div>
                   );
@@ -6018,7 +5938,9 @@ export default function App() {
                   const hasRelated = related.length > 0;
                   const isLoading = loadingRelatedForBookId === activeBook.id && !hasRelated;
                   
-                  // Always show the related books section
+                  // Only show the related books section if loading or has related books
+                  if (!isLoading && !hasRelated) return null;
+                  
                   return (
                     <div className="w-full space-y-2">
                       {/* Related Books Header */}
@@ -6040,18 +5962,13 @@ export default function App() {
                             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
                           </div>
                         </motion.div>
-                      ) : hasRelated ? (
+                      ) : (
                         <RelatedBooks 
                           books={related} 
                           bookId={activeBook.id}
                           isLoading={false}
                           onAddBook={handleAddBook}
                         />
-                      ) : (
-                        // Show no results state
-                        <div className="w-full bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
-                          <p className="text-xs text-slate-600 text-center">No related books found</p>
-                        </div>
                       )}
                     </div>
                   );
