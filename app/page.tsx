@@ -101,6 +101,23 @@ interface RelatedBook {
   genre?: string;
 }
 
+interface ResearchContentItem {
+  source_url: string;
+  trivia_fact: string;
+  deep_insight: string;
+}
+
+interface ResearchPillar {
+  pillar_name: string;
+  content_items: ResearchContentItem[];
+}
+
+interface BookResearch {
+  book_title: string;
+  author: string;
+  pillars: ResearchPillar[];
+}
+
 // Supabase database schema interface
 type ReadingStatus = 'read_it' | 'reading' | 'want_to_read' | null;
 
@@ -996,6 +1013,127 @@ async function getRelatedBooks(bookTitle: string, author: string): Promise<Relat
   } catch (err: any) {
     console.error('[getRelatedBooks] ❌ Error:', err);
     return [];
+  }
+}
+
+// --- Book Research (Grok API) ---
+async function getBookResearch(bookTitle: string, authorName: string): Promise<BookResearch | null> {
+  console.log(`[getBookResearch] 🔄 Fetching research for "${bookTitle}" by ${authorName}`);
+  
+  if (!grokApiKey || grokApiKey.trim() === '') {
+    console.warn('[getBookResearch] ⚠️ Grok API key not found or empty');
+    return null;
+  }
+  
+  // Validate API key format
+  if (grokApiKey.length < 20) {
+    console.warn('[getBookResearch] ⚠️ Grok API key appears to be invalid');
+    return null;
+  }
+
+  try {
+    // Construct the research prompt
+    const researchPrompt = `Task: Conduct a deep-dive research into the book "${bookTitle}" by "${authorName}".
+
+Methodology: Act as a panel of experts (Scholar, Fact-Checker, Psychologist, and Historian). For each relevant pillar, synthesize perspectives into validated, multi-point data. Choose only pillars that make sense for the Book in question.
+
+Research Pillar Definitions & Enhancements:
+
+1. Memorable Quotes: Identify the most popular and culturally significant quotes sourced from reputable quote repositories (e.g., Goodreads, Wikiquote).
+
+2. About the Author: Focus on the author's background, education, and personal experiences that directly informed this specific book.
+
+3. Story Behind the Story: Uncover the "spark of life"—the specific events, inspirations, or research that brought this story into existence.
+
+4. Reception: Analyze critical reviews, awards, and the public's initial versus long-term reaction.
+
+5. Time of Writing: Contextualize the book within its specific era (political, social, or technological climate when the author wrote it).
+
+6. World & Setting: Provide factual historical and geographical context for the story's setting. If set in a specific era (e.g., Medieval Russia, Depression-era South), provide the real-world historical data necessary to understand the characters' constraints and environment.
+
+7. References & Easter Eggs: Identify intertextual references, subtle nods to other works, "Easter egg" phrases, or stylistic homages.
+
+8. Legacy & Influence: Document how this work affected culture and identify specific later works (books, films, art) that were inspired by it.
+
+9. Meaning & Insights: Decode the central themes, hidden allegories, and philosophical arguments.
+
+10. The Ending: Analyze the resolution's impact, whether it is definitive or ambiguous, and its thematic resonance.
+
+11. Main Characters: Profile key figures, focusing on their internal motivations, primary conflicts, and character arcs.
+
+12. Psychological Perspective: Apply psychological theories (e.g., CBT, trauma-informed, Jungian) to the characters' behaviors or the author's intent.
+
+13. Factual Soundness: Verify the accuracy of historical events, scientific claims, or technical details within the text.
+
+14. Criticism: Identify significant negative critiques, controversies, or points of contention among scholars.
+
+Output Format: Provide a single JSON object. Each pillar can contain up to 8 distinct items.
+
+* pillar_name: The name of the subject.
+
+* content_items: An array of objects (Max 8), each containing:
+
+  * source_url: A valid, reputable URL.
+
+  * trivia_fact: A one-sentence, high-impact "quick grok" fact.
+
+  * deep_insight: A detailed paragraph of context or expert analysis.
+
+JSON Structure: { "book_title": "", "author": "", "pillars": [ { "pillar_name": "", "content_items": [ { "source_url": "", "trivia_fact": "", "deep_insight": "" } ] } ] }`;
+
+    const payload = {
+      messages: [
+        {
+          role: "user",
+          content: researchPrompt
+        }
+      ],
+      model: "grok-4-1-fast-non-reasoning",
+      stream: false,
+      temperature: 0.7
+    };
+
+    console.log('[getBookResearch] 🔵 Making request to Grok API...');
+    
+    // Add delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    const data = await fetchWithRetry('https://api.x.ai/v1/chat/completions', {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload)
+    }, 2, 3000);
+
+    const content = data.choices?.[0]?.message?.content || '{}';
+    console.log('[getBookResearch] 🔵 RAW CONTENT:', content.substring(0, 500));
+    
+    // Try to extract JSON from the response (Grok might wrap it in markdown)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    const result = JSON.parse(jsonStr);
+    
+    // Validate and structure the result
+    if (!result.pillars || !Array.isArray(result.pillars)) {
+      console.error('[getBookResearch] ❌ Invalid response format - missing pillars array');
+      return null;
+    }
+    
+    const research: BookResearch = {
+      book_title: result.book_title || bookTitle,
+      author: result.author || authorName,
+      pillars: result.pillars.filter((p: any) => p.pillar_name && p.content_items && Array.isArray(p.content_items) && p.content_items.length > 0)
+    };
+    
+    console.log(`[getBookResearch] ✅ Received research with ${research.pillars.length} pillars`);
+    
+    return research;
+  } catch (err: any) {
+    console.error('[getBookResearch] ❌ Error:', err);
+    return null;
   }
 }
 
@@ -2828,6 +2966,181 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
   );
 }
 
+interface ResearchSectionProps {
+  research: BookResearch | null;
+  bookId: string;
+  isLoading?: boolean;
+}
+
+function ResearchSection({ research, bookId, isLoading = false }: ResearchSectionProps) {
+  // Generate colors for pillar labels
+  const pillarColors = [
+    'bg-blue-600', 'bg-purple-600', 'bg-pink-600', 'bg-indigo-600',
+    'bg-teal-600', 'bg-orange-600', 'bg-red-600', 'bg-green-600',
+    'bg-yellow-600', 'bg-cyan-600', 'bg-amber-600', 'bg-emerald-600',
+    'bg-violet-600', 'bg-rose-600'
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="w-full">
+        <motion.div
+          animate={{ opacity: [0.5, 0.8, 0.5] }}
+          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+        >
+          <div className="h-12 flex items-center justify-center">
+            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (!research || !research.pillars || research.pillars.length === 0) {
+    return (
+      <div className="w-full">
+        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
+          <p className="text-xs text-slate-600 text-center">No research data available</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Flatten all content items from all pillars for card navigation
+  const allContentItems: Array<{ pillar: ResearchPillar; item: ResearchContentItem; itemIndex: number }> = [];
+  research.pillars.forEach(pillar => {
+    pillar.content_items.forEach((item, itemIndex) => {
+      allContentItems.push({ pillar, item, itemIndex });
+    });
+  });
+
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isVisible, setIsVisible] = useState(false);
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+  const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  const minSwipeDistance = 50;
+
+  useEffect(() => {
+    setCurrentIndex(0);
+    setIsVisible(false);
+    
+    if (allContentItems.length === 0) return;
+
+    const timeout = setTimeout(() => {
+      setIsVisible(true);
+    }, 1000);
+
+    return () => clearTimeout(timeout);
+  }, [research, bookId]);
+
+  function handleNext() {
+    setIsVisible(false);
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev + 1) % allContentItems.length);
+      setIsVisible(true);
+    }, 300);
+  }
+
+  function handlePrev() {
+    setIsVisible(false);
+    setTimeout(() => {
+      setCurrentIndex(prev => (prev > 0 ? prev - 1 : allContentItems.length - 1));
+      setIsVisible(true);
+    }, 300);
+  }
+
+  const handleSwipe = () => {
+    if (!touchStart || !touchEnd) return;
+    const distanceX = touchStart.x - touchEnd.x;
+    const distanceY = touchStart.y - touchEnd.y;
+    if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
+      if (distanceX > 0) {
+        handleNext();
+      } else {
+        handlePrev();
+      }
+    }
+    setTouchStart(null);
+    setTouchEnd(null);
+  };
+
+  if (allContentItems.length === 0 || currentIndex >= allContentItems.length) return null;
+
+  const current = allContentItems[currentIndex];
+  const pillarIndex = research.pillars.findIndex(p => p.pillar_name === current.pillar.pillar_name);
+  const colorClass = pillarColors[pillarIndex % pillarColors.length];
+
+  return (
+    <div
+      onClick={handleNext}
+      onTouchStart={(e) => {
+        e.stopPropagation();
+        const touch = e.touches[0];
+        setTouchStart({ x: touch.clientX, y: touch.clientY });
+      }}
+      onTouchMove={(e) => {
+        e.stopPropagation();
+        if (touchStart) {
+          const touch = e.touches[0];
+          setTouchEnd({ x: touch.clientX, y: touch.clientY });
+        }
+      }}
+      onTouchEnd={(e) => {
+        e.stopPropagation();
+        handleSwipe();
+      }}
+      className="w-full cursor-pointer"
+    >
+      <AnimatePresence mode="wait">
+        {isVisible && (
+          <motion.div
+            key={`${current.pillar.pillar_name}-${current.itemIndex}-${currentIndex}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+          >
+            {/* Pillar Label */}
+            <div className="mb-3">
+              <span className={`${colorClass} text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg inline-block`}>
+                {current.pillar.pillar_name}
+              </span>
+            </div>
+            
+            {/* Deep Insight */}
+            <p className="text-xs font-medium text-slate-800 leading-relaxed mb-3">
+              {current.item.deep_insight}
+            </p>
+            
+            {/* Source URL Icon */}
+            {current.item.source_url && (
+              <div className="flex justify-end">
+                <a
+                  href={current.item.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 text-white transition-all active:scale-95"
+                >
+                  <ExternalLink size={14} />
+                </a>
+              </div>
+            )}
+            
+            {allContentItems.length > 1 && (
+              <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
+                Tap for next ({currentIndex + 1}/{allContentItems.length})
+              </p>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 interface RatingStarsProps {
   value: number | null;
   onRate: (dimension: string, value: number | null) => void;
@@ -3190,6 +3503,8 @@ export default function App() {
   const [youtubeVideos, setYoutubeVideos] = useState<Map<string, YouTubeVideo[]>>(new Map());
   const [loadingRelatedForBookId, setLoadingRelatedForBookId] = useState<string | null>(null);
   const [relatedBooks, setRelatedBooks] = useState<Map<string, RelatedBook[]>>(new Map());
+  const [loadingResearchForBookId, setLoadingResearchForBookId] = useState<string | null>(null);
+  const [researchData, setResearchData] = useState<Map<string, BookResearch>>(new Map());
   const [scrollY, setScrollY] = useState(0);
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
   const [showBookshelf, setShowBookshelf] = useState(false);
@@ -3951,6 +4266,66 @@ export default function App() {
       clearTimeout(fetchTimer);
     };
   }, [selectedIndex, books, relatedBooks]); // Depend on selectedIndex, books, and relatedBooks
+
+  // Fetch research when activeBook changes
+  useEffect(() => {
+    const currentBook = books[selectedIndex];
+    if (!currentBook || !currentBook.title || !currentBook.author) {
+      setLoadingResearchForBookId(null);
+      return;
+    }
+
+    const bookId = currentBook.id;
+    const research = researchData.get(bookId);
+    
+    // If research already exists, don't fetch again
+    if (research && research.pillars && research.pillars.length > 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    // Set loading state
+    setLoadingResearchForBookId(bookId);
+
+    // Add a delay to avoid rate limits when scrolling through books
+    const fetchTimer = setTimeout(() => {
+      if (cancelled) return;
+      
+      const bookTitle = currentBook.title;
+      const bookAuthor = currentBook.author;
+      
+      console.log(`[Book Research] 🔄 Fetching for "${bookTitle}" by ${bookAuthor}...`);
+      getBookResearch(bookTitle, bookAuthor).then((research) => {
+        if (cancelled) return;
+        
+        // Clear loading state
+        setLoadingResearchForBookId(null);
+        
+        if (research && research.pillars && research.pillars.length > 0) {
+          console.log(`[Book Research] ✅ Received research with ${research.pillars.length} pillars for "${bookTitle}"`);
+          // Store in state
+          setResearchData(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, research);
+            return newMap;
+          });
+        } else {
+          console.log(`[Book Research] ⚠️ No research data found for "${bookTitle}"`);
+        }
+      }).catch((err) => {
+        if (cancelled) return;
+        setLoadingResearchForBookId(null);
+        console.error('Error fetching book research:', err);
+      });
+    }, 3500); // Delay to avoid rate limits when scrolling
+
+    return () => {
+      cancelled = true;
+      setLoadingResearchForBookId(null);
+      clearTimeout(fetchTimer);
+    };
+  }, [selectedIndex, books, researchData]); // Depend on selectedIndex, books, and researchData
 
   // Helper function to generate canonical book ID (matches database function)
   function generateCanonicalBookId(title: string, author: string): string {
@@ -5968,6 +6343,47 @@ export default function App() {
                           bookId={activeBook.id}
                           isLoading={false}
                           onAddBook={handleAddBook}
+                        />
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Research - Show below related books */}
+                {(() => {
+                  const research = researchData.get(activeBook.id) || null;
+                  const hasResearch = research && research.pillars && research.pillars.length > 0;
+                  const isLoading = loadingResearchForBookId === activeBook.id && !hasResearch;
+                  
+                  // Only show the research section if loading or has research
+                  if (!isLoading && !hasResearch) return null;
+                  
+                  return (
+                    <div className="w-full space-y-2">
+                      {/* Research Header */}
+                      <div className="flex items-center justify-center mb-2">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
+                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">RESEARCH:</span>
+                          <span className="text-[10px] font-bold text-slate-400">/</span>
+                          <span className="text-[10px] font-bold text-blue-700">Grok</span>
+                        </div>
+                      </div>
+                      {isLoading ? (
+                        // Show loading placeholder
+                        <motion.div
+                          animate={{ opacity: [0.5, 0.8, 0.5] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+                        >
+                          <div className="h-12 flex items-center justify-center">
+                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                          </div>
+                        </motion.div>
+                      ) : (
+                        <ResearchSection 
+                          research={research} 
+                          bookId={activeBook.id}
+                          isLoading={false}
                         />
                       )}
                     </div>
