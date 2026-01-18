@@ -4385,7 +4385,11 @@ export default function App() {
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isShowingNotes, setIsShowingNotes] = useState(false);
   const [noteText, setNoteText] = useState('');
+  const lastSavedNoteTextRef = useRef<string>('');
+  const noteTextOnFocusRef = useRef<string>('');
   const noteSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const prevIsShowingNotesRef = useRef(false);
   const [isMetaExpanded, setIsMetaExpanded] = useState(true);
   const [loadingFactsForBookId, setLoadingFactsForBookId] = useState<string | null>(null);
   const [bookInfluences, setBookInfluences] = useState<Map<string, string[]>>(new Map());
@@ -5484,7 +5488,11 @@ export default function App() {
   // Load note text when book changes
   useEffect(() => {
     if (activeBook) {
-      setNoteText(activeBook.notes || '');
+      // Format notes for display with timestamps visible
+      const formattedNotes = formatNotesForDisplay(activeBook.notes);
+      setNoteText(formattedNotes);
+      lastSavedNoteTextRef.current = formattedNotes;
+      noteTextOnFocusRef.current = formattedNotes; // Track initial state
     }
     // Cleanup timeout on book change
     return () => {
@@ -5494,6 +5502,54 @@ export default function App() {
       }
     };
   }, [activeBook?.id, activeBook?.notes]);
+
+  // When re-entering notes view, add new timestamp separator and position cursor
+  useEffect(() => {
+    // Only run when isShowingNotes changes from false to true (re-entering notes)
+    if (isShowingNotes && !prevIsShowingNotesRef.current) {
+      const currentNoteText = noteText.trim();
+      
+      if (currentNoteText) {
+        // Check if text already ends with just a timestamp (don't add another)
+        const lastTimestampMatch = currentNoteText.match(/\{(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\}\n?$/);
+        
+        // Only add new timestamp if there's content and it doesn't already end with just a timestamp
+        if (!lastTimestampMatch) {
+          // Add new timestamp separator with line break
+          const newTimestamp = formatNoteTimestamp();
+          const updatedText = currentNoteText + '\n\n' + newTimestamp + '\n';
+          setNoteText(updatedText);
+          noteTextOnFocusRef.current = updatedText;
+          
+          // Set cursor position at the end after the timestamp and line break
+          setTimeout(() => {
+            if (noteTextareaRef.current) {
+              const cursorPos = updatedText.length;
+              noteTextareaRef.current.setSelectionRange(cursorPos, cursorPos);
+              noteTextareaRef.current.focus();
+            }
+          }, 100); // Small delay to ensure textarea is rendered
+        } else {
+          // Already has timestamp at end - add line break and focus at the end
+          const updatedText = currentNoteText + '\n';
+          setNoteText(updatedText);
+          setTimeout(() => {
+            if (noteTextareaRef.current) {
+              const cursorPos = updatedText.length;
+              noteTextareaRef.current.setSelectionRange(cursorPos, cursorPos);
+              noteTextareaRef.current.focus();
+            }
+          }, 100);
+        }
+      } else {
+        // Empty notes - just focus the textarea
+        setTimeout(() => {
+          noteTextareaRef.current?.focus();
+        }, 100);
+      }
+    }
+    prevIsShowingNotesRef.current = isShowingNotes;
+  }, [isShowingNotes]);
 
   // Update background gradient when book changes
   useEffect(() => {
@@ -6737,30 +6793,190 @@ export default function App() {
     }
   }
 
-  async function handleSaveNote(text?: string, bookId?: string) {
+  // Helper function to format timestamp for notes
+  const formatNoteTimestamp = (date: Date = new Date()): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `{${year}-${month}-${day} ${hours}:${minutes}}`;
+  };
+
+  // Helper function to parse notes into sections with timestamps
+  const parseNotes = (notes: string | null): Array<{ timestamp: string; content: string }> => {
+    if (!notes || notes.trim() === '') {
+      return [];
+    }
+
+    const sections: Array<{ timestamp: string; content: string }> = [];
+    // Match pattern: {timestamp}\ncontent
+    const timestampRegex = /\{(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\}\n/g;
+    let lastIndex = 0;
+    let match;
+
+    while ((match = timestampRegex.exec(notes)) !== null) {
+      // Get content before this timestamp (if any) - this is content without timestamp
+      if (match.index > lastIndex) {
+        const contentBefore = notes.substring(lastIndex, match.index).trim();
+        if (contentBefore && sections.length > 0) {
+          // Append to last section
+          sections[sections.length - 1].content += '\n\n' + contentBefore;
+        }
+      }
+
+      // Get content after this timestamp (until next timestamp or end)
+      const contentStart = match.index + match[0].length;
+      const nextMatch = timestampRegex.exec(notes);
+      const contentEnd = nextMatch ? nextMatch.index : notes.length;
+      timestampRegex.lastIndex = match.index + match[0].length; // Reset for next iteration
+      
+      const content = notes.substring(contentStart, contentEnd).trim();
+      if (content) {
+        sections.push({ timestamp: match[1], content });
+      }
+
+      lastIndex = contentEnd;
+    }
+
+    // Check for content after last timestamp
+    const lastTimestampMatch = notes.match(/\{(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\}\n[^]*$/);
+    if (lastTimestampMatch) {
+      const lastTimestampIndex = notes.lastIndexOf(lastTimestampMatch[0]);
+      const contentAfter = notes.substring(lastTimestampIndex + lastTimestampMatch[0].length).trim();
+      if (contentAfter && sections.length > 0) {
+        sections[sections.length - 1].content += '\n\n' + contentAfter;
+      }
+    } else if (sections.length === 0 && notes.trim()) {
+      // No timestamps found - treat entire content as new
+      sections.push({ timestamp: formatNoteTimestamp(), content: notes.trim() });
+    }
+
+    return sections;
+  };
+
+  // Helper function to format notes for display
+  const formatNotesForDisplay = (notes: string | null): string => {
+    if (!notes || notes.trim() === '') return '';
+    
+    const sections = parseNotes(notes);
+    if (sections.length === 0) return notes;
+    
+    return sections.map(section => `{${section.timestamp}}\n${section.content}`).join('\n\n');
+  };
+
+  async function handleSaveNote(text?: string, bookId?: string, shouldCheckForNewTimestamp: boolean = false) {
     const targetBookId = bookId || activeBook?.id;
     if (!targetBookId || !user) return;
     
-    const textToSave = text !== undefined ? text : noteText;
+    const currentText = text !== undefined ? text : noteText;
+    const existingNotes = activeBook?.notes || '';
+    const currentTextTrimmed = currentText.trim();
+
+    if (!currentTextTrimmed) {
+      // Empty notes - save as null
+      try {
+        const { error } = await supabase
+          .from('books')
+          .update({ 
+            notes: null,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', targetBookId)
+          .eq('user_id', user.id);
+
+        if (error) throw error;
+
+        setBooks(prev => prev.map(book => 
+          book.id === targetBookId ? { ...book, notes: null } : book
+        ));
+        setNoteText('');
+      } catch (err) {
+        console.error('Error saving note:', err);
+        alert('Failed to save note. Please try again.');
+      }
+      return;
+    }
+
+    // Parse existing notes to get sections
+    const existingSections = parseNotes(existingNotes);
+    const lastSavedText = lastSavedNoteTextRef.current.trim();
+    const textOnFocus = noteTextOnFocusRef.current.trim();
+    let textToSave = '';
+
+    if (existingSections.length === 0 && currentTextTrimmed) {
+      // First note - add timestamp
+      textToSave = `${formatNoteTimestamp()}\n${currentTextTrimmed}`;
+    } else if (shouldCheckForNewTimestamp) {
+      // Only check for new timestamps on blur (when finishing editing)
+      // Compare current text with text when user started editing
+      const textOnFocusLastTimestampMatch = textOnFocus.match(/\{(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\}\n[^]*$/);
+      const currentTextLastTimestampMatch = currentTextTrimmed.match(/\{(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\}\n[^]*$/);
+      
+      if (textOnFocusLastTimestampMatch && currentTextLastTimestampMatch) {
+        // Both have timestamps - check if there's new content after the last timestamp
+        const focusLastTimestampIndex = textOnFocus.lastIndexOf(textOnFocusLastTimestampMatch[0]);
+        const currentLastTimestampIndex = currentTextTrimmed.lastIndexOf(currentTextLastTimestampMatch[0]);
+        
+        const focusContentAfter = textOnFocus.substring(focusLastTimestampIndex + textOnFocusLastTimestampMatch[0].length).trim();
+        const currentContentAfter = currentTextTrimmed.substring(currentLastTimestampIndex + currentTextLastTimestampMatch[0].length).trim();
+        
+        // Check if there's significant new content (not just whitespace changes)
+        const normalizedFocusContent = focusContentAfter.replace(/\s+/g, ' ');
+        const normalizedCurrentContent = currentContentAfter.replace(/\s+/g, ' ');
+        
+        if (normalizedCurrentContent && normalizedCurrentContent !== normalizedFocusContent && 
+            normalizedCurrentContent.length > normalizedFocusContent.length) {
+          // New content detected - append with new timestamp
+          const contentUpToLastTimestamp = currentTextTrimmed.substring(0, currentLastTimestampIndex + currentTextLastTimestampMatch[0].length);
+          textToSave = contentUpToLastTimestamp + '\n\n' + `${formatNoteTimestamp()}\n${currentContentAfter}`;
+        } else {
+          // Just edited existing content - save as is
+          textToSave = currentTextTrimmed;
+        }
+      } else if (currentTextTrimmed !== textOnFocus && currentTextTrimmed.length > textOnFocus.length) {
+        // Content changed and grew - might be new content
+        // Only add timestamp if there's a new line or paragraph break indicating new content
+        const newContent = currentTextTrimmed.substring(textOnFocus.length).trim();
+        if (newContent && (currentTextTrimmed.includes('\n\n') || currentTextTrimmed.split('\n').length > textOnFocus.split('\n').length)) {
+          // New content after existing - append with timestamp
+          textToSave = textOnFocus + '\n\n' + `${formatNoteTimestamp()}\n${newContent}`;
+        } else {
+          // Just edited existing - save as is
+          textToSave = currentTextTrimmed;
+        }
+      } else {
+        // Just edited existing content - save as is
+        textToSave = currentTextTrimmed;
+      }
+    } else {
+      // Debounced auto-save during typing - just save without adding timestamps
+      textToSave = currentTextTrimmed;
+    }
 
     try {
       const { error } = await supabase
         .from('books')
         .update({ 
-          notes: textToSave.trim() || null,
+          notes: textToSave.trim(),
           updated_at: new Date().toISOString()
         })
         .eq('id', targetBookId)
-        .eq('user_id', user.id); // Ensure user can only update their own books
+        .eq('user_id', user.id);
 
       if (error) throw error;
 
       // Update local state
       setBooks(prev => prev.map(book => 
         book.id === targetBookId 
-          ? { ...book, notes: textToSave.trim() || null }
+          ? { ...book, notes: textToSave.trim() }
           : book
       ));
+      
+      // Update noteText to show formatted version with all timestamps
+      const formatted = formatNotesForDisplay(textToSave.trim());
+      setNoteText(formatted);
+      lastSavedNoteTextRef.current = formatted;
     } catch (err) {
       console.error('Error saving note:', err);
       alert('Failed to save note. Please try again.');
@@ -7421,7 +7637,7 @@ export default function App() {
                             // Get next merge sort comparison pair
                             const mergePair = getNextMergePair(availableBooks);
                             if (!mergePair) {
-                              alert('Sorting complete! All books have been sorted.');
+                              // Sorting is complete - just return, don't show alert
                               return;
                             }
                             
@@ -8070,7 +8286,12 @@ export default function App() {
                     </button>
                   </div>
                   <textarea
+                    ref={noteTextareaRef}
                     value={noteText}
+                    onFocus={() => {
+                      // Track text when user starts editing
+                      noteTextOnFocusRef.current = noteText;
+                    }}
                     onChange={(e) => {
                       const newText = e.target.value;
                       setNoteText(newText);
@@ -8078,12 +8299,12 @@ export default function App() {
                       if (noteSaveTimeoutRef.current) {
                         clearTimeout(noteSaveTimeoutRef.current);
                       }
-                      // Debounced auto-save after 1 second of no typing
+                      // Debounced auto-save after 1 second of no typing (without checking for timestamps)
                       noteSaveTimeoutRef.current = setTimeout(() => {
-                        handleSaveNote(newText);
+                        handleSaveNote(newText, undefined, false);
                       }, 1000);
                     }}
-                    onBlur={() => handleSaveNote()}
+                    onBlur={() => handleSaveNote(undefined, undefined, true)}
                     placeholder="Write your notes here..."
                     className="flex-1 w-full resize-none border-none outline-none text-sm text-slate-800 placeholder:text-slate-400 bg-transparent"
                     style={{ minHeight: 0 }}
@@ -9100,6 +9321,15 @@ export default function App() {
                               setSelectedIndex(bookIndex);
                               setIsPlayingGame(false);
                               setShowGameResults(false);
+                              setShowBookshelf(false);
+                              setShowBookshelfCovers(false);
+                              setShowNotesView(false);
+                              // Reset scroll to top
+                              setScrollY(0);
+                              const main = document.querySelector('main');
+                              if (main) {
+                                main.scrollTo({ top: 0, behavior: 'smooth' });
+                              }
                             }
                           }}
                         >
@@ -9128,6 +9358,9 @@ export default function App() {
                             <div className="flex-1 min-w-0">
                               <h2 className="text-sm font-bold text-white mb-1 line-clamp-1">{book.title}</h2>
                               <p className="text-xs text-white/80 mb-1">{book.author}</p>
+                              {book.genre && (
+                                <p className="text-xs text-white/70 mb-1">{book.genre}</p>
+                              )}
                               {(() => {
                                 const avgScore = calculateAvg(book.ratings);
                                 if (avgScore) {

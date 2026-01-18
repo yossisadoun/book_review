@@ -241,7 +241,12 @@ export function BookLoading() {
           }
         }
       `}</style>
-      <div className="fixed inset-0 bg-slate-50 flex items-center justify-center z-50">
+      <div 
+        className="fixed inset-0 flex items-center justify-center z-50"
+        style={{
+          background: 'linear-gradient(to bottom, #C6DF8B 0%, #A1D821 30%, #FCCF47 100%)'
+        }}
+      >
         <div className="book-loading">
           <div className="book">
             <div className="book__pg-shadow"></div>
