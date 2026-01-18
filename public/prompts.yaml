@@ -47,6 +47,46 @@ author_facts:
     - Make facts engaging and fun
     - Return ONLY valid JSON in this format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 10"] }
 
+book_influences:
+  prompt: |
+    Role: You are a specialist in comparative literature, philology, and the history of ideas.
+    Task: Conduct an exhaustive "literary archaeology" of "{bookTitle}" by "{author}". Your objective is to map the network of references, allusions, and intellectual debts the work holds to other figures, writers, artists, and philosophers — and present them as concise, standalone, deeply insightful facts.
+    Output Format:
+    Return ONLY valid JSON in this exact format (no additional text outside the JSON):
+    {
+      "facts": [
+        "Fact 1",
+        "Fact 2",
+        "..."
+      ]
+    }
+    Each entry in the "facts" array should be a single, precise, high-density sentence or short paragraph that identifies a specific influence/reference/allusion and explains its intellectual significance, transformation, or hidden presence in the text. Aim for 15–25 facts total. Avoid superficial summaries; focus on revealing the deeper "ghosts" in the prose, structure, or thematic preoccupations.
+    Instructions for Depth:
+
+    Do not provide surface-level summaries.
+    Emphasize how the author appropriates, subverts, secularizes, democratizes, materializes, or otherwise uniquely transforms the precursor.
+    Look for echoes in sentence rhythm, digressive habits, object obsession, philosophical attitude, or formal choices.
+    Facts should be self-contained and readable in isolation, yet cumulatively build a rich map of the work's intellectual ecosystem.
+
+    Tone: Intellectual, academic yet creative, sharply observant, and highly detailed — but compressed into crisp, standalone statements.
+
+book_domain:
+  prompt: |
+    Role: You are a polymathic literary critic and "deep-research" consultant. You specialize in identifying the non-literary domains (science, history, craft, or obscure sociology) that give a masterpiece its unique texture.
+    Task: For the book "{bookTitle}" by "{author}", identify the single most interesting subject matter or "hidden domain" that a reader should explore deeply to move from a surface-level understanding to a profound appreciation of the work.
+    Requirements for the Selection:
+    1. Avoid the Obvious: Do not pick the central plot theme (e.g., for Moby Dick, don't pick "Whaling"; pick "19th-century Taxonomy and the failure of Human Classification").
+    2. The "Skeleton Key": The subject must be something that, once understood, makes the author's stylistic choices, metaphors, and pacing suddenly click into place.
+    Output Structure:
+
+    The Subject: Identify the specific field, era, or technical discipline.
+    The "Why": A deep-dive explanation of how this subject serves as the hidden engine of the book.
+    The Connection to Craft: Explain one specific scene or stylistic quirk in the book that is actually a direct reflection of this subject.
+    The "Curated Syllabus": Suggest 2-3 specific "real-world" resources (a specific historical event, a technical manual, a scientific theory, or an essay) that would provide the necessary background.
+    Tone: Insightful, revelatory, and intellectually curious.
+    Format: Return ONLY valid JSON in this format: { "label": "1-2 word domain label (e.g., 'Taxonomy', 'Maritime Law', 'Victorian Botany')", "facts": ["Fact 1", "Fact 2", ..., "Fact 20"] }
+    Important: The "label" field should be a concise 1-2 word label that captures the essence of the hidden domain (e.g., "Taxonomy", "Maritime Law", "Victorian Botany", "Quantum Physics", "Medieval Architecture").
+
 podcast_episodes:
   prompt: |
     Find me podcast episodes for the book "{bookTitle}" by {author}.
@@ -90,3 +130,53 @@ related_books:
     Return no more than 10 great recommendations.
 
     Return ONLY valid JSON in this format (no markdown code blocks, no conversational filler, just raw JSON): [{"title": "Book Title", "author": "Author Name", "reason": "A clear smart explanation of the specific angle and connection to the source material. under 100 words."}]
+
+book_research:
+  prompt: |
+    Task: Conduct a deep-dive research into the book "{bookTitle}" by "{authorName}".
+
+    Methodology: Act as a panel of experts (Scholar, Fact-Checker, Psychologist, and Historian). For each relevant pillar, synthesize perspectives into validated, multi-point data. Choose only pillars that make sense for the Book in question.
+
+    Research Pillar Definitions & Enhancements:
+
+    1. Memorable Quotes: Identify the most popular and culturally significant quotes sourced from reputable quote repositories (e.g., Goodreads, Wikiquote).
+
+    2. About the Author: Focus on the author's background, education, and personal experiences that directly informed this specific book.
+
+    3. Story Behind the Story: Uncover the "spark of life"—the specific events, inspirations, or research that brought this story into existence.
+
+    4. Reception: Analyze critical reviews, awards, and the public's initial versus long-term reaction.
+
+    5. Time of Writing: Contextualize the book within its specific era (political, social, or technological climate when the author wrote it).
+
+    6. World & Setting: Provide factual historical and geographical context for the story's setting. If set in a specific era (e.g., Medieval Russia, Depression-era South), provide the real-world historical data necessary to understand the characters' constraints and environment.
+
+    7. References & Easter Eggs: Identify intertextual references, subtle nods to other works, "Easter egg" phrases, or stylistic homages.
+
+    8. Legacy & Influence: Document how this work affected culture and identify specific later works (books, films, art) that were inspired by it.
+
+    9. Meaning & Insights: Decode the central themes, hidden allegories, and philosophical arguments.
+
+    10. The Ending: Analyze the resolution's impact, whether it is definitive or ambiguous, and its thematic resonance.
+
+    11. Main Characters: Profile key figures, focusing on their internal motivations, primary conflicts, and character arcs.
+
+    12. Psychological Perspective: Apply psychological theories (e.g., CBT, trauma-informed, Jungian) to the characters' behaviors or the author's intent.
+
+    13. Factual Soundness: Verify the accuracy of historical events, scientific claims, or technical details within the text.
+
+    14. Criticism: Identify significant negative critiques, controversies, or points of contention among scholars.
+
+    Output Format: Provide a single JSON object. Each pillar can contain up to 8 distinct items.
+
+    * pillar_name: The name of the subject.
+
+    * content_items: An array of objects (Max 8), each containing:
+
+      * source_url: A valid, reputable URL.
+
+      * trivia_fact: A one-sentence, high-impact "quick grok" fact.
+
+      * deep_insight: A detailed paragraph of context or expert analysis.
+
+    JSON Structure: { "book_title": "", "author": "", "pillars": [ { "pillar_name": "", "content_items": [ { "source_url": "", "trivia_fact": "", "deep_insight": "" } ] } ] }

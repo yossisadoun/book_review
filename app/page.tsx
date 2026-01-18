@@ -21,6 +21,7 @@ import {
   Pencil,
   Grid3x3,
   BookMarked,
+  ChevronDown,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -116,6 +117,11 @@ interface BookResearch {
   book_title: string;
   author: string;
   pillars: ResearchPillar[];
+}
+
+interface DomainInsights {
+  label: string;
+  facts: string[];
 }
 
 // Supabase database schema interface
@@ -373,8 +379,391 @@ async function getAISuggestions(query: string): Promise<string[]> {
 }
 
 async function getAuthorFacts(bookTitle: string, author: string): Promise<string[]> {
-  console.log(`[getAuthorFacts] 🔄 Fetching from Grok API for "${bookTitle}" by ${author}`);
-  return getGrokAuthorFacts(bookTitle, author);
+  console.log(`[getAuthorFacts] 🔄 Fetching author facts for "${bookTitle}" by ${author}`);
+  
+  // Check database cache first
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = author.toLowerCase().trim();
+    
+    const { data: cachedData, error: cacheError } = await supabase
+      .from('author_facts_cache')
+      .select('author_facts')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (!cacheError && cachedData && cachedData.author_facts && Array.isArray(cachedData.author_facts) && cachedData.author_facts.length > 0) {
+      console.log(`[getAuthorFacts] ✅ Found ${cachedData.author_facts.length} cached facts in database`);
+      return cachedData.author_facts as string[];
+    } else if (cacheError && cacheError.code !== 'PGRST116') {
+      // PGRST116 is "not found" error, which is fine
+      console.warn('[getAuthorFacts] ⚠️ Error checking cache:', cacheError);
+    }
+  } catch (err) {
+    console.warn('[getAuthorFacts] ⚠️ Error checking cache:', err);
+    // Continue to fetch from Grok
+  }
+  
+  // Fetch from Grok API
+  const facts = await getGrokAuthorFacts(bookTitle, author);
+  
+  // Save to cache if we got facts
+  if (facts.length > 0) {
+    await saveAuthorFactsToCache(bookTitle, author, facts);
+  }
+  
+  return facts;
+}
+
+// Get book influences from Grok (literary archaeology)
+async function getGrokBookInfluences(bookTitle: string, author: string): Promise<string[]> {
+  console.log('[getGrokBookInfluences] Called for:', bookTitle, 'by', author);
+  
+  if (!grokApiKey) {
+    console.warn('[getGrokBookInfluences] API key is missing! Check NEXT_PUBLIC_GROK_API_KEY environment variable');
+    return [];
+  }
+  
+  console.log('[getGrokBookInfluences] API key found, waiting 2s before request...');
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  
+  const url = 'https://api.x.ai/v1/chat/completions';
+  
+  const prompts = await loadPrompts();
+  if (!prompts.book_influences || !prompts.book_influences.prompt) {
+    console.error('[getGrokBookInfluences] ❌ book_influences prompt not found in prompts config');
+    return [];
+  }
+  const prompt = formatPrompt(prompts.book_influences.prompt, { bookTitle, author });
+
+  const payload = {
+    messages: [
+      {
+        role: "user",
+        content: prompt
+      }
+    ],
+    model: "grok-4-1-fast-non-reasoning",
+    stream: false,
+    temperature: 0.7
+  };
+
+  console.log('[getGrokBookInfluences] 🔵 Making request to Grok API...');
+  try {
+    const data = await fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload)
+    }, 2, 3000);
+    const content = data.choices?.[0]?.message?.content || '{"facts":[]}';
+    // Try to extract JSON from the response (Grok might wrap it in markdown)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    const result = JSON.parse(jsonStr);
+    console.log('[getGrokBookInfluences] ✅ Parsed', result.facts?.length || 0, 'influences');
+    return result.facts || [];
+  } catch (err: any) {
+    console.error('[getGrokBookInfluences] Error:', err);
+    return [];
+  }
+}
+
+async function getBookInfluences(bookTitle: string, author: string): Promise<string[]> {
+  console.log(`[getBookInfluences] 🔄 Fetching book influences for "${bookTitle}" by ${author}`);
+  
+  // Check database cache first
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = author.toLowerCase().trim();
+    
+    const { data: cachedData, error: cacheError } = await supabase
+      .from('book_influences_cache')
+      .select('influences')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (!cacheError && cachedData && cachedData.influences && Array.isArray(cachedData.influences) && cachedData.influences.length > 0) {
+      console.log(`[getBookInfluences] ✅ Found ${cachedData.influences.length} cached influences in database`);
+      return cachedData.influences as string[];
+    } else if (cacheError && cacheError.code !== 'PGRST116') {
+      console.warn('[getBookInfluences] ⚠️ Error checking cache:', cacheError);
+    }
+  } catch (err) {
+    console.warn('[getBookInfluences] ⚠️ Error checking cache:', err);
+  }
+  
+  // Fetch from Grok API
+  const influences = await getGrokBookInfluences(bookTitle, author);
+  
+  // Save to cache if we got influences
+  if (influences.length > 0) {
+    await saveBookInfluencesToCache(bookTitle, author, influences);
+  }
+  
+  return influences;
+}
+
+// Get book domain insights from Grok (hidden domain analysis)
+async function getGrokBookDomain(bookTitle: string, author: string): Promise<DomainInsights | null> {
+  console.log('[getGrokBookDomain] Called for:', bookTitle, 'by', author);
+  
+  if (!grokApiKey) {
+    console.warn('[getGrokBookDomain] API key is missing! Check NEXT_PUBLIC_GROK_API_KEY environment variable');
+    return null;
+  }
+  
+  console.log('[getGrokBookDomain] API key found, waiting 2s before request...');
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  
+  const url = 'https://api.x.ai/v1/chat/completions';
+  
+  const prompts = await loadPrompts();
+  if (!prompts.book_domain || !prompts.book_domain.prompt) {
+    console.error('[getGrokBookDomain] ❌ book_domain prompt not found in prompts config');
+    return null;
+  }
+  const prompt = formatPrompt(prompts.book_domain.prompt, { bookTitle, author });
+
+  const payload = {
+    messages: [
+      {
+        role: "user",
+        content: prompt
+      }
+    ],
+    model: "grok-4-1-fast-non-reasoning",
+    stream: false,
+    temperature: 0.7
+  };
+
+  console.log('[getGrokBookDomain] 🔵 Making request to Grok API...');
+  try {
+    const data = await fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload)
+    }, 2, 3000);
+    const content = data.choices?.[0]?.message?.content || '{"label":"Domain","facts":[]}';
+    // Try to extract JSON from the response (Grok might wrap it in markdown)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    const result = JSON.parse(jsonStr);
+    const label = result.label || 'Domain';
+    const facts = result.facts || [];
+    console.log('[getGrokBookDomain] ✅ Parsed', facts.length, 'domain insights with label:', label);
+    return { label, facts };
+  } catch (err: any) {
+    console.error('[getGrokBookDomain] Error:', err);
+    return null;
+  }
+}
+
+async function getBookDomain(bookTitle: string, author: string): Promise<DomainInsights | null> {
+  console.log(`[getBookDomain] 🔄 Fetching book domain insights for "${bookTitle}" by ${author}`);
+  
+  // Check database cache first
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = author.toLowerCase().trim();
+    
+    const { data: cachedData, error: cacheError } = await supabase
+      .from('book_domain_cache')
+      .select('domain_label, domain_insights')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (!cacheError && cachedData && cachedData.domain_insights && Array.isArray(cachedData.domain_insights) && cachedData.domain_insights.length > 0) {
+      const label = cachedData.domain_label || 'Domain';
+      console.log(`[getBookDomain] ✅ Found ${cachedData.domain_insights.length} cached domain insights in database with label: ${label}`);
+      return {
+        label,
+        facts: cachedData.domain_insights as string[]
+      };
+    } else if (cacheError && cacheError.code !== 'PGRST116') {
+      console.warn('[getBookDomain] ⚠️ Error checking cache:', cacheError);
+    }
+  } catch (err) {
+    console.warn('[getBookDomain] ⚠️ Error checking cache:', err);
+  }
+  
+  // Fetch from Grok API
+  const domainData = await getGrokBookDomain(bookTitle, author);
+  
+  // Save to cache if we got insights
+  if (domainData && domainData.facts.length > 0) {
+    await saveBookDomainToCache(bookTitle, author, domainData);
+  }
+  
+  return domainData;
+}
+
+// Helper function to save book domain insights to cache table
+async function saveBookDomainToCache(bookTitle: string, bookAuthor: string, domainData: DomainInsights): Promise<void> {
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = bookAuthor.toLowerCase().trim();
+    
+    // First, try to check if record exists
+    const { data: existing, error: checkError } = await supabase
+      .from('book_domain_cache')
+      .select('id')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('[saveBookDomainToCache] ❌ Error checking existing record:', checkError);
+    }
+    
+    const recordData = {
+      book_title: normalizedTitle,
+      book_author: normalizedAuthor,
+      domain_label: domainData.label,
+      domain_insights: domainData.facts,
+      updated_at: new Date().toISOString(),
+    };
+    
+    let result;
+    if (existing) {
+      result = await supabase
+        .from('book_domain_cache')
+        .update(recordData)
+        .eq('book_title', normalizedTitle)
+        .eq('book_author', normalizedAuthor);
+    } else {
+      result = await supabase
+        .from('book_domain_cache')
+        .insert(recordData);
+    }
+    
+    if (result.error) {
+      console.error('[saveBookDomainToCache] ❌ Error saving domain insights:', result.error);
+    } else {
+      console.log(`[saveBookDomainToCache] ✅ Saved ${domainData.facts.length} domain insights to cache with label: ${domainData.label}`);
+    }
+  } catch (err: any) {
+    console.error('[saveBookDomainToCache] ❌ Error:', err);
+  }
+}
+
+// Helper function to save book influences to cache table
+async function saveBookInfluencesToCache(bookTitle: string, bookAuthor: string, influences: string[]): Promise<void> {
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = bookAuthor.toLowerCase().trim();
+    
+    // First, try to check if record exists
+    const { data: existing, error: checkError } = await supabase
+      .from('book_influences_cache')
+      .select('id')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('[saveBookInfluencesToCache] ❌ Error checking existing record:', checkError);
+    }
+    
+    const recordData = {
+      book_title: normalizedTitle,
+      book_author: normalizedAuthor,
+      influences: influences,
+      updated_at: new Date().toISOString(),
+    };
+    
+    let result;
+    if (existing) {
+      result = await supabase
+        .from('book_influences_cache')
+        .update(recordData)
+        .eq('book_title', normalizedTitle)
+        .eq('book_author', normalizedAuthor);
+    } else {
+      result = await supabase
+        .from('book_influences_cache')
+        .insert(recordData);
+    }
+    
+    if (result.error) {
+      console.error('[saveBookInfluencesToCache] ❌ Error saving influences:', result.error);
+    } else {
+      console.log(`[saveBookInfluencesToCache] ✅ Saved ${influences.length} influences to cache`);
+    }
+  } catch (err: any) {
+    console.error('[saveBookInfluencesToCache] ❌ Error:', err);
+  }
+}
+
+// Helper function to save author facts to cache table
+async function saveAuthorFactsToCache(bookTitle: string, bookAuthor: string, facts: string[]): Promise<void> {
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = bookAuthor.toLowerCase().trim();
+    
+    // First, try to check if record exists
+    const { data: existing, error: checkError } = await supabase
+      .from('author_facts_cache')
+      .select('id')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (checkError && checkError.code !== 'PGRST116') {
+      // PGRST116 is "not found" which is fine
+      console.error('[saveAuthorFactsToCache] ❌ Error checking existing record:', checkError);
+    }
+    
+    const recordData = {
+      book_title: normalizedTitle,
+      book_author: normalizedAuthor,
+      author_facts: facts,
+      updated_at: new Date().toISOString(),
+    };
+    
+    let result;
+    if (existing) {
+      // Update existing record
+      result = await supabase
+        .from('author_facts_cache')
+        .update(recordData)
+        .eq('book_title', normalizedTitle)
+        .eq('book_author', normalizedAuthor);
+    } else {
+      // Insert new record
+      result = await supabase
+        .from('author_facts_cache')
+        .insert(recordData);
+    }
+    
+    if (result.error) {
+      console.error('[saveAuthorFactsToCache] ❌ Error saving author facts:', {
+        message: result.error.message,
+        code: result.error.code,
+        details: result.error.details,
+        hint: result.error.hint,
+      });
+      
+      // Check if table doesn't exist
+      if (result.error.code === '42P01' || result.error.message?.includes('does not exist')) {
+        console.error('[saveAuthorFactsToCache] ⚠️ Table "author_facts_cache" does not exist. Please run the migration in Supabase SQL Editor.');
+      }
+    } else {
+      console.log(`[saveAuthorFactsToCache] ✅ Saved ${facts.length} author facts to cache`);
+    }
+  } catch (err: any) {
+    console.error('[saveAuthorFactsToCache] ❌ Error:', err);
+  }
 }
 
 // Get podcast episodes from Grok
@@ -1049,54 +1438,16 @@ async function getBookResearch(bookTitle: string, authorName: string): Promise<B
   }
 
   try {
-    // Construct the research prompt
-    const researchPrompt = `Task: Conduct a deep-dive research into the book "${bookTitle}" by "${authorName}".
-
-Methodology: Act as a panel of experts (Scholar, Fact-Checker, Psychologist, and Historian). For each relevant pillar, synthesize perspectives into validated, multi-point data. Choose only pillars that make sense for the Book in question.
-
-Research Pillar Definitions & Enhancements:
-
-1. Memorable Quotes: Identify the most popular and culturally significant quotes sourced from reputable quote repositories (e.g., Goodreads, Wikiquote).
-
-2. About the Author: Focus on the author's background, education, and personal experiences that directly informed this specific book.
-
-3. Story Behind the Story: Uncover the "spark of life"—the specific events, inspirations, or research that brought this story into existence.
-
-4. Reception: Analyze critical reviews, awards, and the public's initial versus long-term reaction.
-
-5. Time of Writing: Contextualize the book within its specific era (political, social, or technological climate when the author wrote it).
-
-6. World & Setting: Provide factual historical and geographical context for the story's setting. If set in a specific era (e.g., Medieval Russia, Depression-era South), provide the real-world historical data necessary to understand the characters' constraints and environment.
-
-7. References & Easter Eggs: Identify intertextual references, subtle nods to other works, "Easter egg" phrases, or stylistic homages.
-
-8. Legacy & Influence: Document how this work affected culture and identify specific later works (books, films, art) that were inspired by it.
-
-9. Meaning & Insights: Decode the central themes, hidden allegories, and philosophical arguments.
-
-10. The Ending: Analyze the resolution's impact, whether it is definitive or ambiguous, and its thematic resonance.
-
-11. Main Characters: Profile key figures, focusing on their internal motivations, primary conflicts, and character arcs.
-
-12. Psychological Perspective: Apply psychological theories (e.g., CBT, trauma-informed, Jungian) to the characters' behaviors or the author's intent.
-
-13. Factual Soundness: Verify the accuracy of historical events, scientific claims, or technical details within the text.
-
-14. Criticism: Identify significant negative critiques, controversies, or points of contention among scholars.
-
-Output Format: Provide a single JSON object. Each pillar can contain up to 8 distinct items.
-
-* pillar_name: The name of the subject.
-
-* content_items: An array of objects (Max 8), each containing:
-
-  * source_url: A valid, reputable URL.
-
-  * trivia_fact: A one-sentence, high-impact "quick grok" fact.
-
-  * deep_insight: A detailed paragraph of context or expert analysis.
-
-JSON Structure: { "book_title": "", "author": "", "pillars": [ { "pillar_name": "", "content_items": [ { "source_url": "", "trivia_fact": "", "deep_insight": "" } ] } ] }`;
+    const prompts = await loadPrompts();
+    
+    // Safety check: ensure book_research prompt exists
+    if (!prompts.book_research || !prompts.book_research.prompt) {
+      console.error('[getBookResearch] ❌ book_research prompt not found in prompts config');
+      console.error('[getBookResearch] Available prompts:', Object.keys(prompts));
+      return null;
+    }
+    
+    const researchPrompt = formatPrompt(prompts.book_research.prompt, { bookTitle, authorName });
 
     const payload = {
       messages: [
@@ -1558,7 +1909,56 @@ async function saveArticlesToDatabase(bookTitle: string, bookAuthor: string, art
 }
 
 async function getPodcastEpisodes(bookTitle: string, author: string): Promise<PodcastEpisode[]> {
-  console.log(`[getPodcastEpisodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${author} from both sources`);
+  console.log(`[getPodcastEpisodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${author}`);
+  
+  // Check database cache first
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = author.toLowerCase().trim();
+    
+    const { data: cachedData, error: cacheError } = await supabase
+      .from('podcast_episodes_cache')
+      .select('podcast_episodes_curated, podcast_episodes_apple')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (!cacheError && cachedData) {
+      const curatedEpisodes = (cachedData.podcast_episodes_curated || []) as PodcastEpisode[];
+      const appleEpisodes = (cachedData.podcast_episodes_apple || []) as PodcastEpisode[];
+      
+      // Combine: curated first, then Apple (avoid duplicates by URL)
+      const seenUrls = new Set<string>();
+      const combined: PodcastEpisode[] = [];
+      
+      // Add curated episodes first
+      curatedEpisodes.forEach(ep => {
+        if (ep.url && !seenUrls.has(ep.url)) {
+          seenUrls.add(ep.url);
+          combined.push(ep);
+        }
+      });
+      
+      // Add Apple episodes (excluding duplicates)
+      appleEpisodes.forEach(ep => {
+        if (ep.url && !seenUrls.has(ep.url)) {
+          seenUrls.add(ep.url);
+          combined.push(ep);
+        }
+      });
+      
+      if (combined.length > 0 || (curatedEpisodes.length === 0 && appleEpisodes.length === 0)) {
+        console.log(`[getPodcastEpisodes] ✅ Found cached episodes: ${combined.length} combined (${curatedEpisodes.length} curated + ${appleEpisodes.length} Apple)`);
+        return combined;
+      }
+    } else if (cacheError && cacheError.code !== 'PGRST116') {
+      // PGRST116 is "not found" error, which is fine
+      console.warn('[getPodcastEpisodes] ⚠️ Error checking cache:', cacheError);
+    }
+  } catch (err) {
+    console.warn('[getPodcastEpisodes] ⚠️ Error checking cache:', err);
+    // Continue to fetch
+  }
   
   // Fetch both sources in parallel
   const [curatedEpisodes, appleEpisodes] = await Promise.all([
@@ -1594,7 +1994,72 @@ async function getPodcastEpisodes(bookTitle: string, author: string): Promise<Po
   
   console.log(`[getPodcastEpisodes] ✅ Combined ${combined.length} episodes (${curatedEpisodes.length} curated + ${appleEpisodes.length} Apple, ${curatedEpisodes.length + appleEpisodes.length - combined.length} duplicates removed)`);
   
+  // Save to cache (including empty arrays to prevent future fetches)
+  await savePodcastEpisodesToCache(bookTitle, author, curatedEpisodes, appleEpisodes);
+  
   return combined;
+}
+
+// Helper function to save podcast episodes to cache table
+async function savePodcastEpisodesToCache(bookTitle: string, bookAuthor: string, curatedEpisodes: PodcastEpisode[], appleEpisodes: PodcastEpisode[]): Promise<void> {
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = bookAuthor.toLowerCase().trim();
+    
+    // First, try to check if record exists
+    const { data: existing, error: checkError } = await supabase
+      .from('podcast_episodes_cache')
+      .select('id')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (checkError && checkError.code !== 'PGRST116') {
+      // PGRST116 is "not found" which is fine
+      console.error('[savePodcastEpisodesToCache] ❌ Error checking existing record:', checkError);
+    }
+    
+    const recordData = {
+      book_title: normalizedTitle,
+      book_author: normalizedAuthor,
+      podcast_episodes_curated: curatedEpisodes,
+      podcast_episodes_apple: appleEpisodes,
+      updated_at: new Date().toISOString(),
+    };
+    
+    let result;
+    if (existing) {
+      // Update existing record
+      result = await supabase
+        .from('podcast_episodes_cache')
+        .update(recordData)
+        .eq('book_title', normalizedTitle)
+        .eq('book_author', normalizedAuthor);
+    } else {
+      // Insert new record
+      result = await supabase
+        .from('podcast_episodes_cache')
+        .insert(recordData);
+    }
+    
+    if (result.error) {
+      console.error('[savePodcastEpisodesToCache] ❌ Error saving podcast episodes:', {
+        message: result.error.message,
+        code: result.error.code,
+        details: result.error.details,
+        hint: result.error.hint,
+      });
+      
+      // Check if table doesn't exist
+      if (result.error.code === '42P01' || result.error.message?.includes('does not exist')) {
+        console.error('[savePodcastEpisodesToCache] ⚠️ Table "podcast_episodes_cache" does not exist. Please run the migration in Supabase SQL Editor.');
+      }
+    } else {
+      console.log(`[savePodcastEpisodesToCache] ✅ Saved ${curatedEpisodes.length} curated + ${appleEpisodes.length} Apple episodes to cache`);
+    }
+  } catch (err: any) {
+    console.error('[savePodcastEpisodesToCache] ❌ Error:', err);
+  }
 }
 
 // --- Apple Books API (iTunes Search) ---
@@ -2104,39 +2569,59 @@ function getGradient(id: string): string {
 
 // --- UI Components ---
 
-interface AuthorFactsTooltipsProps {
-  facts: string[];
+interface InsightItem {
+  text: string;
+  sourceUrl?: string;
+  label: string;
+}
+
+interface InsightsCardsProps {
+  insights: InsightItem[];
   bookId: string; // To reset when book changes
   isLoading?: boolean;
 }
 
-function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTooltipsProps) {
+function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isVisible, setIsVisible] = useState(false);
+  const [isVisible, setIsVisible] = useState(true); // Start visible to prevent flickering
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
+  const prevInsightsRef = useRef<string>('');
+  
+  // Extract actual book ID (remove category suffix if present)
+  const actualBookId = bookId.split('-')[0];
+  
+  // Create a stable key from insights to detect actual content changes
+  const insightsKey = insights.length > 0 
+    ? `${insights.length}-${insights[0]?.text?.substring(0, 30)}-${insights[insights.length - 1]?.text?.substring(0, 30)}`
+    : 'empty';
 
   useEffect(() => {
-    // Reset when book changes
+    // Only reset if the actual content changed (not just the array reference)
+    if (insightsKey !== prevInsightsRef.current) {
+      prevInsightsRef.current = insightsKey;
+      // Only reset index, keep visibility to prevent flickering
+      setCurrentIndex(0);
+      // Ensure visibility is true if we have insights
+      if (insights.length > 0) {
+        setIsVisible(true);
+      }
+    }
+  }, [insightsKey, insights.length]);
+  
+  // Separate effect for book changes to reset everything
+  useEffect(() => {
     setCurrentIndex(0);
-    setIsVisible(false);
-    
-    if (facts.length === 0) return;
-
-    // Show first fact after a short delay
-    const timeout = setTimeout(() => {
-      setIsVisible(true);
-    }, 1000);
-
-    return () => clearTimeout(timeout);
-  }, [facts, bookId]);
+    setIsVisible(true);
+    prevInsightsRef.current = '';
+  }, [actualBookId]);
 
   function handleNext() {
     setIsVisible(false);
     // Wait for fade out, then show next (or loop back to first)
     setTimeout(() => {
-      setCurrentIndex(prev => (prev + 1) % facts.length);
+      setCurrentIndex(prev => (prev + 1) % insights.length);
       setIsVisible(true);
     }, 300);
   }
@@ -2144,7 +2629,7 @@ function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTo
   function handlePrev() {
     setIsVisible(false);
     setTimeout(() => {
-      setCurrentIndex(prev => (prev > 0 ? prev - 1 : facts.length - 1));
+      setCurrentIndex(prev => (prev > 0 ? prev - 1 : insights.length - 1));
       setIsVisible(true);
     }, 300);
   }
@@ -2180,9 +2665,12 @@ function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTo
     );
   }
 
-  if (facts.length === 0 || currentIndex >= facts.length) return null;
+  if (insights.length === 0 || currentIndex >= insights.length) return null;
 
-  const currentFact = facts[currentIndex];
+  const currentInsight = insights[currentIndex];
+  const labelColor = currentInsight.label === 'Trivia' 
+    ? 'bg-purple-100/90 text-purple-800'
+    : 'bg-blue-100/90 text-blue-800';
 
   return (
     <div
@@ -2203,24 +2691,53 @@ function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTo
       <AnimatePresence mode="wait">
         {isVisible && (
           <motion.div
-            key={`${currentFact}-${currentIndex}`}
+            key={`${currentInsight.text}-${currentIndex}`}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
             className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
           >
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <span className={`${labelColor} px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider`}>
+                {currentInsight.label}
+              </span>
+            </div>
             <p className="text-xs font-medium text-slate-950 leading-relaxed text-center">
-              💡 {currentFact}
+              💡 {currentInsight.text}
             </p>
+            {currentInsight.sourceUrl && (
+              <a
+                href={currentInsight.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center justify-center gap-1 mt-2 text-[10px] text-blue-700 hover:text-blue-800 hover:underline"
+              >
+                <ExternalLink size={10} />
+                <span>Source</span>
+              </a>
+            )}
             <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
-              Tap for next ({currentIndex + 1}/{facts.length})
+              Tap for next ({currentIndex + 1}/{insights.length})
             </p>
           </motion.div>
         )}
       </AnimatePresence>
     </div>
   );
+}
+
+// Keep AuthorFactsTooltips for backward compatibility (deprecated - use InsightsCards)
+interface AuthorFactsTooltipsProps {
+  facts: string[];
+  bookId: string;
+  isLoading?: boolean;
+}
+
+function AuthorFactsTooltips({ facts, bookId, isLoading = false }: AuthorFactsTooltipsProps) {
+  const insights: InsightItem[] = facts.map(fact => ({ text: fact, label: 'Trivia' }));
+  return <InsightsCards insights={insights} bookId={bookId} isLoading={isLoading} />;
 }
 
 interface PodcastEpisodesProps {
@@ -3513,6 +4030,10 @@ export default function App() {
   const noteSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isMetaExpanded, setIsMetaExpanded] = useState(true);
   const [loadingFactsForBookId, setLoadingFactsForBookId] = useState<string | null>(null);
+  const [bookInfluences, setBookInfluences] = useState<Map<string, string[]>>(new Map());
+  const [loadingInfluencesForBookId, setLoadingInfluencesForBookId] = useState<string | null>(null);
+  const [bookDomain, setBookDomain] = useState<Map<string, DomainInsights>>(new Map());
+  const [loadingDomainForBookId, setLoadingDomainForBookId] = useState<string | null>(null);
   const [loadingPodcastsForBookId, setLoadingPodcastsForBookId] = useState<string | null>(null);
   const [loadingAnalysisForBookId, setLoadingAnalysisForBookId] = useState<string | null>(null);
   const [analysisArticles, setAnalysisArticles] = useState<Map<string, AnalysisArticle[]>>(new Map());
@@ -3522,6 +4043,8 @@ export default function App() {
   const [relatedBooks, setRelatedBooks] = useState<Map<string, RelatedBook[]>>(new Map());
   const [loadingResearchForBookId, setLoadingResearchForBookId] = useState<string | null>(null);
   const [researchData, setResearchData] = useState<Map<string, BookResearch>>(new Map());
+  const [selectedInsightCategory, setSelectedInsightCategory] = useState<string>('trivia'); // 'trivia' or pillar names from research
+  const [isInsightCategoryDropdownOpen, setIsInsightCategoryDropdownOpen] = useState(false);
   const [scrollY, setScrollY] = useState(0);
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
   const [showBookshelf, setShowBookshelf] = useState(false);
@@ -3817,6 +4340,8 @@ export default function App() {
     setIsConfirmingDelete(false);
     setIsShowingNotes(false);
     setEditingDimension(null);
+    setSelectedInsightCategory('trivia'); // Reset to trivia when book changes
+    setIsInsightCategoryDropdownOpen(false); // Close dropdown when book changes
     
     setIsMetaExpanded(true);
     const timer = setTimeout(() => {
@@ -3825,6 +4350,21 @@ export default function App() {
     
     return () => clearTimeout(timer);
   }, [selectedIndex]);
+
+  // Close insight category dropdown when clicking outside
+  useEffect(() => {
+    if (!isInsightCategoryDropdownOpen) return;
+    
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.insight-category-dropdown')) {
+        setIsInsightCategoryDropdownOpen(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isInsightCategoryDropdownOpen]);
 
   // Load note text when book changes
   useEffect(() => {
@@ -3852,7 +4392,11 @@ export default function App() {
     }
   }, [selectedIndex, books]);
 
-  // Fetch author facts for existing books when they're selected (if missing)
+  // Track which books we're currently fetching facts for to prevent duplicate concurrent fetches
+  const fetchingFactsForBooksRef = useRef<Set<string>>(new Set());
+  
+  // Fetch author facts for existing books when they're selected
+  // Now uses cache table instead of books table
   useEffect(() => {
     const currentBook = books[selectedIndex];
     if (!currentBook || !currentBook.title || !currentBook.author) {
@@ -3860,37 +4404,34 @@ export default function App() {
       return;
     }
 
-    // Check if facts already exist in database
-    // Be more robust: check for array with length > 0, or try to parse if it's a string
-    const authorFacts = currentBook.author_facts;
-    const hasFacts = authorFacts && 
-                     Array.isArray(authorFacts) && 
-                     authorFacts.length > 0;
+    const bookId = currentBook.id;
+    const bookTitle = currentBook.title;
+    const bookAuthor = currentBook.author;
     
-    if (hasFacts && authorFacts) {
-      // Show loading state briefly even when loading from DB for consistent UX
-      const bookId = currentBook.id;
-      const factsCount = authorFacts.length;
-      console.log(`[Author Facts] ✅ Found ${factsCount} facts in database for "${currentBook.title}" by ${currentBook.author} - skipping Grok fetch`);
-      setLoadingFactsForBookId(bookId);
-      setTimeout(() => {
-        console.log(`[Author Facts] ✅ Loaded from database for "${currentBook.title}" by ${currentBook.author}: ${factsCount} facts`);
-        setLoadingFactsForBookId(null);
-      }, 800); // Brief delay to show loading animation
+    // Check if facts already exist in local state - if so, don't fetch again
+    const hasFacts = currentBook.author_facts && 
+                     Array.isArray(currentBook.author_facts) && 
+                     currentBook.author_facts.length > 0;
+    
+    // Check if we're currently fetching for this book (to prevent concurrent fetches)
+    const isCurrentlyFetching = fetchingFactsForBooksRef.current.has(bookId);
+    
+    if (hasFacts) {
+      // Facts already loaded in state, no need to fetch again
+      setLoadingFactsForBookId(null);
       return;
     }
     
-    // Log when we're about to fetch (for debugging mobile issue)
-    console.log(`[Author Facts] 🔍 Checking facts for "${currentBook.title}" by ${currentBook.author}:`, {
-      hasAuthorFacts: !!currentBook.author_facts,
-      isArray: Array.isArray(currentBook.author_facts),
-      length: currentBook.author_facts?.length,
-      type: typeof currentBook.author_facts,
-      value: currentBook.author_facts
-    });
+    if (isCurrentlyFetching) {
+      // Fetch already in progress, just wait
+      setLoadingFactsForBookId(bookId);
+      return;
+    }
 
     let cancelled = false;
-    const bookId = currentBook.id;
+    
+    // Mark this book as being fetched (to prevent concurrent fetches)
+    fetchingFactsForBooksRef.current.add(bookId);
 
     // Set loading state
     setLoadingFactsForBookId(bookId);
@@ -3899,65 +4440,230 @@ export default function App() {
     const fetchTimer = setTimeout(() => {
       if (cancelled) return;
       
-      const bookTitle = currentBook.title;
-      const bookAuthor = currentBook.author;
-      
-      console.log(`[Author Facts] 🔄 Fetching from Grok API for "${bookTitle}" by ${bookAuthor}...`);
-      getAuthorFacts(bookTitle, bookAuthor).then(async (facts) => {
+      console.log(`[Author Facts] 🔄 Fetching author facts for "${bookTitle}" by ${bookAuthor}...`);
+      getAuthorFacts(bookTitle, bookAuthor).then((facts) => {
         if (cancelled) return;
         
-        // Clear loading state
+        // Clear loading state and remove from fetching set
         setLoadingFactsForBookId(null);
+        fetchingFactsForBooksRef.current.delete(bookId);
         
         if (facts.length > 0) {
-          console.log(`[Author Facts] ✅ Received ${facts.length} facts from Grok API for "${bookTitle}"`);
-          // Save to database
-          if (!user) return; // Safety check
-          try {
-            const { error: updateError } = await supabase
-              .from('books')
-              .update({ author_facts: facts, updated_at: new Date().toISOString() })
-              .eq('id', bookId)
-              .eq('user_id', user.id); // Ensure user can only update their own books
-            
-            if (updateError) throw updateError;
-            
-            console.log(`[Author Facts] 💾 Saved ${facts.length} facts to database for "${bookTitle}"`);
-            
-            // Update local state
-            setBooks(prev => prev.map(book => 
-              book.id === bookId 
-                ? { ...book, author_facts: facts }
-                : book
-            ));
-          } catch (err) {
-            console.error('Error saving author facts to database:', err);
-            // Still update local state even if DB save fails
-            setBooks(prev => prev.map(book => 
-              book.id === bookId 
-                ? { ...book, author_facts: facts }
-                : book
-            ));
-          }
+          console.log(`[Author Facts] ✅ Received ${facts.length} facts for "${bookTitle}"`);
+          
+          // Update local state for display (cache is already saved by getAuthorFacts)
+          // Only update if the book is still the active one
+          setBooks(prev => prev.map(book => 
+            book.id === bookId 
+              ? { ...book, author_facts: facts }
+              : book
+          ));
         } else {
-          console.log(`[Author Facts] ⚠️ No facts received from Grok API for "${bookTitle}"`);
+          console.log(`[Author Facts] ⚠️ No facts received for "${bookTitle}"`);
         }
       }).catch(err => {
         if (!cancelled) {
           setLoadingFactsForBookId(null);
           console.error('Error fetching author facts:', err);
         }
+        // Remove from fetching set on error so we can retry
+        fetchingFactsForBooksRef.current.delete(bookId);
       });
     }, 1500); // Delay to avoid rate limits when scrolling
 
     return () => {
       cancelled = true;
       setLoadingFactsForBookId(null);
+      fetchingFactsForBooksRef.current.delete(bookId); // Clean up on unmount
       clearTimeout(fetchTimer);
     };
-  }, [selectedIndex, books]); // Depend on selectedIndex and books
+  }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
 
-  // Fetch podcast episodes for existing books when they're selected (if missing)
+  // Track which books we're currently fetching influences for to prevent duplicate concurrent fetches
+  const fetchingInfluencesForBooksRef = useRef<Set<string>>(new Set());
+  
+  // Fetch book influences for existing books when they're selected
+  useEffect(() => {
+    const currentBook = books[selectedIndex];
+    if (!currentBook || !currentBook.title || !currentBook.author) {
+      setLoadingInfluencesForBookId(null);
+      return;
+    }
+
+    const bookId = currentBook.id;
+    const bookTitle = currentBook.title;
+    const bookAuthor = currentBook.author;
+    
+    // Check if influences already exist in local state
+    const influences = bookInfluences.get(bookId);
+    const hasInfluences = influences && influences.length > 0;
+    
+    // Check if we're currently fetching for this book (to prevent concurrent fetches)
+    const isCurrentlyFetching = fetchingInfluencesForBooksRef.current.has(bookId);
+    
+    if (hasInfluences) {
+      // Influences already loaded in state, no need to fetch again
+      setLoadingInfluencesForBookId(null);
+      return;
+    }
+    
+    if (isCurrentlyFetching) {
+      // Fetch already in progress, just wait
+      setLoadingInfluencesForBookId(bookId);
+      return;
+    }
+
+    let cancelled = false;
+    
+    // Mark this book as being fetched (to prevent concurrent fetches)
+    fetchingInfluencesForBooksRef.current.add(bookId);
+
+    // Set loading state
+    setLoadingInfluencesForBookId(bookId);
+
+    // Add a delay to avoid rate limits when scrolling through books
+    const fetchTimer = setTimeout(() => {
+      if (cancelled) return;
+      
+      console.log(`[Book Influences] 🔄 Fetching influences for "${bookTitle}" by ${bookAuthor}...`);
+      getBookInfluences(bookTitle, bookAuthor).then((influences) => {
+        if (cancelled) return;
+        
+        // Clear loading state and remove from fetching set
+        setLoadingInfluencesForBookId(null);
+        fetchingInfluencesForBooksRef.current.delete(bookId);
+        
+        if (influences.length > 0) {
+          console.log(`[Book Influences] ✅ Received ${influences.length} influences for "${bookTitle}"`);
+          
+          // Store in state
+          setBookInfluences(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, influences);
+            return newMap;
+          });
+        } else {
+          console.log(`[Book Influences] ⚠️ No influences received for "${bookTitle}"`);
+          // Store empty array to prevent future fetches
+          setBookInfluences(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, []);
+            return newMap;
+          });
+        }
+      }).catch(err => {
+        if (!cancelled) {
+          setLoadingInfluencesForBookId(null);
+          console.error('Error fetching book influences:', err);
+        }
+        // Remove from fetching set on error so we can retry
+        fetchingInfluencesForBooksRef.current.delete(bookId);
+      });
+    }, 2000); // Delay to avoid rate limits when scrolling
+
+    return () => {
+      cancelled = true;
+      setLoadingInfluencesForBookId(null);
+      fetchingInfluencesForBooksRef.current.delete(bookId); // Clean up on unmount
+      clearTimeout(fetchTimer);
+    };
+  }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
+
+  // Track which books we're currently fetching domain insights for to prevent duplicate concurrent fetches
+  const fetchingDomainForBooksRef = useRef<Set<string>>(new Set());
+  
+  // Fetch book domain insights for existing books when they're selected
+  useEffect(() => {
+    const currentBook = books[selectedIndex];
+    if (!currentBook || !currentBook.title || !currentBook.author) {
+      setLoadingDomainForBookId(null);
+      return;
+    }
+
+    const bookId = currentBook.id;
+    const bookTitle = currentBook.title;
+    const bookAuthor = currentBook.author;
+    
+    // Check if domain insights already exist in local state
+    const domainData = bookDomain.get(bookId);
+    const hasDomain = domainData && domainData.facts && domainData.facts.length > 0;
+    
+    // Check if we're currently fetching for this book (to prevent concurrent fetches)
+    const isCurrentlyFetching = fetchingDomainForBooksRef.current.has(bookId);
+    
+    if (hasDomain) {
+      // Domain insights already loaded in state, no need to fetch again
+      setLoadingDomainForBookId(null);
+      return;
+    }
+    
+    if (isCurrentlyFetching) {
+      // Fetch already in progress, just wait
+      setLoadingDomainForBookId(bookId);
+      return;
+    }
+
+    let cancelled = false;
+    
+    // Mark this book as being fetched (to prevent concurrent fetches)
+    fetchingDomainForBooksRef.current.add(bookId);
+
+    // Set loading state
+    setLoadingDomainForBookId(bookId);
+
+    // Add a delay to avoid rate limits when scrolling through books
+    const fetchTimer = setTimeout(() => {
+      if (cancelled) return;
+      
+      console.log(`[Book Domain] 🔄 Fetching domain insights for "${bookTitle}" by ${bookAuthor}...`);
+      getBookDomain(bookTitle, bookAuthor).then((domainData) => {
+        if (cancelled) return;
+        
+        // Clear loading state and remove from fetching set
+        setLoadingDomainForBookId(null);
+        fetchingDomainForBooksRef.current.delete(bookId);
+        
+        if (domainData && domainData.facts.length > 0) {
+          console.log(`[Book Domain] ✅ Received ${domainData.facts.length} domain insights for "${bookTitle}" with label: ${domainData.label}`);
+          
+          // Store in state
+          setBookDomain(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, domainData);
+            return newMap;
+          });
+        } else {
+          console.log(`[Book Domain] ⚠️ No domain insights received for "${bookTitle}"`);
+          // Store empty data to prevent future fetches
+          setBookDomain(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, { label: 'Domain', facts: [] });
+            return newMap;
+          });
+        }
+      }).catch(err => {
+        if (!cancelled) {
+          setLoadingDomainForBookId(null);
+          console.error('Error fetching book domain insights:', err);
+        }
+        // Remove from fetching set on error so we can retry
+        fetchingDomainForBooksRef.current.delete(bookId);
+      });
+    }, 2500); // Delay to avoid rate limits when scrolling
+
+    return () => {
+      cancelled = true;
+      setLoadingDomainForBookId(null);
+      fetchingDomainForBooksRef.current.delete(bookId); // Clean up on unmount
+      clearTimeout(fetchTimer);
+    };
+  }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
+
+  // Track which books we're currently fetching podcasts for to prevent duplicate concurrent fetches
+  const fetchingPodcastsForBooksRef = useRef<Set<string>>(new Set());
+  
+  // Fetch podcast episodes for existing books when they're selected
+  // Now uses cache table instead of books table
   useEffect(() => {
     const currentBook = books[selectedIndex];
     if (!currentBook || !currentBook.title || !currentBook.author) {
@@ -3965,49 +4671,33 @@ export default function App() {
       return;
     }
 
-    const bookId = currentBook.id; // Define bookId early
-
-    // Check if podcasts already exist in database (both sources)
-    const curatedEpisodes = currentBook.podcast_episodes_curated || [];
-    const appleEpisodes = currentBook.podcast_episodes_apple || [];
-    const legacyEpisodes = currentBook.podcast_episodes || [];
+    const bookId = currentBook.id;
+    const bookTitle = currentBook.title;
+    const bookAuthor = currentBook.author;
     
-    // Combine episodes: curated first, then Apple, then legacy
-    const seenUrls = new Set<string>();
-    const combinedEpisodes: PodcastEpisode[] = [];
+    // Check if episodes already exist in local state
+    const hasEpisodes = (currentBook.podcast_episodes_curated && currentBook.podcast_episodes_curated.length > 0) ||
+                        (currentBook.podcast_episodes_apple && currentBook.podcast_episodes_apple.length > 0);
     
-    [...curatedEpisodes, ...appleEpisodes, ...legacyEpisodes].forEach(ep => {
-      if (ep.url && !seenUrls.has(ep.url)) {
-        seenUrls.add(ep.url);
-        combinedEpisodes.push(ep);
-      }
-    });
+    // Check if we're currently fetching for this book (to prevent concurrent fetches)
+    const isCurrentlyFetching = fetchingPodcastsForBooksRef.current.has(bookId);
     
-    if (combinedEpisodes.length > 0) {
-      // Show loading state briefly even when loading from DB for consistent UX
+    if (hasEpisodes) {
+      // Episodes already loaded in state, no need to fetch again
+      setLoadingPodcastsForBookId(null);
+      return;
+    }
+    
+    if (isCurrentlyFetching) {
+      // Fetch already in progress, just wait
       setLoadingPodcastsForBookId(bookId);
-      setTimeout(() => {
-        console.log(`[Podcast Episodes] ✅ Loaded ${combinedEpisodes.length} episodes from database (${curatedEpisodes.length} curated + ${appleEpisodes.length} Apple) for "${currentBook.title}" by ${currentBook.author}`);
-        setLoadingPodcastsForBookId(null);
-        
-        // Update local state with source-specific episodes if we used legacy data
-        if (legacyEpisodes.length > 0 && (!curatedEpisodes.length && !appleEpisodes.length)) {
-          // Migrate legacy data to curated
-          setBooks(prev => prev.map(book => 
-            book.id === currentBook.id 
-              ? { 
-                  ...book, 
-                  podcast_episodes_curated: legacyEpisodes,
-                  podcast_episodes_apple: []
-                }
-              : book
-          ));
-        }
-      }, 800); // Brief delay to show loading animation
       return;
     }
 
     let cancelled = false;
+    
+    // Mark this book as being fetched (to prevent concurrent fetches)
+    fetchingPodcastsForBooksRef.current.add(bookId);
 
     // Set loading state
     setLoadingPodcastsForBookId(bookId);
@@ -4016,15 +4706,13 @@ export default function App() {
     const fetchTimer = setTimeout(() => {
       if (cancelled) return;
       
-      const bookTitle = currentBook.title;
-      const bookAuthor = currentBook.author;
-      
-      console.log(`[Podcast Episodes] 🔄 Fetching from both sources (Curated + Apple) for "${bookTitle}" by ${bookAuthor}...`);
-      getPodcastEpisodes(bookTitle, bookAuthor).then(async (allEpisodes) => {
+      console.log(`[Podcast Episodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${bookAuthor}...`);
+      getPodcastEpisodes(bookTitle, bookAuthor).then((allEpisodes) => {
         if (cancelled) return;
         
-        // Clear loading state
+        // Clear loading state and remove from fetching set
         setLoadingPodcastsForBookId(null);
+        fetchingPodcastsForBooksRef.current.delete(bookId);
         
         if (allEpisodes.length > 0) {
           console.log(`[Podcast Episodes] ✅ Received ${allEpisodes.length} combined episodes for "${bookTitle}"`);
@@ -4041,47 +4729,16 @@ export default function App() {
             }
           });
           
-          // Save to database with both source-specific columns
-          if (!user) return; // Safety check
-          try {
-            const { error: updateError } = await supabase
-              .from('books')
-              .update({ 
-                podcast_episodes_curated: curated,
-                podcast_episodes_apple: apple,
-                updated_at: new Date().toISOString() 
-              })
-              .eq('id', bookId)
-              .eq('user_id', user.id); // Ensure user can only update their own books
-            
-            if (updateError) throw updateError;
-            
-            console.log(`[Podcast Episodes] 💾 Saved ${curated.length} curated + ${apple.length} Apple episodes to database for "${bookTitle}"`);
-            
-            // Update local state with both source-specific episodes
-            setBooks(prev => prev.map(book => 
-              book.id === bookId 
-                ? { 
-                    ...book, 
-                    podcast_episodes_curated: curated,
-                    podcast_episodes_apple: apple
-                  }
-                : book
-            ));
-          } catch (err: any) {
-            console.error('[Podcast Episodes] ❌ Error saving to database:', err);
-            console.error('[Podcast Episodes] Error details:', err.message, err.code, err.details);
-            // Still update local state even if DB save fails
-            setBooks(prev => prev.map(book => 
-              book.id === bookId 
-                ? { 
-                    ...book, 
-                    podcast_episodes_curated: curated,
-                    podcast_episodes_apple: apple
-                  }
-                : book
-            ));
-          }
+          // Update local state for display (cache is already saved by getPodcastEpisodes)
+          setBooks(prev => prev.map(book => 
+            book.id === bookId 
+              ? { 
+                  ...book, 
+                  podcast_episodes_curated: curated,
+                  podcast_episodes_apple: apple
+                }
+              : book
+          ));
         } else {
           console.log(`[Podcast Episodes] ⚠️ No episodes found for "${bookTitle}"`);
         }
@@ -4090,27 +4747,26 @@ export default function App() {
           setLoadingPodcastsForBookId(null);
           console.error('Error fetching podcast episodes:', err);
         }
+        // Remove from fetching set on error so we can retry
+        fetchingPodcastsForBooksRef.current.delete(bookId);
       });
     }, 2000); // Delay to avoid rate limits when scrolling
 
     return () => {
       cancelled = true;
       setLoadingPodcastsForBookId(null);
+      fetchingPodcastsForBooksRef.current.delete(bookId); // Clean up on unmount
       clearTimeout(fetchTimer);
     };
-  }, [selectedIndex, books]); // Removed podcastSource dependency
+  }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
 
+  // Track which books we're currently fetching analysis for to prevent duplicate concurrent fetches
+  const fetchingAnalysisForBooksRef = useRef<Set<string>>(new Set());
+  
   // Load analysis articles from Google Scholar
   useEffect(() => {
-    if (!activeBook) {
-      setLoadingAnalysisForBookId(null);
-      return;
-    }
-
-    const currentBook = activeBook;
-    let cancelled = false;
-
-    if (!currentBook.title || !currentBook.author) {
+    const currentBook = books[selectedIndex];
+    if (!currentBook || !currentBook.title || !currentBook.author) {
       setLoadingAnalysisForBookId(null);
       return;
     }
@@ -4118,10 +4774,24 @@ export default function App() {
     const bookId = currentBook.id;
 
     // Check if analysis already exists in state
-    if (analysisArticles.has(bookId)) {
+    const hasAnalysis = analysisArticles.has(bookId);
+    const isCurrentlyFetching = fetchingAnalysisForBooksRef.current.has(bookId);
+    
+    if (hasAnalysis) {
       setLoadingAnalysisForBookId(null);
       return;
     }
+    
+    if (isCurrentlyFetching) {
+      // Fetch already in progress, just wait
+      setLoadingAnalysisForBookId(bookId);
+      return;
+    }
+
+    let cancelled = false;
+    
+    // Mark as being fetched (to prevent concurrent fetches)
+    fetchingAnalysisForBooksRef.current.add(bookId);
 
     setLoadingAnalysisForBookId(bookId);
 
@@ -4136,8 +4806,9 @@ export default function App() {
       getGoogleScholarAnalysis(bookTitle, bookAuthor).then((articles) => {
         if (cancelled) return;
         
-        // Clear loading state
+        // Clear loading state and remove from fetching set
         setLoadingAnalysisForBookId(null);
+        fetchingAnalysisForBooksRef.current.delete(bookId);
         
         // Store in state (including empty arrays to prevent future fetches)
         setAnalysisArticles(prev => {
@@ -4155,16 +4826,22 @@ export default function App() {
         if (cancelled) return;
         setLoadingAnalysisForBookId(null);
         console.error('Error fetching analysis articles:', err);
+        // Remove from fetching set on error so we can retry
+        fetchingAnalysisForBooksRef.current.delete(bookId);
       });
     }, 2000); // Delay to avoid rate limits when scrolling
 
     return () => {
       cancelled = true;
       setLoadingAnalysisForBookId(null);
+      fetchingAnalysisForBooksRef.current.delete(bookId); // Clean up on unmount
       clearTimeout(fetchTimer);
     };
-  }, [selectedIndex, books, analysisArticles]); // Depend on selectedIndex, books, and analysisArticles
+  }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
 
+  // Track which books we're currently fetching videos for to prevent duplicate concurrent fetches
+  const fetchingVideosForBooksRef = useRef<Set<string>>(new Set());
+  
   // Fetch YouTube videos for existing books when they're selected (if missing)
   useEffect(() => {
     const currentBook = books[selectedIndex];
@@ -4176,12 +4853,27 @@ export default function App() {
     const bookId = currentBook.id;
     const videos = youtubeVideos.get(bookId);
     
-    // If videos already exist, don't fetch again
-    if (videos && videos.length > 0) {
+    // Check if we're currently fetching for this book (to prevent concurrent fetches)
+    const isCurrentlyFetching = fetchingVideosForBooksRef.current.has(bookId);
+    
+    // If videos already exist in state, don't fetch again
+    if (videos !== undefined) {
+      setLoadingVideosForBookId(null);
       return;
     }
+    
+    if (isCurrentlyFetching) {
+      // Fetch already in progress, just wait
+      setLoadingVideosForBookId(bookId);
+      return;
+    }
+    
+    // Force fetch to check cache - this ensures cached data is loaded on initial page load
 
     let cancelled = false;
+    
+    // Mark as being fetched (to prevent concurrent fetches)
+    fetchingVideosForBooksRef.current.add(bookId);
 
     // Set loading state
     setLoadingVideosForBookId(bookId);
@@ -4197,8 +4889,9 @@ export default function App() {
       getYouTubeVideos(bookTitle, bookAuthor).then((videos) => {
         if (cancelled) return;
         
-        // Clear loading state
+        // Clear loading state and remove from fetching set
         setLoadingVideosForBookId(null);
+        fetchingVideosForBooksRef.current.delete(bookId);
         
         if (videos.length > 0) {
           console.log(`[YouTube Videos] ✅ Received ${videos.length} videos for "${bookTitle}"`);
@@ -4210,21 +4903,33 @@ export default function App() {
           });
         } else {
           console.log(`[YouTube Videos] ⚠️ No videos found for "${bookTitle}"`);
+          // Store empty array to prevent future fetches
+          setYoutubeVideos(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, []);
+            return newMap;
+          });
         }
       }).catch((err) => {
         if (cancelled) return;
         setLoadingVideosForBookId(null);
         console.error('Error fetching YouTube videos:', err);
+        // Remove from fetching set on error so we can retry
+        fetchingVideosForBooksRef.current.delete(bookId);
       });
     }, 2500); // Delay to avoid rate limits when scrolling
 
     return () => {
       cancelled = true;
       setLoadingVideosForBookId(null);
+      fetchingVideosForBooksRef.current.delete(bookId); // Clean up on unmount
       clearTimeout(fetchTimer);
     };
-  }, [selectedIndex, books, youtubeVideos]); // Depend on selectedIndex, books, and youtubeVideos
+  }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
 
+  // Track which books we're currently fetching related books for to prevent duplicate concurrent fetches
+  const fetchingRelatedForBooksRef = useRef<Set<string>>(new Set());
+  
   // Fetch related books when activeBook changes
   useEffect(() => {
     const currentBook = books[selectedIndex];
@@ -4236,12 +4941,24 @@ export default function App() {
     const bookId = currentBook.id;
     const related = relatedBooks.get(bookId);
     
-    // If related books already exist, don't fetch again
-    if (related && related.length > 0) {
+    // If related books already exist in state (including empty array), don't fetch again
+    if (related !== undefined) {
+      setLoadingRelatedForBookId(null);
+      return;
+    }
+    
+    // Check if we're currently fetching for this book (to prevent concurrent fetches)
+    const isCurrentlyFetching = fetchingRelatedForBooksRef.current.has(bookId);
+    if (isCurrentlyFetching) {
+      // Fetch already in progress, just wait
+      setLoadingRelatedForBookId(bookId);
       return;
     }
 
     let cancelled = false;
+    
+    // Mark as being fetched (to prevent concurrent fetches)
+    fetchingRelatedForBooksRef.current.add(bookId);
 
     // Set loading state
     setLoadingRelatedForBookId(bookId);
@@ -4257,36 +4974,47 @@ export default function App() {
       getRelatedBooks(bookTitle, bookAuthor).then((books) => {
         if (cancelled) return;
         
-        // Clear loading state
+        // Clear loading state and remove from fetching set
         setLoadingRelatedForBookId(null);
+        fetchingRelatedForBooksRef.current.delete(bookId);
         
         if (books.length > 0) {
           console.log(`[Related Books] ✅ Received ${books.length} related books for "${bookTitle}"`);
-          // Store in state
-          setRelatedBooks(prev => {
-            const newMap = new Map(prev);
-            newMap.set(bookId, books);
-            return newMap;
-          });
         } else {
           console.log(`[Related Books] ⚠️ No related books found for "${bookTitle}"`);
         }
+        
+        // Always store in state (even if empty) to mark as fetched
+        setRelatedBooks(prev => {
+          const newMap = new Map(prev);
+          newMap.set(bookId, books);
+          return newMap;
+        });
       }).catch((err) => {
         if (cancelled) return;
         setLoadingRelatedForBookId(null);
         console.error('Error fetching related books:', err);
+        // Remove from fetching set on error so we can retry
+        fetchingRelatedForBooksRef.current.delete(bookId);
       });
     }, 3000); // Delay to avoid rate limits when scrolling
 
     return () => {
       cancelled = true;
       setLoadingRelatedForBookId(null);
+      fetchingRelatedForBooksRef.current.delete(bookId); // Clean up on unmount
       clearTimeout(fetchTimer);
     };
-  }, [selectedIndex, books, relatedBooks]); // Depend on selectedIndex, books, and relatedBooks
+  }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
 
   // Fetch research when activeBook changes
+  // DISABLED: getBookResearch call is temporarily disabled
   useEffect(() => {
+    // Early return to disable research fetching
+    setLoadingResearchForBookId(null);
+    return;
+    
+    /* DISABLED CODE
     const currentBook = books[selectedIndex];
     if (!currentBook || !currentBook.title || !currentBook.author) {
       setLoadingResearchForBookId(null);
@@ -4343,6 +5071,7 @@ export default function App() {
       setLoadingResearchForBookId(null);
       clearTimeout(fetchTimer);
     };
+    */
   }, [selectedIndex, books, researchData]); // Depend on selectedIndex, books, and researchData
 
   // Helper function to generate canonical book ID (matches database function)
@@ -6171,23 +6900,150 @@ export default function App() {
               </motion.div>
             )}
             
-            {/* Author Facts Tooltips - Show below cover with spacing */}
+            {/* Insights Section - Show below cover with spacing */}
             {!showRatingOverlay && (
               <>
-                {/* Facts: Only show if we have facts or are loading */}
+                {/* Insights: Show if we have facts, research, or are loading */}
                 {(() => {
                   const hasFacts = activeBook.author_facts && activeBook.author_facts.length > 0;
+                  const research = researchData.get(activeBook.id) || null;
+                  const hasResearch = research && research.pillars && research.pillars.length > 0;
+                  const influences = bookInfluences.get(activeBook.id) || [];
+                  const hasInfluences = influences.length > 0;
+                  const domainData = bookDomain.get(activeBook.id);
+                  const hasDomain = domainData && domainData.facts && domainData.facts.length > 0;
+                  const domainLabel = domainData?.label || 'Domain';
                   const isLoadingFacts = loadingFactsForBookId === activeBook.id && !hasFacts;
+                  const isLoadingResearch = loadingResearchForBookId === activeBook.id && !hasResearch;
+                  const isLoadingInfluences = loadingInfluencesForBookId === activeBook.id && !hasInfluences;
+                  const isLoadingDomain = loadingDomainForBookId === activeBook.id && !hasDomain;
                   
-                  // Only render if loading or has facts
-                  if (!isLoadingFacts && !hasFacts) return null;
+                  // Get available categories
+                  const categories: { id: string; label: string; count: number }[] = [];
+                  if (hasFacts || isLoadingFacts) {
+                    categories.push({ id: 'trivia', label: 'Trivia', count: activeBook.author_facts?.length || 0 });
+                  }
+                  if (hasInfluences || isLoadingInfluences) {
+                    categories.push({ id: 'influences', label: 'Influences', count: influences.length });
+                  }
+                  if (hasDomain || isLoadingDomain) {
+                    categories.push({ id: 'domain', label: domainLabel, count: domainData?.facts?.length || 0 });
+                  }
+                  if (hasResearch) {
+                    research.pillars.forEach(pillar => {
+                      categories.push({ 
+                        id: pillar.pillar_name.toLowerCase().replace(/\s+/g, '_'), 
+                        label: pillar.pillar_name, 
+                        count: pillar.content_items.length 
+                      });
+                    });
+                  }
+                  
+                  // Only render if loading or has data
+                  if (!isLoadingFacts && !isLoadingResearch && !isLoadingInfluences && !isLoadingDomain && !hasFacts && !hasResearch && !hasInfluences && !hasDomain) return null;
+                  
+                  // Determine current category data
+                  const currentCategory = categories.find(c => c.id === selectedInsightCategory) || categories[0];
+                  let currentInsights: { text: string; sourceUrl?: string; label: string }[] = [];
+                  let isLoading = false;
+                  
+                  if (currentCategory?.id === 'trivia') {
+                    currentInsights = (activeBook.author_facts || []).map(fact => ({ text: fact, label: 'Trivia' }));
+                    isLoading = isLoadingFacts;
+                  } else if (currentCategory?.id === 'influences') {
+                    currentInsights = influences.map(influence => ({ text: influence, label: 'Influences' }));
+                    isLoading = isLoadingInfluences;
+                  } else if (currentCategory?.id === 'domain') {
+                    const domainDataForBook = bookDomain.get(activeBook.id);
+                    const domainLabelForBook = domainDataForBook?.label || 'Domain';
+                    currentInsights = (domainDataForBook?.facts || []).map(insight => ({ text: insight, label: domainLabelForBook }));
+                    isLoading = isLoadingDomain;
+                  } else if (currentCategory && hasResearch) {
+                    const pillar = research.pillars.find(p => p.pillar_name.toLowerCase().replace(/\s+/g, '_') === currentCategory.id);
+                    if (pillar) {
+                      currentInsights = pillar.content_items.map(item => ({ 
+                        text: item.deep_insight, 
+                        sourceUrl: item.source_url,
+                        label: pillar.pillar_name
+                      }));
+                    }
+                    isLoading = isLoadingResearch;
+                  }
                   
                   return (
-                    <AuthorFactsTooltips 
-                      facts={activeBook.author_facts || []} 
-                      bookId={activeBook.id}
-                      isLoading={isLoadingFacts}
-                    />
+                    <div className="w-full space-y-2">
+                      {/* Insights Header with Category Selector */}
+                      <div className="flex items-center justify-center mb-2 relative z-[40]">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm relative">
+                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">INSIGHTS:</span>
+                          {categories.length > 1 && (
+                            <>
+                              <span className="text-[10px] font-bold text-slate-400">/</span>
+                              <div className="relative insight-category-dropdown z-[40]">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setIsInsightCategoryDropdownOpen(!isInsightCategoryDropdownOpen);
+                                  }}
+                                  className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded transition-colors text-blue-700 hover:bg-blue-50"
+                                >
+                                  {currentCategory?.label || 'Trivia'}
+                                  <ChevronDown 
+                                    size={12} 
+                                    className={`transition-transform ${isInsightCategoryDropdownOpen ? 'rotate-180' : ''}`}
+                                  />
+                                </button>
+                                {isInsightCategoryDropdownOpen && (
+                                  <div className="absolute top-full left-0 mt-1 bg-white/95 backdrop-blur-md border border-white/30 rounded-lg shadow-xl z-[40] min-w-[120px] overflow-hidden">
+                                    {categories.map((cat) => (
+                                      <button
+                                        key={cat.id}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedInsightCategory(cat.id);
+                                          setIsInsightCategoryDropdownOpen(false);
+                                        }}
+                                        className={`w-full text-left text-[10px] font-bold px-3 py-2 transition-colors ${
+                                          selectedInsightCategory === cat.id
+                                            ? 'text-blue-700 bg-blue-100'
+                                            : 'text-slate-600 hover:bg-slate-100'
+                                        }`}
+                                      >
+                                        {cat.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          )}
+                          {categories.length === 1 && (
+                            <>
+                              <span className="text-[10px] font-bold text-slate-400">/</span>
+                              <span className="text-[10px] font-bold text-blue-700">{currentCategory?.label || 'Trivia'}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      {isLoading ? (
+                        // Show loading placeholder
+                        <motion.div
+                          animate={{ opacity: [0.5, 0.8, 0.5] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+                        >
+                          <div className="h-12 flex items-center justify-center">
+                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                          </div>
+                        </motion.div>
+                      ) : currentInsights.length > 0 ? (
+                        <InsightsCards 
+                          insights={currentInsights} 
+                          bookId={`${activeBook.id}-${selectedInsightCategory}`}
+                          isLoading={false}
+                        />
+                      ) : null}
+                    </div>
                   );
                 })()}
                 
@@ -6327,11 +7183,14 @@ export default function App() {
 
                 {/* Related Books - Show below videos */}
                 {(() => {
-                  const related = relatedBooks.get(activeBook.id) || [];
-                  const hasRelated = related.length > 0;
-                  const isLoading = loadingRelatedForBookId === activeBook.id && !hasRelated;
+                  const related = relatedBooks.get(activeBook.id);
+                  // Check if we have data (including empty array which means we fetched but got no results)
+                  const hasData = related !== undefined; // undefined means not fetched yet, [] means fetched but empty
+                  const hasRelated = related && related.length > 0;
+                  const isLoading = loadingRelatedForBookId === activeBook.id && !hasData;
                   
                   // Only show the related books section if loading or has related books
+                  // Don't show if we've fetched and got empty results
                   if (!isLoading && !hasRelated) return null;
                   
                   return (
@@ -6357,7 +7216,7 @@ export default function App() {
                         </motion.div>
                       ) : (
                         <RelatedBooks 
-                          books={related} 
+                          books={related || []} 
                           bookId={activeBook.id}
                           isLoading={false}
                           onAddBook={handleAddBook}
@@ -6367,46 +7226,6 @@ export default function App() {
                   );
                 })()}
 
-                {/* Research - Show below related books */}
-                {(() => {
-                  const research = researchData.get(activeBook.id) || null;
-                  const hasResearch = research && research.pillars && research.pillars.length > 0;
-                  const isLoading = loadingResearchForBookId === activeBook.id && !hasResearch;
-                  
-                  // Only show the research section if loading or has research
-                  if (!isLoading && !hasResearch) return null;
-                  
-                  return (
-                    <div className="w-full space-y-2">
-                      {/* Research Header */}
-                      <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
-                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">RESEARCH:</span>
-                          <span className="text-[10px] font-bold text-slate-400">/</span>
-                          <span className="text-[10px] font-bold text-blue-700">Grok</span>
-                        </div>
-                      </div>
-                      {isLoading ? (
-                        // Show loading placeholder
-                        <motion.div
-                          animate={{ opacity: [0.5, 0.8, 0.5] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
-                        >
-                          <div className="h-12 flex items-center justify-center">
-                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
-                          </div>
-                        </motion.div>
-                      ) : (
-                        <ResearchSection 
-                          research={research} 
-                          bookId={activeBook.id}
-                          isLoading={false}
-                        />
-                      )}
-                    </div>
-                  );
-                })()}
               </>
             )}
           </div>
