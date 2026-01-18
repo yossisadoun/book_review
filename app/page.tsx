@@ -5041,6 +5041,25 @@ export default function App() {
     const state = getMergeSortStateFromStorage();
     return state?.comparedCount || 0;
   };
+
+  // Check if there are unranked books (books without comparison results)
+  const hasUnrankedBooks = (availableBooks: BookWithRatings[]): boolean => {
+    const comparisonResults = getComparisonResultsFromState();
+    const rankedBookIds = new Set(Object.keys(comparisonResults));
+    
+    // A book is ranked if it has at least one comparison (beats or losesTo)
+    for (const book of availableBooks) {
+      const hasComparisons = 
+        comparisonResults[book.id] && 
+        (comparisonResults[book.id].beats.size > 0 || comparisonResults[book.id].losesTo.size > 0);
+      
+      if (!hasComparisons) {
+        return true; // Found an unranked book
+      }
+    }
+    
+    return false; // All books are ranked
+  };
   // Podcast source selector removed - now always fetches from both sources
 
   // Load books from Supabase
@@ -6471,6 +6490,7 @@ export default function App() {
           setPendingBookMeta(null);
           // Make sure we're on the books view (not bookshelf/notes)
           setShowBookshelf(false);
+          setShowBookshelfCovers(false);
           setShowNotesView(false);
         } else {
           // Book exists in DB but not loaded yet - reload books to include it
@@ -6490,6 +6510,7 @@ export default function App() {
           }
           setPendingBookMeta(null);
           setShowBookshelf(false);
+          setShowBookshelfCovers(false);
           setShowNotesView(false);
         }
         return;
@@ -6588,6 +6609,7 @@ export default function App() {
           setIsAdding(false);
           // Switch to books view (in case we're on bookshelf/notes screen)
           setShowBookshelf(false);
+          setShowBookshelfCovers(false);
           setShowNotesView(false);
           
           // If status is "read_it", integrate the new book into the merge sort game
@@ -6629,6 +6651,7 @@ export default function App() {
       setIsAdding(false);
       // Switch to books view (in case we're on bookshelf/notes screen)
       setShowBookshelf(false);
+      setShowBookshelfCovers(false);
       setShowNotesView(false);
       
       // If status is "read_it", integrate the new book into the merge sort game
@@ -9064,45 +9087,6 @@ export default function App() {
                   {showGameResults ? 'Ranked Results' : 'Pick Your Favorite'}
                 </h2>
                 <div className="flex items-center gap-2">
-                  {showGameResults && (
-                    <button
-                      onClick={() => {
-                        // Reset merge sort state to replay
-                        if (typeof window !== 'undefined') {
-                          localStorage.removeItem('bookMergeSortState');
-                          localStorage.removeItem('bookComparisonResults');
-                        }
-                        // Reset game state first - close results view
-                        setShowGameResults(false);
-                        setIsGameCompleting(false);
-                        
-                        // Then start new game after a brief delay to allow animation to reset
-                        setTimeout(() => {
-                          const availableBooks = books.filter(b => b.reading_status === 'read_it');
-                          if (availableBooks.length >= 2) {
-                            const mergePair = getNextMergePair(availableBooks);
-                            if (mergePair) {
-                              const [book1, book2] = mergePair;
-                              setGameBook1(book1);
-                              setGameBook2(book2);
-                              setGameShownBooks(new Set([book1.id, book2.id]));
-                              setGameRound(1);
-                            } else {
-                              // If somehow no pair available, just close
-                              setIsPlayingGame(false);
-                            }
-                          } else {
-                            // Not enough books, just close
-                            setIsPlayingGame(false);
-                          }
-                        }, 100); // Small delay to let dialog reset its size
-                      }}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-xs transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95"
-                    >
-                      <Play size={14} />
-                      <span>Replay</span>
-                    </button>
-                  )}
                   <button
                     onClick={() => {
                       setIsPlayingGame(false);
@@ -9377,6 +9361,85 @@ export default function App() {
                           </div>
                         </motion.div>
                       ))}
+                      
+                      {/* Replay/Rank More Button - At bottom of list */}
+                      {(() => {
+                        const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                        const hasUnranked = hasUnrankedBooks(availableBooks);
+                        const buttonText = hasUnranked ? 'Rank More' : 'Replay';
+                        const buttonAction = hasUnranked ? () => {
+                          // Continue ranking - just close results and start next comparison
+                          setShowGameResults(false);
+                          setIsGameCompleting(false);
+                          
+                          // Start next comparison
+                          setTimeout(() => {
+                            const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                            if (availableBooks.length >= 2) {
+                              const mergePair = getNextMergePair(availableBooks);
+                              if (mergePair) {
+                                const [book1, book2] = mergePair;
+                                setGameBook1(book1);
+                                setGameBook2(book2);
+                                setGameShownBooks(new Set([book1.id, book2.id]));
+                                setGameRound(1);
+                              } else {
+                                // No more comparisons needed
+                                setIsPlayingGame(false);
+                              }
+                            } else {
+                              setIsPlayingGame(false);
+                            }
+                          }, 100);
+                        } : () => {
+                          // Reset merge sort state to replay
+                          if (typeof window !== 'undefined') {
+                            localStorage.removeItem('bookMergeSortState');
+                            localStorage.removeItem('bookComparisonResults');
+                          }
+                          // Reset game state first - close results view
+                          setShowGameResults(false);
+                          setIsGameCompleting(false);
+                          
+                          // Then start new game after a brief delay to allow animation to reset
+                          setTimeout(() => {
+                            const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                            if (availableBooks.length >= 2) {
+                              const mergePair = getNextMergePair(availableBooks);
+                              if (mergePair) {
+                                const [book1, book2] = mergePair;
+                                setGameBook1(book1);
+                                setGameBook2(book2);
+                                setGameShownBooks(new Set([book1.id, book2.id]));
+                                setGameRound(1);
+                              } else {
+                                // If somehow no pair available, just close
+                                setIsPlayingGame(false);
+                              }
+                            } else {
+                              // Not enough books, just close
+                              setIsPlayingGame(false);
+                            }
+                          }, 100);
+                        };
+                        
+                        return (
+                          <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: sortedBooks.length * 0.05 }}
+                            className="mt-4 pt-4 border-t border-white/20"
+                          >
+                            <button
+                              onClick={buttonAction}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-bold text-sm transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95"
+                            >
+                              <Play size={16} />
+                              <span>{buttonText}</span>
+                            </button>
+                          </motion.div>
+                        );
+                      })()}
                     </motion.div>
                   );
                 })()}
