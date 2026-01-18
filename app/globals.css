@@ -4,6 +4,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Prevent zooming on mobile browsers (pinch zoom) */
+html {
+  touch-action: manipulation;
+}
+
+body {
+  touch-action: manipulation;
+}
+
 /* Hide scrollbar for author facts tooltips */
 .scrollbar-hide {
   -ms-overflow-style: none;

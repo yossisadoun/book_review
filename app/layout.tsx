@@ -11,6 +11,12 @@ const basePath = '';
 export const metadata: Metadata = {
   title: "BOOK - Book Review App",
   description: "A mobile-first book review app powered by Wikipedia",
+  viewport: {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+  },
   icons: {
     icon: [
       { url: '/icon.png', sizes: 'any' },
@@ -39,6 +45,22 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <Script id="set-viewport" strategy="beforeInteractive">
+          {`
+            (function() {
+              // Prevent zooming on mobile by setting viewport meta tag
+              let viewport = document.querySelector('meta[name="viewport"]');
+              if (viewport) {
+                viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+              } else {
+                viewport = document.createElement('meta');
+                viewport.setAttribute('name', 'viewport');
+                viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+                document.head.appendChild(viewport);
+              }
+            })();
+          `}
+        </Script>
         <Script id="fix-favicon-paths" strategy="afterInteractive">
           {`
             (function() {

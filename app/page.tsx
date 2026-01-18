@@ -4266,7 +4266,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
                   <div className="text-xs font-medium text-slate-700 mb-2">
                     Your bookshelf:
                   </div>
-                  {bookshelfResults.map((book, i) => (
+                  {bookshelfResults.slice(0, 5).map((book, i) => (
                     <motion.button
                       key={book.id}
                       type="button"
@@ -4969,6 +4969,42 @@ export default function App() {
     if (!state) {
       console.log('[getNextMergePair] 🎮 No state found, initializing...');
       state = initializeMergeSortV2(availableBooks);
+      saveMergeSortStateToStorage(state);
+    }
+    
+    // If mergeStack is empty but we have multiple completed lists, create new merge operations
+    if (state.mergeStack.length === 0 && (state.completedSortedLists || []).length > 1) {
+      console.log('[getNextMergePair] 🔄 Merge stack empty but multiple completed lists found, creating new merge operations...');
+      const completedLists = state.completedSortedLists || [];
+      const newMergeStack: MergeOperation[] = [];
+      
+      // Create merge operations from pairs of completed lists
+      for (let i = 0; i < completedLists.length; i += 2) {
+        const left = completedLists[i];
+        const right = completedLists[i + 1];
+        if (left && right) {
+          newMergeStack.push({
+            leftList: left,
+            rightList: right,
+            leftIdx: 0,
+            rightIdx: 0,
+            merged: []
+          });
+        }
+      }
+      
+      // If there's an odd list left (no pair), keep it in completedSortedLists for next level
+      const hasOddList = completedLists.length % 2 === 1;
+      const remainingCompletedList = hasOddList ? [completedLists[completedLists.length - 1]] : [];
+      
+      console.log('[getNextMergePair] 📊 Created', newMergeStack.length, 'new merge operations', hasOddList ? '(1 list left unpaired)' : '');
+      
+      // Update state with new merge stack
+      state = {
+        ...state,
+        mergeStack: newMergeStack,
+        completedSortedLists: remainingCompletedList
+      };
       saveMergeSortStateToStorage(state);
     }
     
