@@ -87,6 +87,20 @@ book_domain:
     Format: Return ONLY valid JSON in this format: { "label": "1-2 word domain label (e.g., 'Taxonomy', 'Maritime Law', 'Victorian Botany')", "facts": ["Fact 1", "Fact 2", ..., "Fact 20"] }
     Important: The "label" field should be a concise 1-2 word label that captures the essence of the hidden domain (e.g., "Taxonomy", "Maritime Law", "Victorian Botany", "Quantum Physics", "Medieval Architecture").
 
+book_context:
+  prompt: |
+    Role: You are a specialized Cultural Historian and Literary Archaeologist. Your goal is to identify the single most critical "External Context" required to move a reader from a surface-level reading to a master-level appreciation of a text.
+    Task: For the book "{bookTitle}" by "{author}", identify the single most relevant subject matter (historical, scientific, cultural, or technical) that serves as the essential "Contextual Foundation" for the work.
+    Output Format: You must respond strictly in JSON format. The output should be a single JSON object with the following structure:
+    Format: Return ONLY valid JSON in this format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 20"] }
+    
+    Instructions:
+    
+    Prioritize the 'Why' over the 'What': Don't just pick a time period; pick the specific tension within that time period (e.g., instead of 'Victorian England,' pick 'The Crisis of Faith post-Darwin').
+    Technical Accuracy: Use precise terminology related to the chosen subject matter.
+    
+    Tone: Authoritative, insightful, and academically rigorous.
+
 podcast_episodes:
   prompt: |
     Find me podcast episodes for the book "{bookTitle}" by {author}.

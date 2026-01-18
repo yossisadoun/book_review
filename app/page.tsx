@@ -657,6 +657,147 @@ async function saveBookDomainToCache(bookTitle: string, bookAuthor: string, doma
   }
 }
 
+// Get book context insights from Grok (external context analysis)
+async function getGrokBookContext(bookTitle: string, author: string): Promise<string[]> {
+  console.log('[getGrokBookContext] Called for:', bookTitle, 'by', author);
+  
+  if (!grokApiKey) {
+    console.warn('[getGrokBookContext] API key is missing! Check NEXT_PUBLIC_GROK_API_KEY environment variable');
+    return [];
+  }
+  
+  console.log('[getGrokBookContext] API key found, waiting 2s before request...');
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  
+  const url = 'https://api.x.ai/v1/chat/completions';
+  
+  const prompts = await loadPrompts();
+  if (!prompts.book_context || !prompts.book_context.prompt) {
+    console.error('[getGrokBookContext] ❌ book_context prompt not found in prompts config');
+    return [];
+  }
+  const prompt = formatPrompt(prompts.book_context.prompt, { bookTitle, author });
+
+  const payload = {
+    messages: [
+      {
+        role: "user",
+        content: prompt
+      }
+    ],
+    model: "grok-4-1-fast-non-reasoning",
+    stream: false,
+    temperature: 0.7
+  };
+
+  console.log('[getGrokBookContext] 🔵 Making request to Grok API...');
+  try {
+    const data = await fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload)
+    }, 2, 3000);
+    const content = data.choices?.[0]?.message?.content || '{"facts":[]}';
+    // Try to extract JSON from the response (Grok might wrap it in markdown)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    const result = JSON.parse(jsonStr);
+    console.log('[getGrokBookContext] ✅ Parsed', result.facts?.length || 0, 'context insights');
+    return result.facts || [];
+  } catch (err: any) {
+    console.error('[getGrokBookContext] Error:', err);
+    return [];
+  }
+}
+
+async function getBookContext(bookTitle: string, author: string): Promise<string[]> {
+  console.log(`[getBookContext] 🔄 Fetching book context insights for "${bookTitle}" by ${author}`);
+  
+  // Check database cache first
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = author.toLowerCase().trim();
+    
+    const { data: cachedData, error: cacheError } = await supabase
+      .from('book_context_cache')
+      .select('context_insights')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (!cacheError && cachedData && cachedData.context_insights && Array.isArray(cachedData.context_insights) && cachedData.context_insights.length > 0) {
+      console.log(`[getBookContext] ✅ Found ${cachedData.context_insights.length} cached context insights in database`);
+      return cachedData.context_insights as string[];
+    } else if (cacheError && cacheError.code !== 'PGRST116') {
+      console.warn('[getBookContext] ⚠️ Error checking cache:', cacheError);
+    }
+  } catch (err) {
+    console.warn('[getBookContext] ⚠️ Error checking cache:', err);
+  }
+  
+  // Fetch from Grok API
+  const contextInsights = await getGrokBookContext(bookTitle, author);
+  
+  // Save to cache if we got insights
+  if (contextInsights.length > 0) {
+    await saveBookContextToCache(bookTitle, author, contextInsights);
+  }
+  
+  return contextInsights;
+}
+
+// Helper function to save book context insights to cache table
+async function saveBookContextToCache(bookTitle: string, bookAuthor: string, contextInsights: string[]): Promise<void> {
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = bookAuthor.toLowerCase().trim();
+    
+    // First, try to check if record exists
+    const { data: existing, error: checkError } = await supabase
+      .from('book_context_cache')
+      .select('id')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('[saveBookContextToCache] ❌ Error checking existing record:', checkError);
+    }
+    
+    const recordData = {
+      book_title: normalizedTitle,
+      book_author: normalizedAuthor,
+      context_insights: contextInsights,
+      updated_at: new Date().toISOString(),
+    };
+    
+    let result;
+    if (existing) {
+      result = await supabase
+        .from('book_context_cache')
+        .update(recordData)
+        .eq('book_title', normalizedTitle)
+        .eq('book_author', normalizedAuthor);
+    } else {
+      result = await supabase
+        .from('book_context_cache')
+        .insert(recordData);
+    }
+    
+    if (result.error) {
+      console.error('[saveBookContextToCache] ❌ Error saving context insights:', result.error);
+    } else {
+      console.log(`[saveBookContextToCache] ✅ Saved ${contextInsights.length} context insights to cache`);
+    }
+  } catch (err: any) {
+    console.error('[saveBookContextToCache] ❌ Error:', err);
+  }
+}
+
 // Helper function to save book influences to cache table
 async function saveBookInfluencesToCache(bookTitle: string, bookAuthor: string, influences: string[]): Promise<void> {
   try {
@@ -3987,7 +4128,14 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
 export default function App() {
   const { user, loading: authLoading, signOut } = useAuth();
   const [books, setBooks] = useState<BookWithRatings[]>([]);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selectedIndex, setSelectedIndex] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('lastSelectedBookIndex');
+      const parsed = saved ? parseInt(saved, 10) : 0;
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  });
   const [isAdding, setIsAdding] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -4034,6 +4182,8 @@ export default function App() {
   const [loadingInfluencesForBookId, setLoadingInfluencesForBookId] = useState<string | null>(null);
   const [bookDomain, setBookDomain] = useState<Map<string, DomainInsights>>(new Map());
   const [loadingDomainForBookId, setLoadingDomainForBookId] = useState<string | null>(null);
+  const [bookContext, setBookContext] = useState<Map<string, string[]>>(new Map());
+  const [loadingContextForBookId, setLoadingContextForBookId] = useState<string | null>(null);
   const [loadingPodcastsForBookId, setLoadingPodcastsForBookId] = useState<string | null>(null);
   const [loadingAnalysisForBookId, setLoadingAnalysisForBookId] = useState<string | null>(null);
   const [analysisArticles, setAnalysisArticles] = useState<Map<string, AnalysisArticle[]>>(new Map());
@@ -4095,7 +4245,26 @@ export default function App() {
 
         const appBooks = (data || []).map(convertBookToApp);
         setBooks(appBooks);
-        if (appBooks.length > 0 && selectedIndex >= appBooks.length) {
+        
+        // Restore saved selectedIndex if valid, otherwise reset to 0
+        if (appBooks.length > 0) {
+          if (typeof window !== 'undefined') {
+            const savedIndex = localStorage.getItem('lastSelectedBookIndex');
+            const parsedIndex = savedIndex ? parseInt(savedIndex, 10) : null;
+            if (parsedIndex !== null && !isNaN(parsedIndex) && parsedIndex >= 0 && parsedIndex < appBooks.length) {
+              setSelectedIndex(parsedIndex);
+            } else {
+              // If saved index is invalid or out of bounds, reset to 0
+              setSelectedIndex(0);
+            }
+          } else {
+            // Server-side: ensure index is valid
+            if (selectedIndex >= appBooks.length) {
+              setSelectedIndex(0);
+            }
+          }
+        } else {
+          // No books, reset to 0
           setSelectedIndex(0);
         }
       } catch (err) {
@@ -4149,6 +4318,13 @@ export default function App() {
       localStorage.setItem('bookshelfGrouping', bookshelfGrouping);
     }
   }, [bookshelfGrouping]);
+
+  // Save selected book index to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined' && books.length > 0 && selectedIndex >= 0 && selectedIndex < books.length) {
+      localStorage.setItem('lastSelectedBookIndex', selectedIndex.toString());
+    }
+  }, [selectedIndex, books.length]);
 
   // Helper function to get alphabetical range for a letter
   const getAlphabeticalRange = (letter: string): string => {
@@ -4655,6 +4831,96 @@ export default function App() {
       cancelled = true;
       setLoadingDomainForBookId(null);
       fetchingDomainForBooksRef.current.delete(bookId); // Clean up on unmount
+      clearTimeout(fetchTimer);
+    };
+  }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
+
+  // Track which books we're currently fetching context for to prevent duplicate concurrent fetches
+  const fetchingContextForBooksRef = useRef<Set<string>>(new Set());
+  
+  // Fetch book context insights for existing books when they're selected
+  useEffect(() => {
+    const currentBook = books[selectedIndex];
+    if (!currentBook || !currentBook.title || !currentBook.author) {
+      setLoadingContextForBookId(null);
+      return;
+    }
+
+    const bookId = currentBook.id;
+    const bookTitle = currentBook.title;
+    const bookAuthor = currentBook.author;
+    
+    // Check if context insights already exist in local state
+    const contextInsights = bookContext.get(bookId);
+    const hasContext = contextInsights && contextInsights.length > 0;
+    
+    // Check if we're currently fetching for this book (to prevent concurrent fetches)
+    const isCurrentlyFetching = fetchingContextForBooksRef.current.has(bookId);
+    
+    if (hasContext) {
+      // Context insights already loaded in state, no need to fetch again
+      setLoadingContextForBookId(null);
+      return;
+    }
+    
+    if (isCurrentlyFetching) {
+      // Fetch already in progress, just wait
+      setLoadingContextForBookId(bookId);
+      return;
+    }
+
+    let cancelled = false;
+    
+    // Mark this book as being fetched (to prevent concurrent fetches)
+    fetchingContextForBooksRef.current.add(bookId);
+
+    // Set loading state
+    setLoadingContextForBookId(bookId);
+
+    // Add a delay to avoid rate limits when scrolling through books
+    const fetchTimer = setTimeout(() => {
+      if (cancelled) return;
+      
+      console.log(`[Book Context] 🔄 Fetching context insights for "${bookTitle}" by ${bookAuthor}...`);
+      getBookContext(bookTitle, bookAuthor).then((contextInsights) => {
+        if (cancelled) return;
+        
+        // Clear loading state and remove from fetching set
+        setLoadingContextForBookId(null);
+        fetchingContextForBooksRef.current.delete(bookId);
+        
+        if (contextInsights.length > 0) {
+          console.log(`[Book Context] ✅ Received ${contextInsights.length} context insights for "${bookTitle}"`);
+          
+          // Store in state
+          setBookContext(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, contextInsights);
+            return newMap;
+          });
+        } else {
+          console.log(`[Book Context] ⚠️ No context insights received for "${bookTitle}"`);
+          // Store empty array to prevent future fetches
+          setBookContext(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, []);
+            return newMap;
+          });
+        }
+      }).catch(err => {
+        if (!cancelled) {
+          setLoadingContextForBookId(null);
+          console.error('Error fetching book context insights:', err);
+        }
+        // Remove from fetching set on error so we can retry
+        fetchingContextForBooksRef.current.delete(bookId);
+      });
+    }, 3000); // Delay to avoid rate limits when scrolling
+
+    return () => {
+      cancelled = true;
+      setLoadingContextForBookId(null);
+      fetchingContextForBooksRef.current.delete(bookId); // Clean up on unmount
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
@@ -6913,10 +7179,13 @@ export default function App() {
                   const domainData = bookDomain.get(activeBook.id);
                   const hasDomain = domainData && domainData.facts && domainData.facts.length > 0;
                   const domainLabel = domainData?.label || 'Domain';
+                  const contextInsights = bookContext.get(activeBook.id) || [];
+                  const hasContext = contextInsights.length > 0;
                   const isLoadingFacts = loadingFactsForBookId === activeBook.id && !hasFacts;
                   const isLoadingResearch = loadingResearchForBookId === activeBook.id && !hasResearch;
                   const isLoadingInfluences = loadingInfluencesForBookId === activeBook.id && !hasInfluences;
                   const isLoadingDomain = loadingDomainForBookId === activeBook.id && !hasDomain;
+                  const isLoadingContext = loadingContextForBookId === activeBook.id && !hasContext;
                   
                   // Get available categories
                   const categories: { id: string; label: string; count: number }[] = [];
@@ -6929,6 +7198,9 @@ export default function App() {
                   if (hasDomain || isLoadingDomain) {
                     categories.push({ id: 'domain', label: domainLabel, count: domainData?.facts?.length || 0 });
                   }
+                  if (hasContext || isLoadingContext) {
+                    categories.push({ id: 'context', label: 'Context', count: contextInsights.length });
+                  }
                   if (hasResearch) {
                     research.pillars.forEach(pillar => {
                       categories.push({ 
@@ -6940,7 +7212,7 @@ export default function App() {
                   }
                   
                   // Only render if loading or has data
-                  if (!isLoadingFacts && !isLoadingResearch && !isLoadingInfluences && !isLoadingDomain && !hasFacts && !hasResearch && !hasInfluences && !hasDomain) return null;
+                  if (!isLoadingFacts && !isLoadingResearch && !isLoadingInfluences && !isLoadingDomain && !isLoadingContext && !hasFacts && !hasResearch && !hasInfluences && !hasDomain && !hasContext) return null;
                   
                   // Determine current category data
                   const currentCategory = categories.find(c => c.id === selectedInsightCategory) || categories[0];
@@ -6958,6 +7230,9 @@ export default function App() {
                     const domainLabelForBook = domainDataForBook?.label || 'Domain';
                     currentInsights = (domainDataForBook?.facts || []).map(insight => ({ text: insight, label: domainLabelForBook }));
                     isLoading = isLoadingDomain;
+                  } else if (currentCategory?.id === 'context') {
+                    currentInsights = contextInsights.map(insight => ({ text: insight, label: 'Context' }));
+                    isLoading = isLoadingContext;
                   } else if (currentCategory && hasResearch) {
                     const pillar = research.pillars.find(p => p.pillar_name.toLowerCase().replace(/\s+/g, '_') === currentCategory.id);
                     if (pillar) {
