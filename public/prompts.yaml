@@ -84,7 +84,7 @@ book_domain:
     The "Why": A deep-dive explanation of how this subject serves as the hidden engine of the book.
     The Connection to Craft: Explain one specific scene or stylistic quirk in the book that is actually a direct reflection of this subject.
     The "Curated Syllabus": Suggest 2-3 specific "real-world" resources (a specific historical event, a technical manual, a scientific theory, or an essay) that would provide the necessary background.
-    Tone: Insightful, revelatory, and intellectually curious.
+    Tone: Insightful, revelatory, and intellectually curious, in a way a 16 year old can understand.
     Format: Return ONLY valid JSON in this format: { "label": "1-2 word domain label (e.g., 'Taxonomy', 'Maritime Law', 'Victorian Botany')", "facts": ["Fact 1", "Fact 2", ..., "Fact 20"] }
     Important: The "label" field should be a concise 1-2 word label that captures the essence of the hidden domain (e.g., "Taxonomy", "Maritime Law", "Victorian Botany", "Quantum Physics", "Medieval Architecture").
 
@@ -100,7 +100,7 @@ book_context:
     Prioritize the 'Why' over the 'What': Don't just pick a time period; pick the specific tension within that time period (e.g., instead of 'Victorian England,' pick 'The Crisis of Faith post-Darwin').
     Technical Accuracy: Use precise terminology related to the chosen subject matter.
     
-    Tone: Authoritative, insightful, and academically rigorous.
+    Tone: Authoritative, insightful, and academically rigorous, in a way a 16 year old can understand.
 
 podcast_episodes:
   prompt: |
