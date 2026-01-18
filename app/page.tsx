@@ -4088,15 +4088,32 @@ interface AddBookSheetProps {
   isOpen: boolean;
   onClose: () => void;
   onAdd: (book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) => void;
+  books: BookWithRatings[];
+  onSelectBook?: (bookId: string) => void;
 }
 
-function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
+function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSheetProps) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [searchResults, setSearchResults] = useState<(Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> & { source?: 'apple_books' | 'wikipedia' })[]>([]);
+  const [bookshelfResults, setBookshelfResults] = useState<BookWithRatings[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Filter bookshelf as user types
+  useEffect(() => {
+    if (query.trim()) {
+      const lowerQuery = query.toLowerCase().trim();
+      const filtered = books.filter(book => 
+        book.title.toLowerCase().includes(lowerQuery) || 
+        book.author.toLowerCase().includes(lowerQuery)
+      );
+      setBookshelfResults(filtered);
+    } else {
+      setBookshelfResults([]);
+    }
+  }, [query, books]);
 
   async function handleSearch(titleToSearch = query) {
     if (!titleToSearch.trim()) return;
@@ -4237,6 +4254,62 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
             </div>
 
 
+            {/* Bookshelf Results - Show first as user types */}
+            <AnimatePresence>
+              {bookshelfResults.length > 0 && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="space-y-2 mb-4"
+                >
+                  <div className="text-xs font-medium text-slate-700 mb-2">
+                    Your bookshelf:
+                  </div>
+                  {bookshelfResults.map((book, i) => (
+                    <motion.button
+                      key={book.id}
+                      type="button"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      onClick={() => {
+                        if (onSelectBook) {
+                          onSelectBook(book.id);
+                        }
+                        onClose();
+                      }}
+                      className="w-full flex items-center gap-3 p-3 bg-blue-50/80 backdrop-blur-md hover:bg-blue-100/85 rounded-xl border border-blue-200/30 shadow-sm transition-all text-left"
+                    >
+                      {book.cover_url ? (
+                        <img 
+                          src={book.cover_url} 
+                          alt={book.title}
+                          className="w-12 h-16 object-cover rounded flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="w-12 h-16 bg-blue-100 rounded flex-shrink-0 flex items-center justify-center">
+                          <BookOpen size={20} className="text-blue-600" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-bold text-slate-950 truncate">{book.title}</h3>
+                        <p className="text-xs text-slate-800 truncate">{book.author}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          {book.publish_year && (
+                            <p className="text-[10px] text-slate-600">{book.publish_year}</p>
+                          )}
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-blue-700 bg-blue-100">
+                            Your Book
+                          </span>
+                        </div>
+                      </div>
+                    </motion.button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Search Results */}
             <AnimatePresence>
               {searchResults.length > 0 && (
@@ -4247,7 +4320,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
                   className="space-y-2 max-h-[400px] overflow-y-auto ios-scroll"
                 >
                   <div className="text-xs font-medium text-slate-700 mb-2">
-                    Select a book to add:
+                    {bookshelfResults.length > 0 ? 'Other results:' : 'Select a book to add:'}
                   </div>
                   {searchResults.map((book, i) => (
                     <motion.button
@@ -5508,7 +5581,7 @@ export default function App() {
   useEffect(() => {
     if (activeBook) {
       // Format notes for display with timestamps visible
-      const formattedNotes = formatNotesForDisplay(activeBook.notes);
+      const formattedNotes = formatNotesForDisplay(activeBook.notes ?? null);
       setNoteText(formattedNotes);
       lastSavedNoteTextRef.current = formattedNotes;
       noteTextOnFocusRef.current = formattedNotes; // Track initial state
@@ -9455,6 +9528,16 @@ export default function App() {
             isOpen={isAdding} 
             onClose={() => setIsAdding(false)} 
             onAdd={handleAddBook}
+            books={books}
+            onSelectBook={(bookId) => {
+              const bookIndex = books.findIndex(b => b.id === bookId);
+              if (bookIndex !== -1) {
+                setSelectedIndex(bookIndex);
+                setShowBookshelf(false);
+                setShowBookshelfCovers(false);
+                setShowNotesView(false);
+              }
+            }}
           />
         )}
       </AnimatePresence>
