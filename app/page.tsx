@@ -685,7 +685,13 @@ async function getGoogleScholarAnalysis(bookTitle: string, author: string): Prom
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
     
-    if (!cacheError && cachedData && cachedData.articles && Array.isArray(cachedData.articles) && cachedData.articles.length > 0) {
+    if (!cacheError && cachedData && cachedData.articles && Array.isArray(cachedData.articles)) {
+      // Check if it's a cached empty array (no results found)
+      if (cachedData.articles.length === 0) {
+        console.log(`[getGoogleScholarAnalysis] ✅ Found cached empty results (no articles available) in database`);
+        return [] as AnalysisArticle[];
+      }
+
       // Check if it's not just the fallback search URL
       const firstArticle = cachedData.articles[0];
       if (firstArticle.url && !firstArticle.url.includes('scholar.google.com/scholar?q=')) {
@@ -859,16 +865,27 @@ async function getGoogleScholarAnalysis(bookTitle: string, author: string): Prom
       // Continue to next proxy
     }
   }
+
+  // Check if we successfully parsed pages but found no articles
+  // This means Google Scholar has no results for this book, so save empty array to prevent future calls
+  console.log(`[getGoogleScholarAnalysis] ⚠️ No articles found after trying all proxies. This book may have no scholarly analysis available.`);
+
+  // Save empty array to database to prevent future unnecessary API calls
+  await saveArticlesToDatabase(normalizedTitle, normalizedAuthor, []);
+
+  // Return empty array for display (no analysis section will show)
+  return [];
+
   // All proxies failed - Google Scholar blocks scraping attempts
   // Don't save fallback URLs to database - only return for display
   console.log(`[getGoogleScholarAnalysis] ⚠️ Unable to fetch fresh results (proxies blocked). Returning search URL fallback (not saved to DB).`);
-  
+
   const fallbackArticle: AnalysisArticle = {
     title: `Search Google Scholar for "${bookTitle}" by ${author}`,
     snippet: `Google Scholar blocks automated access. Click to view search results directly on Google Scholar.`,
     url: searchUrl,
   };
-  
+
   // Return fallback for display, but don't save to database
   // Only real article results should be cached
   return [fallbackArticle];
@@ -4122,16 +4139,17 @@ export default function App() {
         // Clear loading state
         setLoadingAnalysisForBookId(null);
         
+        // Store in state (including empty arrays to prevent future fetches)
+        setAnalysisArticles(prev => {
+          const newMap = new Map(prev);
+          newMap.set(bookId, articles);
+          return newMap;
+        });
+
         if (articles.length > 0) {
           console.log(`[Analysis Articles] ✅ Received ${articles.length} articles for "${bookTitle}"`);
-          // Store in state
-          setAnalysisArticles(prev => {
-            const newMap = new Map(prev);
-            newMap.set(bookId, articles);
-            return newMap;
-          });
         } else {
-          console.log(`[Analysis Articles] ⚠️ No articles found for "${bookTitle}"`);
+          console.log(`[Analysis Articles] ⚠️ No articles found for "${bookTitle}" (cached for future requests)`);
         }
       }).catch((err) => {
         if (cancelled) return;
