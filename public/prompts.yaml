@@ -45,7 +45,8 @@ author_facts:
     - Focus on interesting, lesser-known details
     - Connect facts to the book when possible
     - Make facts engaging and fun
-    - Return ONLY valid JSON in this format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 10"] }
+    - Also provide the original publication year (earliest known) for this book in its earliest version. This should be the year the book was first published in any language or format.
+    - Return ONLY valid JSON in this format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 10"], "first_issue_year": 1925 }
 
 book_influences:
   prompt: |

@@ -64,9 +64,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Use the current origin and path to ensure it works in both dev and production
     const redirectTo = `${window.location.origin}${basePath}/auth/callback`;
     
-    console.log('OAuth redirect URL:', redirectTo);
-    console.log('Current origin:', window.location.origin);
-    console.log('Is localhost:', isLocalhost);
+    console.log('🔐 OAuth Sign-In Details:');
+    console.log('  Current origin:', window.location.origin);
+    console.log('  Is localhost:', isLocalhost);
+    console.log('  Base path:', basePath);
+    console.log('  Redirect URL:', redirectTo);
+    console.log('  ⚠️  Make sure this URL is added to Supabase Dashboard → Authentication → URL Configuration → Redirect URLs');
     
     await supabase.auth.signInWithOAuth({
       provider: 'google',

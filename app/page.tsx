@@ -22,6 +22,7 @@ import {
   Grid3x3,
   BookMarked,
   ChevronDown,
+  User,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -134,7 +135,9 @@ interface Book {
   title: string;
   author: string;
   publish_year?: number | null;
+  first_issue_year?: number | null;
   genre?: string | null;
+  isbn?: string | null;
   cover_url?: string | null;
   wikipedia_url?: string | null;
   google_books_url?: string | null;
@@ -244,6 +247,71 @@ function isHebrew(text: string): boolean {
   return /[\u0590-\u05FF]/.test(text);
 }
 
+// Grok API usage logging
+interface GrokUsageLog {
+  timestamp: string;
+  function: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCost: number;
+}
+
+// Grok pricing (per million tokens) - update these based on current xAI pricing
+// Using approximate rates for grok-4-1-fast-non-reasoning
+const GROK_INPUT_PRICE_PER_M = 0.20;  // $0.20 per million input tokens
+const GROK_OUTPUT_PRICE_PER_M = 0.50;  // $0.50 per million output tokens
+
+function logGrokUsage(functionName: string, usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined): void {
+  if (!usage || typeof usage.prompt_tokens !== 'number' || typeof usage.completion_tokens !== 'number') {
+    return;
+  }
+
+  const promptTokens = usage.prompt_tokens || 0;
+  const completionTokens = usage.completion_tokens || 0;
+  const totalTokens = usage.total_tokens || (promptTokens + completionTokens);
+  
+  // Calculate cost
+  const inputCost = (promptTokens / 1_000_000) * GROK_INPUT_PRICE_PER_M;
+  const outputCost = (completionTokens / 1_000_000) * GROK_OUTPUT_PRICE_PER_M;
+  const estimatedCost = inputCost + outputCost;
+
+  const logEntry: GrokUsageLog = {
+    timestamp: new Date().toISOString(),
+    function: functionName,
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    estimatedCost,
+  };
+
+  // Load existing logs from localStorage
+  try {
+    const existingLogs = localStorage.getItem('grokUsageLogs');
+    const logs: GrokUsageLog[] = existingLogs ? JSON.parse(existingLogs) : [];
+    
+    // Add new log entry at the beginning
+    logs.unshift(logEntry);
+    
+    // Keep only last 100 entries to avoid localStorage size issues
+    const trimmedLogs = logs.slice(0, 100);
+    
+    localStorage.setItem('grokUsageLogs', JSON.stringify(trimmedLogs));
+  } catch (err) {
+    console.error('[logGrokUsage] Error saving to localStorage:', err);
+  }
+}
+
+function getGrokUsageLogs(): GrokUsageLog[] {
+  try {
+    const logs = localStorage.getItem('grokUsageLogs');
+    return logs ? JSON.parse(logs) : [];
+  } catch (err) {
+    console.error('[getGrokUsageLogs] Error reading from localStorage:', err);
+    return [];
+  }
+}
+
 // --- AI Functions (using Grok) ---
 async function getGrokSuggestions(query: string): Promise<string[]> {
   if (!grokApiKey) return [];
@@ -281,6 +349,12 @@ async function getGrokSuggestions(query: string): Promise<string[]> {
       body: JSON.stringify(payload)
     });
     console.log('[getGrokSuggestions] 🔵 RAW GROK RESPONSE:', JSON.stringify(data, null, 2));
+    
+    // Log usage
+    if (data.usage) {
+      logGrokUsage('getGrokSuggestions', data.usage);
+    }
+    
     const content = data.choices?.[0]?.message?.content || '{"suggestions":[]}';
     console.log('[getGrokSuggestions] 🔵 RAW CONTENT:', content);
     // Try to extract JSON from the response (Grok might wrap it in markdown)
@@ -299,12 +373,17 @@ async function getGrokSuggestions(query: string): Promise<string[]> {
   }
 }
 
-async function getGrokAuthorFacts(bookTitle: string, author: string): Promise<string[]> {
+interface AuthorFactsResult {
+  facts: string[];
+  first_issue_year?: number | null;
+}
+
+async function getGrokAuthorFacts(bookTitle: string, author: string): Promise<AuthorFactsResult> {
   console.log('[getGrokAuthorFacts] Called for:', bookTitle, 'by', author);
   
   if (!grokApiKey) {
     console.warn('[getGrokAuthorFacts] API key is missing! Check NEXT_PUBLIC_GROK_API_KEY environment variable');
-    return [];
+    return { facts: [] };
   }
   
   console.log('[getGrokAuthorFacts] API key found, waiting 2s before request...');
@@ -343,6 +422,12 @@ async function getGrokAuthorFacts(bookTitle: string, author: string): Promise<st
       body: JSON.stringify(payload)
     }, 2, 3000);
     console.log('[getGrokAuthorFacts] 🔵 RAW GROK RESPONSE:', JSON.stringify(data, null, 2));
+    
+    // Log usage
+    if (data.usage) {
+      logGrokUsage('getGrokAuthorFacts', data.usage);
+    }
+    
     const content = data.choices?.[0]?.message?.content || '{"facts":[]}';
     console.log('[getGrokAuthorFacts] 🔵 RAW CONTENT:', content);
     // Try to extract JSON from the response (Grok might wrap it in markdown)
@@ -351,7 +436,11 @@ async function getGrokAuthorFacts(bookTitle: string, author: string): Promise<st
     const result = JSON.parse(jsonStr);
     console.log('[getGrokAuthorFacts] 🔵 PARSED JSON:', result);
     console.log('[getGrokAuthorFacts] Parsed facts:', result.facts?.length || 0, 'facts');
-    return result.facts || [];
+    console.log('[getGrokAuthorFacts] Parsed first_issue_year:', result.first_issue_year);
+    return {
+      facts: result.facts || [],
+      first_issue_year: result.first_issue_year || null
+    };
   } catch (err: any) {
     console.error('[getGrokAuthorFacts] Error:', err);
     console.error('[getGrokAuthorFacts] Error details:', err.message, err.stack);
@@ -369,7 +458,7 @@ async function getGrokAuthorFacts(bookTitle: string, author: string): Promise<st
       console.error('Grok API returned 403 - check your API key permissions');
     }
     
-    return [];
+    return { facts: [] };
   }
 }
 
@@ -378,7 +467,7 @@ async function getAISuggestions(query: string): Promise<string[]> {
   return getGrokSuggestions(query);
 }
 
-async function getAuthorFacts(bookTitle: string, author: string): Promise<string[]> {
+async function getAuthorFacts(bookTitle: string, author: string): Promise<AuthorFactsResult> {
   console.log(`[getAuthorFacts] 🔄 Fetching author facts for "${bookTitle}" by ${author}`);
   
   // Check database cache first
@@ -393,9 +482,15 @@ async function getAuthorFacts(bookTitle: string, author: string): Promise<string
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
     
-    if (!cacheError && cachedData && cachedData.author_facts && Array.isArray(cachedData.author_facts) && cachedData.author_facts.length > 0) {
-      console.log(`[getAuthorFacts] ✅ Found ${cachedData.author_facts.length} cached facts in database`);
-      return cachedData.author_facts as string[];
+    if (!cacheError && cachedData && cachedData.author_facts && Array.isArray(cachedData.author_facts)) {
+      if (cachedData.author_facts.length > 0) {
+        console.log(`[getAuthorFacts] ✅ Found ${cachedData.author_facts.length} cached facts in database`);
+        return { facts: cachedData.author_facts as string[] };
+      } else {
+        // Empty array means "no results" was already cached - don't try again
+        console.log(`[getAuthorFacts] ✅ Found cached "no results" - skipping Grok API call`);
+        return { facts: [] };
+      }
     } else if (cacheError && cacheError.code !== 'PGRST116') {
       // PGRST116 is "not found" error, which is fine
       console.warn('[getAuthorFacts] ⚠️ Error checking cache:', cacheError);
@@ -406,14 +501,14 @@ async function getAuthorFacts(bookTitle: string, author: string): Promise<string
   }
   
   // Fetch from Grok API
-  const facts = await getGrokAuthorFacts(bookTitle, author);
+  const result = await getGrokAuthorFacts(bookTitle, author);
   
   // Save to cache if we got facts
-  if (facts.length > 0) {
-    await saveAuthorFactsToCache(bookTitle, author, facts);
+  if (result.facts.length > 0) {
+    await saveAuthorFactsToCache(bookTitle, author, result.facts);
   }
   
-  return facts;
+  return result;
 }
 
 // Get book influences from Grok (literary archaeology)
@@ -460,6 +555,12 @@ async function getGrokBookInfluences(bookTitle: string, author: string): Promise
       },
       body: JSON.stringify(payload)
     }, 2, 3000);
+    
+    // Log usage
+    if (data.usage) {
+      logGrokUsage('getGrokBookInfluences', data.usage);
+    }
+    
     const content = data.choices?.[0]?.message?.content || '{"facts":[]}';
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -488,9 +589,15 @@ async function getBookInfluences(bookTitle: string, author: string): Promise<str
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
     
-    if (!cacheError && cachedData && cachedData.influences && Array.isArray(cachedData.influences) && cachedData.influences.length > 0) {
-      console.log(`[getBookInfluences] ✅ Found ${cachedData.influences.length} cached influences in database`);
-      return cachedData.influences as string[];
+    if (!cacheError && cachedData && cachedData.influences && Array.isArray(cachedData.influences)) {
+      if (cachedData.influences.length > 0) {
+        console.log(`[getBookInfluences] ✅ Found ${cachedData.influences.length} cached influences in database`);
+        return cachedData.influences as string[];
+      } else {
+        // Empty array means "no results" was already cached - don't try again
+        console.log(`[getBookInfluences] ✅ Found cached "no results" - skipping Grok API call`);
+        return [];
+      }
     } else if (cacheError && cacheError.code !== 'PGRST116') {
       console.warn('[getBookInfluences] ⚠️ Error checking cache:', cacheError);
     }
@@ -553,6 +660,12 @@ async function getGrokBookDomain(bookTitle: string, author: string): Promise<Dom
       },
       body: JSON.stringify(payload)
     }, 2, 3000);
+    
+    // Log usage
+    if (data.usage) {
+      logGrokUsage('getGrokBookDomain', data.usage);
+    }
+    
     const content = data.choices?.[0]?.message?.content || '{"label":"Domain","facts":[]}';
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -583,13 +696,19 @@ async function getBookDomain(bookTitle: string, author: string): Promise<DomainI
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
     
-    if (!cacheError && cachedData && cachedData.domain_insights && Array.isArray(cachedData.domain_insights) && cachedData.domain_insights.length > 0) {
-      const label = cachedData.domain_label || 'Domain';
-      console.log(`[getBookDomain] ✅ Found ${cachedData.domain_insights.length} cached domain insights in database with label: ${label}`);
-      return {
-        label,
-        facts: cachedData.domain_insights as string[]
-      };
+    if (!cacheError && cachedData && cachedData.domain_insights && Array.isArray(cachedData.domain_insights)) {
+      if (cachedData.domain_insights.length > 0) {
+        const label = cachedData.domain_label || 'Domain';
+        console.log(`[getBookDomain] ✅ Found ${cachedData.domain_insights.length} cached domain insights in database with label: ${label}`);
+        return {
+          label,
+          facts: cachedData.domain_insights as string[]
+        };
+      } else {
+        // Empty array means "no results" was already cached - don't try again
+        console.log(`[getBookDomain] ✅ Found cached "no results" - skipping Grok API call`);
+        return { label: 'Domain', facts: [] };
+      }
     } else if (cacheError && cacheError.code !== 'PGRST116') {
       console.warn('[getBookDomain] ⚠️ Error checking cache:', cacheError);
     }
@@ -701,6 +820,12 @@ async function getGrokBookContext(bookTitle: string, author: string): Promise<st
       },
       body: JSON.stringify(payload)
     }, 2, 3000);
+    
+    // Log usage
+    if (data.usage) {
+      logGrokUsage('getGrokBookContext', data.usage);
+    }
+    
     const content = data.choices?.[0]?.message?.content || '{"facts":[]}';
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -729,9 +854,15 @@ async function getBookContext(bookTitle: string, author: string): Promise<string
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
     
-    if (!cacheError && cachedData && cachedData.context_insights && Array.isArray(cachedData.context_insights) && cachedData.context_insights.length > 0) {
-      console.log(`[getBookContext] ✅ Found ${cachedData.context_insights.length} cached context insights in database`);
-      return cachedData.context_insights as string[];
+    if (!cacheError && cachedData && cachedData.context_insights && Array.isArray(cachedData.context_insights)) {
+      if (cachedData.context_insights.length > 0) {
+        console.log(`[getBookContext] ✅ Found ${cachedData.context_insights.length} cached context insights in database`);
+        return cachedData.context_insights as string[];
+      } else {
+        // Empty array means "no results" was already cached - don't try again
+        console.log(`[getBookContext] ✅ Found cached "no results" - skipping Grok API call`);
+        return [];
+      }
     } else if (cacheError && cacheError.code !== 'PGRST116') {
       console.warn('[getBookContext] ⚠️ Error checking cache:', cacheError);
     }
@@ -949,6 +1080,12 @@ async function getGrokPodcastEpisodes(bookTitle: string, author: string): Promis
       body: JSON.stringify(payload)
     }, 2, 3000);
     console.log('[getGrokPodcastEpisodes] 🔵 RAW GROK RESPONSE:', JSON.stringify(data, null, 2));
+    
+    // Log usage
+    if (data.usage) {
+      logGrokUsage('getGrokPodcastEpisodes', data.usage);
+    }
+    
     const content = data.choices?.[0]?.message?.content || '{"episodes":[]}';
     console.log('[getGrokPodcastEpisodes] 🔵 RAW CONTENT:', content);
     // Try to extract JSON from the response (Grok might wrap it in markdown)
@@ -1437,9 +1574,15 @@ async function getRelatedBooks(bookTitle: string, author: string): Promise<Relat
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
     
-    if (!cacheError && cachedData && cachedData.related_books && Array.isArray(cachedData.related_books) && cachedData.related_books.length > 0) {
-      console.log(`[getRelatedBooks] ✅ Found ${cachedData.related_books.length} cached related books in database`);
-      return cachedData.related_books as RelatedBook[];
+    if (!cacheError && cachedData && cachedData.related_books && Array.isArray(cachedData.related_books)) {
+      if (cachedData.related_books.length > 0) {
+        console.log(`[getRelatedBooks] ✅ Found ${cachedData.related_books.length} cached related books in database`);
+        return cachedData.related_books as RelatedBook[];
+      } else {
+        // Empty array means "no results" was already cached - don't try again
+        console.log(`[getRelatedBooks] ✅ Found cached "no results" - skipping Grok API call`);
+        return [];
+      }
     } else if (cacheError && cacheError.code !== 'PGRST116') {
       // PGRST116 is "not found" error, which is fine
       console.warn('[getRelatedBooks] ⚠️ Error checking cache:', cacheError);
@@ -1497,6 +1640,11 @@ async function getRelatedBooks(bookTitle: string, author: string): Promise<Relat
       },
       body: JSON.stringify(payload)
     }, 2, 3000);
+
+    // Log usage
+    if (data.usage) {
+      logGrokUsage('getRelatedBooks', data.usage);
+    }
 
     const content = data.choices?.[0]?.message?.content || '[]';
     console.log('[getRelatedBooks] 🔵 RAW CONTENT:', content);
@@ -1728,9 +1876,15 @@ async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouT
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
     
-    if (!cacheError && cachedData && cachedData.videos && Array.isArray(cachedData.videos) && cachedData.videos.length > 0) {
-      console.log(`[getYouTubeVideos] ✅ Found ${cachedData.videos.length} cached videos in database`);
-      return cachedData.videos as YouTubeVideo[];
+    if (!cacheError && cachedData && cachedData.videos && Array.isArray(cachedData.videos)) {
+      if (cachedData.videos.length > 0) {
+        console.log(`[getYouTubeVideos] ✅ Found ${cachedData.videos.length} cached videos in database`);
+        return cachedData.videos as YouTubeVideo[];
+      } else {
+        // Empty array means "no results" was already cached - don't try again
+        console.log(`[getYouTubeVideos] ✅ Found cached "no results" - skipping YouTube API call`);
+        return [];
+      }
     } else if (cacheError && cacheError.code !== 'PGRST116') {
       // PGRST116 is "not found" error, which is fine
       console.warn('[getYouTubeVideos] ⚠️ Error checking cache:', cacheError);
@@ -2270,6 +2424,23 @@ async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book, 'id' |
           .trim();
         summary = cleanedDesc;
       }
+      
+      // Extract ISBN from Apple Books
+      // Apple Books API may have isbn or isbn13/isbn10 in some responses
+      let isbn: string | undefined = undefined;
+      if (item.isbn) {
+        isbn = String(item.isbn).replace(/-/g, ''); // Remove hyphens
+      } else if (item.isbn13) {
+        isbn = String(item.isbn13).replace(/-/g, '');
+      } else if (item.isbn10) {
+        isbn = String(item.isbn10).replace(/-/g, '');
+      } else if (item.description) {
+        // Try to extract ISBN from description text (e.g., "ISBN: 978-0-123-45678-9")
+        const isbnMatch = item.description.match(/isbn[:\s-]*([0-9X-]{10,17})/i);
+        if (isbnMatch) {
+          isbn = isbnMatch[1].replace(/-/g, '');
+        }
+      }
 
       return {
         title: title,
@@ -2280,6 +2451,7 @@ async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book, 'id' |
         wikipedia_url: null,
         google_books_url: appleBooksUrl,
         summary: summary || null,
+        isbn: isbn || undefined,
       };
     });
 
@@ -2414,7 +2586,7 @@ async function getWikidataItemForTitle(pageTitle: string, lang = 'en'): Promise<
   return page?.pageprops?.wikibase_item ?? null;
 }
 
-async function getAuthorAndYearFromWikidata(qid: string, lang = 'en'): Promise<{ author: string; publishYear?: number; genre?: string }> {
+async function getAuthorAndYearFromWikidata(qid: string, lang = 'en'): Promise<{ author: string; publishYear?: number; genre?: string; isbn?: string }> {
   const entityUrl = `https://www.wikidata.org/w/api.php?action=wbgetentities&format=json&origin=*&ids=${encodeURIComponent(qid)}&props=claims`;
   const entityData = await fetchWithRetry(entityUrl);
   const ent = entityData?.entities?.[qid];
@@ -2443,6 +2615,28 @@ async function getAuthorAndYearFromWikidata(qid: string, lang = 'en'): Promise<{
       }
     }
   }
+  
+  // Extract ISBN from P212 (ISBN-13) or P957 (ISBN-10) properties in Wikidata
+  let isbn: string | undefined = undefined;
+  const isbn13Claims = claims?.P212 ?? [];
+  const isbn10Claims = claims?.P957 ?? [];
+  
+  // Prefer ISBN-13 over ISBN-10
+  if (isbn13Claims.length > 0) {
+    const isbnValue = isbn13Claims[0]?.mainsnak?.datavalue?.value;
+    if (typeof isbnValue === 'string') {
+      isbn = isbnValue.replace(/-/g, ''); // Remove hyphens
+    } else if (typeof isbnValue === 'number') {
+      isbn = String(isbnValue);
+    }
+  } else if (isbn10Claims.length > 0) {
+    const isbnValue = isbn10Claims[0]?.mainsnak?.datavalue?.value;
+    if (typeof isbnValue === 'string') {
+      isbn = isbnValue.replace(/-/g, ''); // Remove hyphens
+    } else if (typeof isbnValue === 'number') {
+      isbn = String(isbnValue);
+    }
+  }
 
   let author = lang === 'he' ? "מחבר לא ידוע" : "Unknown Author";
 
@@ -2455,7 +2649,7 @@ async function getAuthorAndYearFromWikidata(qid: string, lang = 'en'): Promise<{
     }).filter(Boolean);
     if (labels.length > 0) author = labels.join(", ");
   }
-  return { author, publishYear, genre };
+  return { author, publishYear, genre, isbn };
 }
 
 async function lookupBooksOnWikipedia(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>[]> {
@@ -2476,7 +2670,7 @@ async function lookupBooksOnWikipedia(query: string): Promise<Omit<Book, 'id' | 
       const summaryData = await fetchWithRetry(summaryUrl);
       
       const qid = await getWikidataItemForTitle(pageTitle, lang);
-      const { author, publishYear, genre } = qid ? await getAuthorAndYearFromWikidata(qid, lang) : { author: summaryData.extract?.split('(')[0]?.trim() || 'Unknown Author', publishYear: undefined, genre: undefined };
+      const { author, publishYear, genre, isbn: isbnFromWikidata } = qid ? await getAuthorAndYearFromWikidata(qid, lang) : { author: summaryData.extract?.split('(')[0]?.trim() || 'Unknown Author', publishYear: undefined, genre: undefined, isbn: undefined };
       
       // Extract summary from Wikipedia extract
       // Wikipedia extract is typically a short synopsis of the book
@@ -2484,6 +2678,16 @@ async function lookupBooksOnWikipedia(query: string): Promise<Omit<Book, 'id' | 
       if (summaryData.extract) {
         const cleanedExtract = summaryData.extract.trim();
         summary = cleanedExtract;
+      }
+      
+      // Extract ISBN from Wikipedia extract if not found in Wikidata
+      let isbn: string | undefined = isbnFromWikidata;
+      if (!isbn && summaryData.extract) {
+        // Try to find ISBN in extract (e.g., "ISBN: 978-0-123-45678-9", "ISBN 9780123456789")
+        const isbnMatch = summaryData.extract.match(/isbn[:\s-]*([0-9X-]{10,17})/i);
+        if (isbnMatch) {
+          isbn = isbnMatch[1].replace(/-/g, ''); // Remove hyphens
+        }
       }
       
       return {
@@ -2495,6 +2699,7 @@ async function lookupBooksOnWikipedia(query: string): Promise<Omit<Book, 'id' | 
         wikipedia_url: summaryData.content_urls?.desktop?.page || null,
         google_books_url: null,
         summary: summary || null,
+        isbn: isbn || undefined,
       };
     })
   );
@@ -2530,13 +2735,15 @@ async function lookupBookOnWikipedia(query: string): Promise<Omit<Book, 'id' | '
   const qid = await getWikidataItemForTitle(pageTitle, lang);
   let author = lang === 'he' ? "מחבר לא ידוע" : "Unknown Author";
   let publishYear: number | undefined = undefined;
-  
   let genre: string | undefined = undefined;
+  let isbn: string | undefined = undefined;
+  
   if (qid) {
     const wdData = await getAuthorAndYearFromWikidata(qid, lang);
     author = wdData.author || author;
     publishYear = wdData.publishYear;
     genre = wdData.genre;
+    isbn = wdData.isbn;
   }
 
   // Extract summary from Wikipedia extract
@@ -2544,6 +2751,14 @@ async function lookupBookOnWikipedia(query: string): Promise<Omit<Book, 'id' | '
   if (summaryData.extract) {
     const cleanedExtract = summaryData.extract.trim();
     summary = cleanedExtract;
+    
+    // Extract ISBN from extract if not found in Wikidata
+    if (!isbn) {
+      const isbnMatch = summaryData.extract.match(/isbn[:\s-]*([0-9X-]{10,17})/i);
+      if (isbnMatch) {
+        isbn = isbnMatch[1].replace(/-/g, ''); // Remove hyphens
+      }
+    }
   }
 
   return {
@@ -2554,6 +2769,7 @@ async function lookupBookOnWikipedia(query: string): Promise<Omit<Book, 'id' | '
     cover_url: summaryData.thumbnail?.source || summaryData.originalimage?.source || null,
     wikipedia_url: summaryData.content_urls?.desktop?.page || null,
     summary: summary || null,
+    isbn: isbn || undefined,
   };
 }
 
@@ -2677,7 +2893,9 @@ function convertBookToDb(book: BookWithRatings): Omit<Book, 'id' | 'user_id' | '
     title: book.title,
     author: book.author,
     publish_year: book.publish_year,
+    first_issue_year: book.first_issue_year,
     genre: book.genre,
+    isbn: book.isbn,
     cover_url: book.cover_url,
     wikipedia_url: book.wikipedia_url,
     google_books_url: book.google_books_url,
@@ -4009,7 +4227,7 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
                 placeholder={isQueryHebrew ? "חפש ספר..." : "Search for a book..."}
                 value={query} 
                 onChange={e => setQuery(e.target.value)}
-                className={`w-full h-12 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 rounded-full focus:ring-2 focus:ring-blue-600 focus:border-blue-600 text-sm outline-none transition-all ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
+                className={`w-full h-12 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 rounded-full focus:outline-none text-sm transition-all ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
                 dir={isQueryHebrew ? "rtl" : "ltr"}
               />
               <Search 
@@ -4018,14 +4236,6 @@ function AddBookSheet({ isOpen, onClose, onAdd }: AddBookSheetProps) {
               />
             </div>
 
-            {/* Loading state */}
-            {loading && (
-              <div className="flex items-center justify-center py-2">
-                <div className="scale-[0.3]">
-                <BookLoading />
-              </div>
-              </div>
-            )}
 
             {/* Search Results */}
             <AnimatePresence>
@@ -4195,20 +4405,638 @@ export default function App() {
   const [researchData, setResearchData] = useState<Map<string, BookResearch>>(new Map());
   const [selectedInsightCategory, setSelectedInsightCategory] = useState<string>('trivia'); // 'trivia' or pillar names from research
   const [isInsightCategoryDropdownOpen, setIsInsightCategoryDropdownOpen] = useState(false);
+  const bookshelfGroupingDropdownRef = useRef<HTMLDivElement>(null);
   const [scrollY, setScrollY] = useState(0);
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
+  const [showAccountPage, setShowAccountPage] = useState(false);
   const [showBookshelf, setShowBookshelf] = useState(false);
   const [showBookshelfCovers, setShowBookshelfCovers] = useState(false);
   const [showNotesView, setShowNotesView] = useState(false);
   const [editingNoteBookId, setEditingNoteBookId] = useState<string | null>(null);
-  const [bookshelfGrouping, setBookshelfGrouping] = useState<'rating' | 'author' | 'title' | 'genre' | 'reading_status'>(() => {
+  const [bookshelfGrouping, setBookshelfGrouping] = useState<'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('bookshelfGrouping');
-      return (saved as 'rating' | 'author' | 'title' | 'genre' | 'reading_status') || 'rating';
+      const validOptions: ('reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year')[] = ['reading_status', 'added', 'rating', 'title', 'author', 'genre', 'publication_year'];
+      return (validOptions.includes(saved as any) ? saved : 'reading_status') as 'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year';
     }
-    return 'rating';
+    return 'reading_status';
   });
+  const [isBookshelfGroupingDropdownOpen, setIsBookshelfGroupingDropdownOpen] = useState(false);
   const [backgroundGradient, setBackgroundGradient] = useState<string>('241,245,249,226,232,240'); // Default slate colors as RGB
+  
+  // Game state
+  const [isPlayingGame, setIsPlayingGame] = useState(false);
+  const [gameBook1, setGameBook1] = useState<BookWithRatings | null>(null);
+  const [gameBook2, setGameBook2] = useState<BookWithRatings | null>(null);
+  const [gameShownBooks, setGameShownBooks] = useState<Set<string>>(new Set());
+  const [gameRound, setGameRound] = useState(0);
+  const [showSortingResults, setShowSortingResults] = useState(false);
+  const [isGameCompleting, setIsGameCompleting] = useState(false);
+  const [showGameResults, setShowGameResults] = useState(false);
+  
+  // Merge Sort Implementation - O(n log n) comparisons
+  // Uses a queue-based state machine to track merge operations
+  
+  type MergeSortState = {
+    comparisonQueue: Array<{ leftId: string; rightId: string }>; // Pending comparisons
+    sortedLists: Array<string[]>; // Current sorted sublists (by book ID)
+    comparedCount: number; // Number of comparisons made
+  };
+  
+  // Get merge sort state from localStorage
+  const getMergeSortState = (): MergeSortState | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const stored = localStorage.getItem('bookMergeSortState');
+      if (!stored) return null;
+      return JSON.parse(stored) as MergeSortState;
+    } catch {
+      return null;
+    }
+  };
+  
+  // Save merge sort state to localStorage
+  const saveMergeSortState = (state: MergeSortState) => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem('bookMergeSortState', JSON.stringify(state));
+    } catch (err) {
+      console.warn('[saveMergeSortState] Failed to save:', err);
+    }
+  };
+  
+  // Initialize merge sort state from books
+  const initializeMergeSort = (availableBooks: BookWithRatings[]): MergeSortState => {
+    // Start with individual books as sorted lists of size 1
+    const sortedLists: string[][] = availableBooks.map(b => [b.id]);
+    return {
+      comparisonQueue: [],
+      sortedLists,
+      comparedCount: 0
+    };
+  };
+  
+  // Generate next comparison in merge sort (builds comparison queue)
+  const getNextMergeComparison = (state: MergeSortState): { leftId: string; rightId: string } | null => {
+    // Find the first pair of lists that can be merged
+    for (let i = 0; i < state.sortedLists.length - 1; i += 2) {
+      const leftList = state.sortedLists[i];
+      const rightList = state.sortedLists[i + 1];
+      
+      if (!leftList || !rightList) continue;
+      
+      // Get the next comparison for merging these two lists
+      // We track which indices we're at in the merge via the comparison queue
+      // For simplicity, we'll rebuild the queue each time
+      
+      // Find the first uncompared pair between these lists
+      // This happens during merge: compare heads of both lists
+      for (const leftId of leftList) {
+        for (const rightId of rightList) {
+          // Check if we've already decided the order
+          // We can infer this from the sorted structure, but for now
+          // we'll add all cross-list comparisons to the queue
+          const exists = state.comparisonQueue.find(c => 
+            (c.leftId === leftId && c.rightId === rightId) ||
+            (c.leftId === rightId && c.rightId === leftId)
+          );
+          if (!exists) {
+            return { leftId, rightId };
+          }
+        }
+      }
+    }
+    
+    return null;
+  };
+  
+  // Record a comparison and advance merge sort state
+  const recordMergeComparison = (winnerId: string, loserId: string, currentState: MergeSortState): MergeSortState => {
+    // Remove this comparison from queue
+    const updatedQueue = currentState.comparisonQueue.filter(c => 
+      !((c.leftId === winnerId && c.rightId === loserId) ||
+        (c.leftId === loserId && c.rightId === winnerId))
+    );
+    
+    // Update sorted lists based on the comparison
+    // This is simplified - we'd need to track merge positions more carefully
+    // For now, we'll use a simpler approach: maintain a full comparison queue
+    
+    return {
+      ...currentState,
+      comparisonQueue: updatedQueue,
+      comparedCount: currentState.comparedCount + 1
+    };
+  };
+  
+  // Simplified: Build complete comparison queue for merge sort
+  // This generates all comparisons needed for merge sort
+  const buildMergeSortQueue = (availableBooks: BookWithRatings[]): Array<{ leftId: string; rightId: string }> => {
+    const queue: Array<{ leftId: string; rightId: string }> = [];
+    const books = availableBooks.map(b => b.id);
+    
+    // Merge sort comparison pattern: we need to merge adjacent pairs
+    // For simplicity, we'll generate comparisons level by level
+    
+    // Start with individual lists
+    let currentLists: string[][] = books.map(id => [id]);
+    
+    // While we have more than one list
+    while (currentLists.length > 1) {
+      const nextLists: string[][] = [];
+      
+      // Process pairs of lists
+      for (let i = 0; i < currentLists.length; i += 2) {
+        const left = currentLists[i];
+        const right = currentLists[i + 1];
+        
+        if (!right) {
+          // Odd one out, move to next level
+          nextLists.push(left);
+          continue;
+        }
+        
+        // Generate comparisons needed to merge left and right
+        // During merge, we compare heads of lists
+        // For now, we'll generate all necessary comparisons
+        let leftIdx = 0, rightIdx = 0;
+        const merged: string[] = [];
+        
+        // Generate comparisons for merging
+        while (leftIdx < left.length && rightIdx < right.length) {
+          // This is the comparison we need
+          queue.push({ leftId: left[leftIdx], rightId: right[rightIdx] });
+          
+          // We don't know the result yet, so we'll let the user decide
+          // For now, we'll just track that we need this comparison
+          leftIdx++;
+          rightIdx++;
+        }
+      }
+      
+      if (nextLists.length === 1 && currentLists.length <= 2) {
+        break; // We're done
+      }
+      
+      currentLists = nextLists;
+    }
+    
+    return queue;
+  };
+  
+  // Better approach: Maintain merge state more explicitly
+  type MergeOperation = {
+    leftList: string[];
+    rightList: string[];
+    leftIdx: number;
+    rightIdx: number;
+    merged: string[];
+  };
+  
+  type MergeSortStateV2 = {
+    mergeStack: MergeOperation[];
+    completedSortedLists: string[][]; // Track ALL completed sorted lists at current level
+    comparedCount: number;
+  };
+  
+  // Initialize merge sort with explicit merge operations
+  const initializeMergeSortV2 = (availableBooks: BookWithRatings[]): MergeSortStateV2 => {
+    const bookIds = availableBooks.map(b => b.id);
+    console.log('[initializeMergeSortV2] 🎮 Initializing merge sort with', bookIds.length, 'books');
+    
+    // Create initial merge operations (adjacent pairs)
+    const mergeStack: MergeOperation[] = [];
+    for (let i = 0; i < bookIds.length; i += 2) {
+      const left = [bookIds[i]];
+      const right = bookIds[i + 1] ? [bookIds[i + 1]] : [];
+      if (right.length > 0) {
+        mergeStack.push({
+          leftList: left,
+          rightList: right,
+          leftIdx: 0,
+          rightIdx: 0,
+          merged: []
+        });
+      }
+    }
+    
+    console.log('[initializeMergeSortV2] 📊 Created', mergeStack.length, 'initial merge operations');
+    
+    return {
+      mergeStack,
+      completedSortedLists: [],
+      comparedCount: 0
+    };
+  };
+  
+  // Get next comparison from current merge operation
+  const getNextComparisonFromMerge = (state: MergeSortStateV2): { leftId: string; rightId: string } | null => {
+    console.log('[getNextComparisonFromMerge] 🔍 State:', {
+      mergeStackLength: state.mergeStack.length,
+      completedSortedListsCount: state.completedSortedLists?.length || 0,
+      completedSortedLists: state.completedSortedLists || [],
+      comparedCount: state.comparedCount
+    });
+    
+    if (state.mergeStack.length === 0) {
+      console.log('[getNextComparisonFromMerge] ✅ Merge stack empty - sorting complete');
+      return null; // Sorting complete
+    }
+    
+    const currentMerge = state.mergeStack[0];
+    console.log('[getNextComparisonFromMerge] 📋 Current merge:', {
+      leftListLength: currentMerge.leftList.length,
+      rightListLength: currentMerge.rightList.length,
+      leftIdx: currentMerge.leftIdx,
+      rightIdx: currentMerge.rightIdx,
+      mergedLength: currentMerge.merged.length
+    });
+    
+    if (currentMerge.leftIdx >= currentMerge.leftList.length) {
+      // Left list exhausted, merge remaining right
+      console.log('[getNextComparisonFromMerge] ⚠️ Left list exhausted');
+      return null; // Should advance merge
+    }
+    if (currentMerge.rightIdx >= currentMerge.rightList.length) {
+      // Right list exhausted, merge remaining left
+      console.log('[getNextComparisonFromMerge] ⚠️ Right list exhausted');
+      return null; // Should advance merge
+    }
+    
+    const comparison = {
+      leftId: currentMerge.leftList[currentMerge.leftIdx],
+      rightId: currentMerge.rightList[currentMerge.rightIdx]
+    };
+    console.log('[getNextComparisonFromMerge] ✅ Next comparison:', comparison);
+    return comparison;
+  };
+  
+  // Record comparison and advance merge
+  const recordMergeComparisonV2 = (
+    winnerId: string, 
+    loserId: string, 
+    state: MergeSortStateV2
+  ): MergeSortStateV2 => {
+    console.log('[recordMergeComparisonV2] 🎯 Recording:', { winnerId, loserId, mergeStackLength: state.mergeStack.length });
+    
+    // Ensure completedSortedLists is always defined
+    const safeState = {
+      ...state,
+      completedSortedLists: state.completedSortedLists || []
+    };
+    
+    if (safeState.mergeStack.length === 0) {
+      console.warn('[recordMergeComparisonV2] ⚠️ Merge stack empty, nothing to record');
+      return safeState;
+    }
+    
+    const [currentMerge, ...restStack] = safeState.mergeStack;
+    console.log('[recordMergeComparisonV2] 📊 Current merge state:', {
+      leftList: currentMerge.leftList,
+      rightList: currentMerge.rightList,
+      leftIdx: currentMerge.leftIdx,
+      rightIdx: currentMerge.rightIdx,
+      merged: currentMerge.merged,
+      restStackLength: restStack.length
+    });
+    
+    // Determine which list the winner came from
+    const winnerFromLeft = currentMerge.leftList[currentMerge.leftIdx] === winnerId;
+    
+    // Add winner to merged list
+    const newMerged = [...currentMerge.merged, winnerId];
+    
+    // Advance the appropriate index
+    let newLeftIdx = currentMerge.leftIdx;
+    let newRightIdx = currentMerge.rightIdx;
+    
+    if (winnerFromLeft) {
+      newLeftIdx++;
+    } else {
+      newRightIdx++;
+    }
+    
+    // Check if merge is complete
+    const leftDone = newLeftIdx >= currentMerge.leftList.length;
+    const rightDone = newRightIdx >= currentMerge.rightList.length;
+    
+    if (leftDone || rightDone) {
+      // One list exhausted, add remaining from the other
+      const finalMerged = [
+        ...newMerged,
+        ...(leftDone ? [] : currentMerge.leftList.slice(newLeftIdx)),
+        ...(rightDone ? [] : currentMerge.rightList.slice(newRightIdx))
+      ];
+      
+      console.log('[recordMergeComparisonV2] ✅ Merge complete! Final merged:', finalMerged);
+      console.log('[recordMergeComparisonV2] 📊 Completed lists so far:', safeState.completedSortedLists);
+      console.log('[recordMergeComparisonV2] 📊 Remaining merges in stack:', restStack.length);
+      
+      // Add this completed merge to the list of completed sorted lists
+      const updatedCompletedLists = [...safeState.completedSortedLists, finalMerged];
+      
+      // If we have incomplete merges in restStack, we need to continue them
+      // Only when all merges at the current level are done, we create the next level
+      if (restStack.length === 0) {
+        // All merges at this level are complete - create next level merges
+        console.log('[recordMergeComparisonV2] 🎉 All merges at this level complete! Creating next level...');
+        console.log('[recordMergeComparisonV2] 📋 All completed lists:', updatedCompletedLists);
+        
+        const newMergeStack: MergeOperation[] = [];
+        for (let i = 0; i < updatedCompletedLists.length; i += 2) {
+          const left = updatedCompletedLists[i];
+          const right = updatedCompletedLists[i + 1];
+          if (left && right) {
+            newMergeStack.push({
+              leftList: left,
+              rightList: right,
+              leftIdx: 0,
+              rightIdx: 0,
+              merged: []
+            });
+          }
+        }
+        
+        console.log('[recordMergeComparisonV2] 📊 Created', newMergeStack.length, 'new merge operations for next level');
+        
+        // If only one list remains, that's our final sorted list (keep it in completedSortedLists)
+        // Otherwise, clear completed lists and start new level
+        return {
+          ...safeState,
+          mergeStack: newMergeStack,
+          completedSortedLists: updatedCompletedLists.length === 1 ? updatedCompletedLists : [],
+          comparedCount: safeState.comparedCount + 1
+        };
+      } else {
+        // Still have incomplete merges - keep track of all completed merges
+        console.log('[recordMergeComparisonV2] ⏸️ Merge complete but', restStack.length, 'merges remaining');
+        
+        return {
+          ...safeState,
+          mergeStack: restStack,
+          completedSortedLists: updatedCompletedLists, // Store ALL completed merges
+          comparedCount: safeState.comparedCount + 1
+        };
+      }
+    }
+    
+    // Continue current merge
+    const updatedMerge: MergeOperation = {
+      ...currentMerge,
+      leftIdx: newLeftIdx,
+      rightIdx: newRightIdx,
+      merged: newMerged
+    };
+    
+    return {
+      ...safeState,
+      mergeStack: [updatedMerge, ...restStack],
+      comparedCount: safeState.comparedCount + 1
+    };
+  };
+  
+  // Simplified wrapper functions for the game
+  const getMergeSortStateFromStorage = (): MergeSortStateV2 | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const stored = localStorage.getItem('bookMergeSortState');
+      if (!stored) return null;
+      const parsed = JSON.parse(stored) as any;
+      
+      // Migrate old state format (sortedBooks) to new format (completedSortedLists)
+      if (parsed.sortedBooks && !parsed.completedSortedLists) {
+        console.log('[getMergeSortStateFromStorage] 🔄 Migrating old state format...');
+        return {
+          mergeStack: parsed.mergeStack || [],
+          completedSortedLists: parsed.sortedBooks && parsed.sortedBooks.length > 0 
+            ? [parsed.sortedBooks] 
+            : [],
+          comparedCount: parsed.comparedCount || 0
+        };
+      }
+      
+      // Ensure completedSortedLists exists (handle undefined/null)
+      if (!parsed.completedSortedLists) {
+        parsed.completedSortedLists = [];
+      }
+      
+      return parsed as MergeSortStateV2;
+    } catch {
+      return null;
+    }
+  };
+  
+  const saveMergeSortStateToStorage = (state: MergeSortStateV2) => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem('bookMergeSortState', JSON.stringify(state));
+    } catch (err) {
+      console.warn('[saveMergeSortStateToStorage] Failed to save:', err);
+    }
+  };
+  
+  // Efficiently add a new book to the merge sort game state
+  const addBookToMergeSortState = (bookId: string) => {
+    console.log('[addBookToMergeSortState] 📚 Adding book to merge sort state:', bookId);
+    
+    const state = getMergeSortStateFromStorage();
+    
+    // If no state exists, don't create one - it will be initialized when game starts
+    if (!state) {
+      console.log('[addBookToMergeSortState] ℹ️ No merge sort state found - will be initialized when game starts');
+      return;
+    }
+    
+    // Check if book already exists in any list
+    const bookExists = 
+      state.mergeStack.some(op => 
+        op.leftList.includes(bookId) || 
+        op.rightList.includes(bookId) || 
+        op.merged.includes(bookId)
+      ) ||
+      (state.completedSortedLists || []).some(list => list.includes(bookId));
+    
+    if (bookExists) {
+      console.log('[addBookToMergeSortState] ℹ️ Book already in merge sort state');
+      return;
+    }
+    
+    // If game is complete (only 1 list and empty stack), add book as singleton
+    // It will be naturally included in future games
+    if (state.mergeStack.length === 0 && state.completedSortedLists?.length === 1) {
+      console.log('[addBookToMergeSortState] ✅ Game complete - adding book as singleton for future merges');
+      const updatedState = {
+        ...state,
+        completedSortedLists: [...(state.completedSortedLists || []), [bookId]]
+      };
+      saveMergeSortStateToStorage(updatedState);
+      return;
+    }
+    
+    // If game is in progress, add book as singleton to completedSortedLists
+    // This is the most efficient - it will naturally merge at the current level
+    // If all merges at current level are done, it will be included in the next level
+    console.log('[addBookToMergeSortState] ✅ Adding book as singleton to completedSortedLists');
+    const updatedState = {
+      ...state,
+      completedSortedLists: [...(state.completedSortedLists || []), [bookId]]
+    };
+    saveMergeSortStateToStorage(updatedState);
+  };
+  
+  // Get next pair to compare (merge sort approach)
+  const getNextMergePair = (availableBooks: BookWithRatings[]): [BookWithRatings, BookWithRatings] | null => {
+    let state = getMergeSortStateFromStorage();
+    
+    // Initialize if needed
+    if (!state) {
+      console.log('[getNextMergePair] 🎮 No state found, initializing...');
+      state = initializeMergeSortV2(availableBooks);
+      saveMergeSortStateToStorage(state);
+    }
+    
+    console.log('[getNextMergePair] 🔍 Getting next comparison...');
+    let comparison = getNextComparisonFromMerge(state);
+    
+    // If comparison is null because merge is exhausted, try to advance
+    if (!comparison && state.mergeStack.length > 0) {
+      const currentMerge = state.mergeStack[0];
+      const leftExhausted = currentMerge.leftIdx >= currentMerge.leftList.length;
+      const rightExhausted = currentMerge.rightIdx >= currentMerge.rightList.length;
+      
+      if (leftExhausted || rightExhausted) {
+        console.log('[getNextMergePair] ⚠️ Merge exhausted but not handled, mergeStack:', state.mergeStack.length);
+        // The merge should have been completed in recordMergeComparisonV2
+        // If we're here, it means the merge wasn't completed properly
+      }
+    }
+    
+    if (!comparison) {
+      console.log('[getNextMergePair] ❌ No comparison available - sorting may be complete or stuck');
+      console.log('[getNextMergePair] 📊 Final state:', JSON.stringify(state, null, 2));
+      return null; // Sorting complete or needs state update
+    }
+    
+    const book1 = availableBooks.find(b => b.id === comparison.leftId);
+    const book2 = availableBooks.find(b => b.id === comparison.rightId);
+    
+    if (!book1 || !book2) {
+      console.error('[getNextMergePair] ❌ Books not found:', { leftId: comparison.leftId, rightId: comparison.rightId });
+      return null;
+    }
+    
+    console.log('[getNextMergePair] ✅ Returning pair:', { book1: book1.title, book2: book2.title });
+    return [book1, book2];
+  };
+  
+  // Record comparison (merge sort approach)
+  const recordMergeComparisonForGame = (winnerId: string, loserId: string, availableBooks: BookWithRatings[]) => {
+    console.log('[recordMergeComparisonForGame] 🎮 Recording game comparison:', { winnerId, loserId });
+    
+    let state = getMergeSortStateFromStorage();
+    
+    if (!state) {
+      console.log('[recordMergeComparisonForGame] 🎮 No state found, initializing...');
+      state = initializeMergeSortV2(availableBooks);
+    }
+    
+    // Store comparison result for sorting
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('bookComparisonResults');
+        const results: { [key: string]: { beats: string[]; losesTo: string[] } } = stored ? JSON.parse(stored) : {};
+        
+        if (!results[winnerId]) results[winnerId] = { beats: [], losesTo: [] };
+        if (!results[loserId]) results[loserId] = { beats: [], losesTo: [] };
+        
+        if (!results[winnerId].beats.includes(loserId)) {
+          results[winnerId].beats.push(loserId);
+        }
+        if (!results[loserId].losesTo.includes(winnerId)) {
+          results[loserId].losesTo.push(winnerId);
+        }
+        
+        localStorage.setItem('bookComparisonResults', JSON.stringify(results));
+      } catch (err) {
+        console.warn('[recordMergeComparisonForGame] Failed to save comparison result:', err);
+      }
+    }
+    
+    const newState = recordMergeComparisonV2(winnerId, loserId, state);
+    console.log('[recordMergeComparisonForGame] 💾 Saving new state:', {
+      mergeStackLength: newState.mergeStack.length,
+      completedSortedListsLength: newState.completedSortedLists?.length || 0,
+      comparedCount: newState.comparedCount
+    });
+    saveMergeSortStateToStorage(newState);
+  };
+  
+  // Get comparison results from localStorage
+  const getComparisonResultsFromState = (): { [bookId: string]: { beats: Set<string>; losesTo: Set<string> } } => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const stored = localStorage.getItem('bookComparisonResults');
+      if (!stored) return {};
+      const parsed = JSON.parse(stored) as { [key: string]: { beats: string[]; losesTo: string[] } };
+      // Convert arrays back to Sets
+      const results: { [bookId: string]: { beats: Set<string>; losesTo: Set<string> } } = {};
+      for (const [bookId, data] of Object.entries(parsed)) {
+        results[bookId] = {
+          beats: new Set(data.beats || []),
+          losesTo: new Set(data.losesTo || [])
+        };
+      }
+      return results;
+    } catch {
+      return {};
+    }
+  };
+  
+  // Get sorted books based on comparison results
+  const getSortedBooks = (availableBooks: BookWithRatings[]): BookWithRatings[] => {
+    // Get comparison results from localStorage
+    const comparisonResults = getComparisonResultsFromState();
+    
+    // Calculate win/loss scores for each book
+    const scores: { [bookId: string]: number } = {};
+    availableBooks.forEach(book => {
+      scores[book.id] = 0;
+    });
+    
+    // Count wins (books this book beats)
+    Object.entries(comparisonResults).forEach(([bookId, data]) => {
+      scores[bookId] = (scores[bookId] || 0) + data.beats.size;
+    });
+    
+    // Sort by score (descending) - books with more wins rank higher
+    const sorted = [...availableBooks].sort((a, b) => {
+      const scoreA = scores[a.id] || 0;
+      const scoreB = scores[b.id] || 0;
+      if (scoreB !== scoreA) {
+        return scoreB - scoreA; // Higher score first
+      }
+      // If scores are equal, use comparison results to break ties
+      const aBeatsB = comparisonResults[a.id]?.beats.has(b.id);
+      const bBeatsA = comparisonResults[b.id]?.beats.has(a.id);
+      if (aBeatsB) return -1;
+      if (bBeatsA) return 1;
+      return 0;
+    });
+    
+    return sorted;
+  };
+  
+  // Get total comparisons needed (for progress)
+  const getTotalMergeComparisons = (n: number): number => {
+    // Merge sort requires approximately n * log2(n) comparisons
+    return Math.ceil(n * Math.log2(n));
+  };
+  
+  // Get current comparison count
+  const getCurrentComparisonCount = (): number => {
+    const state = getMergeSortStateFromStorage();
+    return state?.comparedCount || 0;
+  };
   // Podcast source selector removed - now always fetches from both sources
 
   // Load books from Supabase
@@ -4338,28 +5166,29 @@ export default function App() {
 
   // Group books for bookshelf view based on selected grouping
   const groupedBooksForBookshelf = useMemo(() => {
-    if (bookshelfGrouping === 'rating') {
+    if (bookshelfGrouping === 'reading_status') {
       const groups: { label: string; books: BookWithRatings[] }[] = [
-        { label: '4-5 Stars', books: [] },
-        { label: '3-4 Stars', books: [] },
-        { label: '1-3 Stars', books: [] },
-        { label: 'Not Rated', books: [] },
+        { label: 'Reading', books: [] },
+        { label: 'Want to read', books: [] },
+        { label: 'Read it', books: [] },
+        { label: 'TBD', books: [] },
       ];
       
       books.forEach(book => {
-        const score = calculateScore(book.ratings);
-        if (score >= 4) {
+        const status = book.reading_status;
+        if (status === 'reading') {
           groups[0].books.push(book);
-        } else if (score >= 3) {
+        } else if (status === 'want_to_read') {
           groups[1].books.push(book);
-        } else if (score >= 1) {
+        } else if (status === 'read_it') {
           groups[2].books.push(book);
         } else {
+          // null or undefined reading_status goes to TBD
           groups[3].books.push(book);
         }
       });
       
-      // Sort each group by score descending
+      // Sort each group by rating descending
       groups.forEach(group => {
         group.books.sort((a, b) => {
           const scoreA = calculateScore(a.ratings);
@@ -4369,30 +5198,82 @@ export default function App() {
       });
       
       return groups.filter(group => group.books.length > 0);
-    } else if (bookshelfGrouping === 'author') {
+    } else if (bookshelfGrouping === 'rating') {
+      // Group by rating score ranges
       const groups: { label: string; books: BookWithRatings[] }[] = [
-        { label: 'A-D', books: [] },
-        { label: 'E-H', books: [] },
-        { label: 'I-M', books: [] },
-        { label: 'N-S', books: [] },
-        { label: 'T-Z', books: [] },
+        { label: '5 stars', books: [] },
+        { label: '4 stars', books: [] },
+        { label: '3 stars', books: [] },
+        { label: '2 stars', books: [] },
+        { label: '1 star', books: [] },
+        { label: 'Unrated', books: [] },
       ];
       
       books.forEach(book => {
-        const firstLetter = book.author?.[0]?.toUpperCase() || 'Z';
-        const range = getAlphabeticalRange(firstLetter);
-        const groupIndex = groups.findIndex(g => g.label === range);
-        if (groupIndex !== -1) {
-          groups[groupIndex].books.push(book);
+        const score = calculateScore(book.ratings);
+        
+        if (score === 0) {
+          groups[5].books.push(book); // Unrated
+        } else if (score >= 4.5) {
+          groups[0].books.push(book); // 5 stars
+        } else if (score >= 3.5) {
+          groups[1].books.push(book); // 4 stars
+        } else if (score >= 2.5) {
+          groups[2].books.push(book); // 3 stars
+        } else if (score >= 1.5) {
+          groups[3].books.push(book); // 2 stars
+        } else {
+          groups[4].books.push(book); // 1 star
         }
       });
       
-      // Sort each group by author name
+      // Sort each group by rating descending (already sorted within each group by score ranges)
       groups.forEach(group => {
         group.books.sort((a, b) => {
-          const authorA = (a.author || '').toUpperCase();
-          const authorB = (b.author || '').toUpperCase();
-          return authorA.localeCompare(authorB);
+          const scoreA = calculateScore(a.ratings);
+          const scoreB = calculateScore(b.ratings);
+          return scoreB - scoreA; // Descending order
+        });
+      });
+      
+      return groups.filter(group => group.books.length > 0);
+    } else if (bookshelfGrouping === 'added') {
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+      
+      const groups: { label: string; books: BookWithRatings[] }[] = [
+        { label: 'Today', books: [] },
+        { label: 'This week', books: [] },
+        { label: 'This month', books: [] },
+        { label: 'This year', books: [] },
+        { label: 'Later', books: [] },
+      ];
+      
+      books.forEach(book => {
+        const createdDate = new Date(book.created_at);
+        
+        if (createdDate >= todayStart) {
+          groups[0].books.push(book);
+        } else if (createdDate >= oneWeekAgo) {
+          groups[1].books.push(book);
+        } else if (createdDate >= oneMonthAgo) {
+          groups[2].books.push(book);
+        } else if (createdDate >= oneYearAgo) {
+          groups[3].books.push(book);
+        } else {
+          groups[4].books.push(book);
+        }
+      });
+      
+      // Sort each group by created_at descending (newest first)
+      groups.forEach(group => {
+        group.books.sort((a, b) => {
+          const dateA = new Date(a.created_at).getTime();
+          const dateB = new Date(b.created_at).getTime();
+          return dateB - dateA; // Descending order
         });
       });
       
@@ -4421,6 +5302,34 @@ export default function App() {
           const titleA = (a.title || '').toUpperCase();
           const titleB = (b.title || '').toUpperCase();
           return titleA.localeCompare(titleB);
+        });
+      });
+      
+      return groups.filter(group => group.books.length > 0);
+    } else if (bookshelfGrouping === 'author') {
+      const groups: { label: string; books: BookWithRatings[] }[] = [
+        { label: 'A-D', books: [] },
+        { label: 'E-H', books: [] },
+        { label: 'I-M', books: [] },
+        { label: 'N-S', books: [] },
+        { label: 'T-Z', books: [] },
+      ];
+      
+      books.forEach(book => {
+        const firstLetter = book.author?.[0]?.toUpperCase() || 'Z';
+        const range = getAlphabeticalRange(firstLetter);
+        const groupIndex = groups.findIndex(g => g.label === range);
+        if (groupIndex !== -1) {
+          groups[groupIndex].books.push(book);
+        }
+      });
+      
+      // Sort each group by author name
+      groups.forEach(group => {
+        group.books.sort((a, b) => {
+          const authorA = (a.author || '').toUpperCase();
+          const authorB = (b.author || '').toUpperCase();
+          return authorA.localeCompare(authorB);
         });
       });
       
@@ -4463,38 +5372,54 @@ export default function App() {
         });
       
       return groups;
-    } else if (bookshelfGrouping === 'reading_status') {
-      const groups: { label: string; books: BookWithRatings[] }[] = [
-        { label: 'Reading', books: [] },
-        { label: 'Want to read', books: [] },
-        { label: 'Read it', books: [] },
-        { label: 'TBD', books: [] },
-      ];
+    } else if (bookshelfGrouping === 'publication_year') {
+      // Group by decades using first_issue_year (fallback to publish_year)
+      const decadeMap = new Map<string, BookWithRatings[]>();
       
       books.forEach(book => {
-        const status = book.reading_status;
-        if (status === 'reading') {
-          groups[0].books.push(book);
-        } else if (status === 'want_to_read') {
-          groups[1].books.push(book);
-        } else if (status === 'read_it') {
-          groups[2].books.push(book);
+        const year = book.first_issue_year || book.publish_year;
+        let decadeLabel: string;
+        
+        if (year && typeof year === 'number' && year > 0) {
+          // Calculate decade: e.g., 2023 -> "2020s", 1995 -> "1990s"
+          const decade = Math.floor(year / 10) * 10;
+          decadeLabel = `${decade}s`;
         } else {
-          // null or undefined reading_status goes to TBD
-          groups[3].books.push(book);
+          // Books without publication year
+          decadeLabel = 'Unknown';
         }
+        
+        if (!decadeMap.has(decadeLabel)) {
+          decadeMap.set(decadeLabel, []);
+        }
+        decadeMap.get(decadeLabel)!.push(book);
       });
       
-      // Sort each group by rating descending
-      groups.forEach(group => {
-        group.books.sort((a, b) => {
-          const scoreA = calculateScore(a.ratings);
-          const scoreB = calculateScore(b.ratings);
-          return scoreB - scoreA;
+      // Convert to groups array
+      const groups: { label: string; books: BookWithRatings[] }[] = Array.from(decadeMap.entries())
+        .map(([decadeLabel, books]) => ({
+          label: decadeLabel,
+          books: books.sort((a, b) => {
+            // Sort books within each decade by year descending (newest first)
+            // Use first_issue_year if available, otherwise publish_year
+            const yearA = a.first_issue_year || a.publish_year || 0;
+            const yearB = b.first_issue_year || b.publish_year || 0;
+            return yearB - yearA; // Descending order
+          })
+        }))
+        .sort((a, b) => {
+          // Sort decades descending (newest first)
+          // Put "Unknown" at the end
+          if (a.label === 'Unknown') return 1;
+          if (b.label === 'Unknown') return -1;
+          
+          // Extract decade number from label (e.g., "2020s" -> 2020)
+          const decadeA = parseInt(a.label.replace('s', '')) || 0;
+          const decadeB = parseInt(b.label.replace('s', '')) || 0;
+          return decadeB - decadeA; // Descending order
         });
-      });
       
-      return groups.filter(group => group.books.length > 0);
+      return groups;
     }
     // Default fallback (should never happen)
     return [];
@@ -4526,6 +5451,20 @@ export default function App() {
     
     return () => clearTimeout(timer);
   }, [selectedIndex]);
+
+  // Close bookshelf grouping dropdown when clicking outside
+  useEffect(() => {
+    if (!isBookshelfGroupingDropdownOpen) return;
+    
+    const handleClickOutside = (e: MouseEvent) => {
+      if (bookshelfGroupingDropdownRef.current && !bookshelfGroupingDropdownRef.current.contains(e.target as Node)) {
+        setIsBookshelfGroupingDropdownOpen(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isBookshelfGroupingDropdownOpen]);
 
   // Close insight category dropdown when clicking outside
   useEffect(() => {
@@ -4617,23 +5556,42 @@ export default function App() {
       if (cancelled) return;
       
       console.log(`[Author Facts] 🔄 Fetching author facts for "${bookTitle}" by ${bookAuthor}...`);
-      getAuthorFacts(bookTitle, bookAuthor).then((facts) => {
+      getAuthorFacts(bookTitle, bookAuthor).then(async (result) => {
         if (cancelled) return;
         
         // Clear loading state and remove from fetching set
         setLoadingFactsForBookId(null);
         fetchingFactsForBooksRef.current.delete(bookId);
         
-        if (facts.length > 0) {
-          console.log(`[Author Facts] ✅ Received ${facts.length} facts for "${bookTitle}"`);
+        if (result.facts.length > 0) {
+          console.log(`[Author Facts] ✅ Received ${result.facts.length} facts for "${bookTitle}"`);
           
           // Update local state for display (cache is already saved by getAuthorFacts)
           // Only update if the book is still the active one
           setBooks(prev => prev.map(book => 
             book.id === bookId 
-              ? { ...book, author_facts: facts }
+              ? { ...book, author_facts: result.facts, first_issue_year: result.first_issue_year || book.first_issue_year }
               : book
           ));
+          
+          // Save first_issue_year to database if we got it
+          if (result.first_issue_year && user) {
+            try {
+              const { error: updateError } = await supabase
+                .from('books')
+                .update({ first_issue_year: result.first_issue_year, updated_at: new Date().toISOString() })
+                .eq('id', bookId)
+                .eq('user_id', user.id);
+              
+              if (updateError) {
+                console.error('[Author Facts] ❌ Error saving first_issue_year:', updateError);
+              } else {
+                console.log(`[Author Facts] 💾 Saved first_issue_year ${result.first_issue_year} to database for "${bookTitle}"`);
+              }
+            } catch (err) {
+              console.error('[Author Facts] ❌ Error saving first_issue_year:', err);
+            }
+          }
         } else {
           console.log(`[Author Facts] ⚠️ No facts received for "${bookTitle}"`);
         }
@@ -5408,6 +6366,11 @@ export default function App() {
         ));
       } else {
         console.log(`[handleUpdateReadingStatus] ✅ Successfully updated reading_status to ${readingStatus}`, data);
+        
+        // If status changed to "read_it", integrate the book into merge sort game
+        if (readingStatus === 'read_it') {
+          addBookToMergeSortState(id);
+        }
       }
     } catch (err: any) {
       console.error('[handleUpdateReadingStatus] ❌ Error updating reading status:', {
@@ -5493,6 +6456,9 @@ export default function App() {
         author: meta.author || 'Unknown Author',
         canonical_book_id: canonicalBookId,
         publish_year: meta.publish_year ?? null,
+        first_issue_year: meta.first_issue_year ?? null,
+        genre: meta.genre ?? null,
+        isbn: meta.isbn ?? null,
         cover_url: meta.cover_url ?? null,
         wikipedia_url: meta.wikipedia_url ?? null,
         google_books_url: meta.google_books_url ?? null,
@@ -5568,6 +6534,11 @@ export default function App() {
           setShowBookshelf(false);
           setShowNotesView(false);
           
+          // If status is "read_it", integrate the new book into the merge sort game
+          if (readingStatus === 'read_it') {
+            addBookToMergeSortState(newBook.id);
+          }
+          
           // If readingStatus is null, we need to show reading status selection in rating overlay
           if (readingStatus === null) {
             setSelectingReadingStatusInRating(true);
@@ -5604,6 +6575,11 @@ export default function App() {
       setShowBookshelf(false);
       setShowNotesView(false);
       
+      // If status is "read_it", integrate the new book into the merge sort game
+      if (readingStatus === 'read_it') {
+        addBookToMergeSortState(newBook.id);
+      }
+      
       // If readingStatus is null, we need to show reading status selection in rating overlay
       if (readingStatus === null) {
         setSelectingReadingStatusInRating(true);
@@ -5624,117 +6600,10 @@ export default function App() {
         setSelectingReadingStatusInRating(false);
       }
 
-      // Fetch author facts and podcast episodes asynchronously after book is added and save to DB
-      if (meta.title && meta.author) {
-        // Fetch author facts
-        console.log(`[Author Facts] 🔄 Fetching from Grok API for new book "${meta.title}" by ${meta.author}...`);
-        setLoadingFactsForBookId(newBook.id);
-        getAuthorFacts(meta.title, meta.author).then(async (facts) => {
-          setLoadingFactsForBookId(null);
-          if (facts.length > 0) {
-            console.log(`[Author Facts] ✅ Received ${facts.length} facts from Grok API for "${meta.title}"`);
-            // Save to database
-            try {
-              const { error: updateError } = await supabase
-                .from('books')
-                .update({ author_facts: facts, updated_at: new Date().toISOString() })
-                .eq('id', newBook.id);
-              
-              if (updateError) throw updateError;
-              
-              console.log(`[Author Facts] 💾 Saved ${facts.length} facts to database for "${meta.title}"`);
-              
-              // Update local state
-              setBooks(prev => prev.map(book => 
-                book.id === newBook.id 
-                  ? { ...book, author_facts: facts }
-                  : book
-              ));
-            } catch (err) {
-              console.error('Error saving author facts to database:', err);
-              // Still update local state even if DB save fails
-              setBooks(prev => prev.map(book => 
-                book.id === newBook.id 
-                  ? { ...book, author_facts: facts }
-                  : book
-              ));
-            }
-          } else {
-            console.log(`[Author Facts] ⚠️ No facts received from Grok API for "${meta.title}"`);
-          }
-        }).catch(err => {
-          setLoadingFactsForBookId(null);
-          console.error(`[Author Facts] ❌ Error fetching from Grok API for "${meta.title}":`, err);
-        });
-
-        // Fetch podcast episodes from both sources
-        console.log(`[Podcast Episodes] 🔄 Fetching from both sources (Curated + Apple) for new book "${meta.title}" by ${meta.author}...`);
-        setLoadingPodcastsForBookId(newBook.id);
-        getPodcastEpisodes(meta.title, meta.author).then(async (allEpisodes) => {
-          setLoadingPodcastsForBookId(null);
-          if (allEpisodes.length > 0) {
-            console.log(`[Podcast Episodes] ✅ Received ${allEpisodes.length} combined episodes for "${meta.title}"`);
-            
-            // Separate episodes by source
-            const curated: PodcastEpisode[] = [];
-            const apple: PodcastEpisode[] = [];
-            
-            allEpisodes.forEach(ep => {
-              if (ep.platform === 'Curated') {
-                curated.push(ep);
-              } else {
-                apple.push(ep);
-              }
-            });
-            
-            // Save to database with both source-specific columns
-            try {
-              const { error: updateError } = await supabase
-                .from('books')
-                .update({ 
-                  podcast_episodes_curated: curated,
-                  podcast_episodes_apple: apple,
-                  updated_at: new Date().toISOString() 
-                })
-                .eq('id', newBook.id)
-                .eq('user_id', user.id);
-              
-              if (updateError) throw updateError;
-              
-              console.log(`[Podcast Episodes] 💾 Saved ${curated.length} curated + ${apple.length} Apple episodes to database for "${meta.title}"`);
-              
-              // Update local state with both source-specific episodes
-              setBooks(prev => prev.map(book => 
-                book.id === newBook.id 
-                  ? { 
-                      ...book, 
-                      podcast_episodes_curated: curated,
-                      podcast_episodes_apple: apple
-                    }
-                  : book
-              ));
-            } catch (err: any) {
-              console.error('[Podcast Episodes] ❌ Error saving to database:', err);
-              console.error('[Podcast Episodes] Error details:', err.message, err.code, err.details);
-              // Still update local state even if DB save fails
-              setBooks(prev => prev.map(book => 
-                book.id === newBook.id 
-                  ? { 
-                      ...book, 
-                      podcast_episodes_curated: curated,
-                      podcast_episodes_apple: apple
-                    }
-                  : book
-              ));
-            }
-          } else {
-            console.log(`[Podcast Episodes] ⚠️ No episodes received from Grok API for "${meta.title}"`);
-          }
-        }).catch(err => {
-          setLoadingPodcastsForBookId(null);
-          console.error(`[Podcast Episodes] ❌ Error fetching from Grok API for "${meta.title}":`, err);
-        });
-      }
+      // Note: We don't fetch data here anymore - let the useEffect hooks handle it
+      // They will check the cache first and only make API calls if needed
+      // This prevents duplicate calls when a book is added and then becomes active
+      // The useEffect hooks will automatically trigger when the new book becomes activeBook
     } catch (err: any) {
       console.error('Error adding book:', err);
       console.error('Error details:', {
@@ -5945,7 +6814,7 @@ export default function App() {
       {/* Simple header - fades on scroll and during transitions */}
       <AnimatePresence mode="wait">
         <motion.div 
-          key={showNotesView ? 'notes-header' : showBookshelf ? 'bookshelf-header' : 'books-header'}
+          key={showSortingResults ? 'sorting-results-header' : showNotesView ? 'notes-header' : showBookshelf ? 'bookshelf-header' : 'books-header'}
           initial={{ opacity: 0 }}
           animate={{ 
             opacity: scrollY > 20 ? Math.max(0, 1 - (scrollY - 20) / 40) : 1,
@@ -5968,6 +6837,10 @@ export default function App() {
           <div className="flex items-center gap-3">
             {isShowingNotes && activeBook ? (
               <Pencil size={24} className="text-slate-950" />
+            ) : showAccountPage ? (
+              <User size={24} className="text-slate-950" />
+            ) : showSortingResults ? (
+              <Star size={24} className="text-slate-950" />
             ) : showNotesView ? (
               <Pencil size={24} className="text-slate-950" />
             ) : showBookshelfCovers ? (
@@ -5978,21 +6851,33 @@ export default function App() {
               <BookOpen size={24} className="text-slate-950" />
             )}
             <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
-              {isShowingNotes && activeBook 
-                ? `${activeBook.title} notes` 
-                : showNotesView 
-                  ? 'NOTES' 
-                  : showBookshelfCovers
-                    ? 'BOOKSHELF'
-                    : showBookshelf 
-                    ? 'BOOKSHELF' 
-                    : 'BOOKS'}
+              {showAccountPage
+                ? 'ACCOUNT'
+                : showSortingResults
+                  ? 'SORTED RESULTS'
+                  : showNotesView 
+                    ? 'NOTES' 
+                    : showBookshelfCovers
+                      ? 'BOOKSHELF'
+                      : showBookshelf 
+                      ? 'BOOKSHELF' 
+                      : 'BOOKS'}
             </h1>
           </div>
         
-        {/* User avatar on right */}
+        {/* User avatar on right - or back button when on account page or sorting results */}
         <div className="relative">
-          {userAvatar ? (
+          {showAccountPage || showSortingResults ? (
+            <button
+              onClick={() => {
+                setShowAccountPage(false);
+                setShowSortingResults(false);
+              }}
+              className="w-8 h-8 rounded-full bg-white/80 backdrop-blur-md border border-white/30 shadow-lg flex items-center justify-center hover:bg-white/90 active:scale-95 transition-all"
+            >
+              <ChevronLeft size={18} className="text-slate-950" />
+            </button>
+          ) : userAvatar ? (
             <button
               onClick={() => setShowLogoutMenu(!showLogoutMenu)}
               className="w-8 h-8 rounded-full overflow-hidden bg-slate-200 cursor-pointer active:scale-95 transition-transform"
@@ -6039,8 +6924,18 @@ export default function App() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -10 }}
                   transition={{ duration: 0.2 }}
-                  className="absolute top-10 right-0 z-40 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-lg shadow-xl border border-white/30 min-w-[120px] overflow-hidden"
+                  className="absolute top-10 right-0 z-40 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-lg shadow-xl border border-white/30 min-w-[140px] overflow-hidden"
                 >
+                  <button
+                    onClick={() => {
+                      setShowAccountPage(true);
+                      setShowLogoutMenu(false);
+                    }}
+                    className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 hover:bg-white/20 active:bg-white/30 transition-colors border-b border-white/20"
+                  >
+                    <User size={16} className="text-slate-600" />
+                    <span>Account</span>
+                  </button>
                   <button
                     onClick={async () => {
                       await signOut();
@@ -6060,7 +6955,234 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence mode="wait">
-        {showNotesView ? (
+        {showAccountPage ? (
+          <motion.main
+            key="account"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
+            style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            onScroll={(e) => {
+              const target = e.currentTarget;
+              setScrollY(target.scrollTop);
+            }}
+          >
+            {/* Account Page */}
+            <div className="w-full max-w-[600px] flex flex-col gap-4 px-4 py-8">
+              {/* User Info Card */}
+              <div className="bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-white/30 shadow-lg">
+                <div className="flex items-center gap-4 mb-6">
+                  {userAvatar ? (
+                    <img 
+                      src={userAvatar} 
+                      alt={userName}
+                      className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-slate-300 flex items-center justify-center border-2 border-white/50">
+                      <span className="text-2xl font-bold text-slate-600">
+                        {userName.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-950">{userName}</h2>
+                    <p className="text-sm text-slate-600">{user?.email}</p>
+                  </div>
+                </div>
+
+                {/* Stats */}
+                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+                  <div>
+                    <p className="text-xs text-slate-600 mb-1">Total Books</p>
+                    <p className="text-2xl font-bold text-slate-950">{books.length}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-600 mb-1">Books with Ratings</p>
+                    <p className="text-2xl font-bold text-slate-950">
+                      {books.filter(book => {
+                        const values = Object.values(book.ratings).filter(v => v != null) as number[];
+                        return values.length > 0;
+                      }).length}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Grok API Usage Logs */}
+              <div className="bg-white/80 backdrop-blur-md rounded-2xl p-4 border border-white/30 shadow-lg">
+                <h3 className="text-sm font-bold text-slate-950 mb-3">Grok API Usage</h3>
+                {(() => {
+                  const logs = getGrokUsageLogs();
+                  const totalCost = logs.reduce((sum, log) => sum + log.estimatedCost, 0);
+                  
+                  if (logs.length === 0) {
+                    return (
+                      <p className="text-xs text-slate-600">No API requests yet</p>
+                    );
+                  }
+                  
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs mb-3 pb-2 border-b border-slate-200">
+                        <span className="text-slate-600">Total Cost:</span>
+                        <span className="font-bold text-slate-950">${totalCost.toFixed(4)}</span>
+                      </div>
+                      <div className="max-h-[300px] overflow-y-auto ios-scroll space-y-1">
+                        {logs.map((log, idx) => {
+                          const date = new Date(log.timestamp);
+                          const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                          return (
+                            <div key={idx} className="text-xs text-slate-700 py-1 border-b border-slate-100 last:border-0">
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium">{log.function}</span>
+                                <span className="text-slate-500">{timeStr}</span>
+                              </div>
+                              <div className="flex items-center justify-between mt-0.5">
+                                <span className="text-slate-600">
+                                  {log.totalTokens.toLocaleString()} tokens
+                                </span>
+                                <span className="font-medium text-slate-950">
+                                  ${log.estimatedCost.toFixed(4)}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Actions */}
+              <button
+                onClick={async () => {
+                  await signOut();
+                  setShowAccountPage(false);
+                }}
+                className="flex items-center gap-2 text-xs font-bold text-blue-700 hover:bg-blue-50 active:scale-95 transition-all px-3 py-1.5 rounded"
+              >
+                <LogOut size={14} />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </motion.main>
+        ) : showSortingResults ? (
+          <motion.main
+            key="sorting-results"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
+            style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            onScroll={(e) => {
+              const target = e.currentTarget;
+              setScrollY(target.scrollTop);
+            }}
+          >
+            {/* Sorting Results View */}
+            <div className="w-full max-w-[600px] flex flex-col gap-4 px-4 py-8">
+              <div className="flex items-center justify-between mb-4">
+                <h1 className="text-2xl font-bold text-slate-950">RANKED BY YOU</h1>
+                <button
+                  onClick={() => {
+                    // Reset merge sort state to replay
+                    if (typeof window !== 'undefined') {
+                      localStorage.removeItem('bookMergeSortState');
+                      localStorage.removeItem('bookComparisonResults');
+                    }
+                    // Close results view and start new game
+                    setShowSortingResults(false);
+                    // The Play button will now be available again
+                  }}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-xs transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95"
+                >
+                  <Play size={14} />
+                  <span>Replay</span>
+                </button>
+              </div>
+              {(() => {
+                const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                const sortedBooks = getSortedBooks(availableBooks);
+                
+                if (sortedBooks.length === 0) {
+                  return (
+                    <div className="w-full bg-white/80 backdrop-blur-md rounded-2xl p-8 border border-white/30 shadow-lg text-center">
+                      <BookOpen size={32} className="mx-auto mb-3 text-slate-400" />
+                      <p className="text-slate-800 text-sm font-medium">No books to display</p>
+                    </div>
+                  );
+                }
+                
+                return (
+                  <div className="space-y-3">
+                    {sortedBooks.map((book: BookWithRatings, index: number) => (
+                      <motion.div
+                        key={book.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        className="bg-white/80 backdrop-blur-md rounded-2xl p-4 border border-white/30 shadow-lg cursor-pointer hover:shadow-xl transition-shadow"
+                        onClick={() => {
+                          const bookIndex = books.findIndex(b => b.id === book.id);
+                          if (bookIndex !== -1) {
+                            setSelectedIndex(bookIndex);
+                            setShowSortingResults(false);
+                          }
+                        }}
+                      >
+                        <div className="flex gap-4 items-center">
+                          {/* Rank Number */}
+                          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-lg">
+                            {index + 1}
+                          </div>
+                          
+                          {/* Book Cover */}
+                          <div className="flex-shrink-0">
+                            {book.cover_url ? (
+                              <img 
+                                src={book.cover_url} 
+                                alt={book.title}
+                                className="w-16 h-24 object-cover rounded-lg shadow-md"
+                              />
+                            ) : (
+                              <div className={`w-16 h-24 rounded-lg flex items-center justify-center bg-gradient-to-br ${getGradient(book.id)}`}>
+                                <BookOpen size={24} className="text-white opacity-50" />
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Book Info */}
+                          <div className="flex-1 min-w-0">
+                            <h2 className="text-sm font-bold text-slate-950 mb-1 line-clamp-1">{book.title}</h2>
+                            <p className="text-xs text-slate-600 mb-1">{book.author}</p>
+                            {(() => {
+                              const avgScore = calculateAvg(book.ratings);
+                              if (avgScore) {
+                                return (
+                                  <div className="flex items-center gap-1">
+                                    <Star size={12} className="fill-amber-400 text-amber-400" />
+                                    <span className="text-xs font-bold text-slate-700">{avgScore}</span>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </motion.main>
+        ) : showNotesView ? (
           <motion.main
             key="notes"
             initial={{ opacity: 0 }}
@@ -6206,58 +7328,129 @@ export default function App() {
               className="w-full flex flex-col items-center px-4"
             >
               <div className="w-full max-w-[1600px] flex flex-col gap-2.5 py-8">
-                {/* Grouping Selector */}
-                <div className="flex items-center justify-center gap-2 px-4 mb-1.5">
-                  <button
-                    onClick={() => setBookshelfGrouping('rating')}
-                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
-                      bookshelfGrouping === 'rating'
-                        ? 'bg-opacity-20 text-slate-950'
-                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
-                    }`}
-                  >
-                    Rating
-                  </button>
-                  <button
-                    onClick={() => setBookshelfGrouping('author')}
-                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
-                      bookshelfGrouping === 'author'
-                        ? 'bg-opacity-20 text-slate-950'
-                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
-                    }`}
-                  >
-                    Author
-                  </button>
-                  <button
-                    onClick={() => setBookshelfGrouping('title')}
-                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
-                      bookshelfGrouping === 'title'
-                        ? 'bg-opacity-20 text-slate-950'
-                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
-                    }`}
-                  >
-                    Title
-                  </button>
-                  <button
-                    onClick={() => setBookshelfGrouping('genre')}
-                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
-                      bookshelfGrouping === 'genre'
-                        ? 'bg-opacity-20 text-slate-950'
-                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
-                    }`}
-                  >
-                    Genre
-                  </button>
-                  <button
-                    onClick={() => setBookshelfGrouping('reading_status')}
-                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
-                      bookshelfGrouping === 'reading_status'
-                        ? 'bg-opacity-20 text-slate-950'
-                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
-                    }`}
-                  >
-                    Status
-                  </button>
+                {/* Grouping Selector - Dropdown and Play Button */}
+                <div className="flex items-center justify-between px-4 mb-1.5">
+                  <div className="relative" ref={bookshelfGroupingDropdownRef}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsBookshelfGroupingDropdownOpen(!isBookshelfGroupingDropdownOpen);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 text-slate-700 hover:bg-opacity-15"
+                    >
+                      <span>
+                        {bookshelfGrouping === 'reading_status' ? 'Status' :
+                         bookshelfGrouping === 'added' ? 'Added' :
+                         bookshelfGrouping === 'rating' ? 'Rating' :
+                         bookshelfGrouping === 'title' ? 'Title' :
+                         bookshelfGrouping === 'author' ? 'Author' :
+                         bookshelfGrouping === 'genre' ? 'Genre' :
+                         bookshelfGrouping === 'publication_year' ? 'Year' : 'Status'}
+                      </span>
+                      <ChevronDown 
+                        size={16} 
+                        className={`transition-transform ${isBookshelfGroupingDropdownOpen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                    {isBookshelfGroupingDropdownOpen && (
+                      <>
+                        {/* Backdrop to close menu */}
+                        <div
+                          className="fixed inset-0 z-30"
+                          onClick={() => setIsBookshelfGroupingDropdownOpen(false)}
+                        />
+                        {/* Menu */}
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                          transition={{ duration: 0.2 }}
+                          className="absolute top-full left-0 mt-1 z-40 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-lg shadow-xl border border-white/30 min-w-[140px] overflow-hidden"
+                        >
+                          {[
+                            { value: 'reading_status', label: 'Status' },
+                            { value: 'added', label: 'Added' },
+                            { value: 'rating', label: 'Rating' },
+                            { value: 'title', label: 'Title' },
+                            { value: 'author', label: 'Author' },
+                            { value: 'genre', label: 'Genre' },
+                            { value: 'publication_year', label: 'Year' },
+                          ].map((option, idx) => (
+                            <button
+                              key={option.value}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setBookshelfGrouping(option.value as 'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year');
+                                setIsBookshelfGroupingDropdownOpen(false);
+                              }}
+                              className={`w-full px-4 py-3 flex items-center gap-2 text-sm font-medium transition-colors ${
+                                idx > 0 ? 'border-t border-white/20' : ''
+                              } ${
+                                bookshelfGrouping === option.value
+                                  ? 'text-slate-950 bg-white/20'
+                                  : 'text-slate-700 hover:bg-white/20 active:bg-white/30'
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </motion.div>
+                      </>
+                    )}
+                  </div>
+                  {/* Play/Results Button - only show when grouping by rating */}
+                  {bookshelfGrouping === 'rating' && (() => {
+                    const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                    const isComplete = availableBooks.length >= 2 && !getNextMergePair(availableBooks);
+                    
+                    return (
+                      <button
+                        onClick={() => {
+                          if (isComplete) {
+                            // Show results in glassmorphic dialog
+                            setIsPlayingGame(true);
+                            setShowGameResults(true);
+                            setIsGameCompleting(false);
+                          } else {
+                            // Initialize game
+                            if (availableBooks.length < 2) {
+                              alert('You need at least 2 books with "Read it" status to play!');
+                              return;
+                            }
+                            
+                            // Get next merge sort comparison pair
+                            const mergePair = getNextMergePair(availableBooks);
+                            if (!mergePair) {
+                              alert('Sorting complete! All books have been sorted.');
+                              return;
+                            }
+                            
+                            const [book1, book2] = mergePair;
+                            setGameBook1(book1);
+                            setGameBook2(book2);
+                            setGameShownBooks(new Set([book1.id, book2.id]));
+                            setGameRound(1);
+                            setIsPlayingGame(true);
+                            setShowGameResults(false);
+                            setIsGameCompleting(false);
+                          }
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95"
+                      >
+                        {isComplete ? (
+                          <>
+                            <Star size={16} />
+                            <span>Results</span>
+                          </>
+                        ) : (
+                          <>
+                            <Play size={16} />
+                            <span>Play</span>
+                          </>
+                        )}
+                      </button>
+                    );
+                  })()}
                 </div>
                 
                 {groupedBooksForBookshelf.map((group, groupIdx) => (
@@ -6365,58 +7558,76 @@ export default function App() {
               className="w-full flex flex-col items-center px-4"
             >
               <div className="w-full max-w-[1600px] flex flex-col gap-2.5 py-8">
-                {/* Grouping Selector */}
-                <div className="flex items-center justify-center gap-2 px-4 mb-1.5">
-                  <button
-                    onClick={() => setBookshelfGrouping('rating')}
-                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
-                      bookshelfGrouping === 'rating'
-                        ? 'bg-opacity-20 text-slate-950'
-                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
-                    }`}
-                  >
-                    Rating
-                  </button>
-                  <button
-                    onClick={() => setBookshelfGrouping('author')}
-                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
-                      bookshelfGrouping === 'author'
-                        ? 'bg-opacity-20 text-slate-950'
-                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
-                    }`}
-                  >
-                    Author
-                  </button>
-                  <button
-                    onClick={() => setBookshelfGrouping('title')}
-                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
-                      bookshelfGrouping === 'title'
-                        ? 'bg-opacity-20 text-slate-950'
-                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
-                    }`}
-                  >
-                    Title
-                  </button>
-                  <button
-                    onClick={() => setBookshelfGrouping('genre')}
-                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
-                      bookshelfGrouping === 'genre'
-                        ? 'bg-opacity-20 text-slate-950'
-                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
-                    }`}
-                  >
-                    Genre
-                  </button>
-                  <button
-                    onClick={() => setBookshelfGrouping('reading_status')}
-                    className={`px-3 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl backdrop-saturate-150 backdrop-contrast-75 border border-white/30 ${
-                      bookshelfGrouping === 'reading_status'
-                        ? 'bg-opacity-20 text-slate-950'
-                        : 'bg-opacity-10 text-slate-700 hover:bg-opacity-15'
-                    }`}
-                  >
-                    Status
-                  </button>
+                {/* Grouping Selector - Dropdown */}
+                <div className="flex items-center justify-start px-4 mb-1.5">
+                  <div className="relative" ref={bookshelfGroupingDropdownRef}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsBookshelfGroupingDropdownOpen(!isBookshelfGroupingDropdownOpen);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 text-slate-700 hover:bg-opacity-15"
+                    >
+                      <span>
+                        {bookshelfGrouping === 'reading_status' ? 'Status' :
+                         bookshelfGrouping === 'added' ? 'Added' :
+                         bookshelfGrouping === 'rating' ? 'Rating' :
+                         bookshelfGrouping === 'title' ? 'Title' :
+                         bookshelfGrouping === 'author' ? 'Author' :
+                         bookshelfGrouping === 'genre' ? 'Genre' :
+                         bookshelfGrouping === 'publication_year' ? 'Year' : 'Status'}
+                      </span>
+                      <ChevronDown 
+                        size={16} 
+                        className={`transition-transform ${isBookshelfGroupingDropdownOpen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                    {isBookshelfGroupingDropdownOpen && (
+                      <>
+                        {/* Backdrop to close menu */}
+                        <div
+                          className="fixed inset-0 z-30"
+                          onClick={() => setIsBookshelfGroupingDropdownOpen(false)}
+                        />
+                        {/* Menu */}
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                          transition={{ duration: 0.2 }}
+                          className="absolute top-full left-0 mt-1 z-40 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-lg shadow-xl border border-white/30 min-w-[140px] overflow-hidden"
+                        >
+                          {[
+                            { value: 'reading_status', label: 'Status' },
+                            { value: 'added', label: 'Added' },
+                            { value: 'rating', label: 'Rating' },
+                            { value: 'title', label: 'Title' },
+                            { value: 'author', label: 'Author' },
+                            { value: 'genre', label: 'Genre' },
+                            { value: 'publication_year', label: 'Year' },
+                          ].map((option, idx) => (
+                            <button
+                              key={option.value}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setBookshelfGrouping(option.value as 'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year');
+                                setIsBookshelfGroupingDropdownOpen(false);
+                              }}
+                              className={`w-full px-4 py-3 flex items-center gap-2 text-sm font-medium transition-colors ${
+                                idx > 0 ? 'border-t border-white/20' : ''
+                              } ${
+                                bookshelfGrouping === option.value
+                                  ? 'text-slate-950 bg-white/20'
+                                  : 'text-slate-700 hover:bg-white/20 active:bg-white/30'
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </motion.div>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {/* Summary Section */}
@@ -6848,7 +8059,9 @@ export default function App() {
                     className="absolute inset-0 w-full h-full bg-white rounded-3xl p-4 flex flex-col"
                   >
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-bold text-slate-950">Notes</h3>
+                    <h3 className="text-sm font-bold text-slate-950">
+                      {activeBook ? `${activeBook.title} notes` : 'Notes'}
+                    </h3>
                     <button
                       onClick={() => setIsShowingNotes(false)}
                       className="p-1.5 text-slate-600 hover:text-slate-800 active:scale-95 transition-all"
@@ -7129,12 +8342,19 @@ export default function App() {
                       {activeBook.summary.length > 2000 ? activeBook.summary.substring(0, 2000) + '...' : activeBook.summary}
                     </p>
                   )}
-                  {/* Line 3: Author, Year, Source */}
+                  {/* Line 3: Author */}
+                  <p className="text-xs font-bold text-slate-800 mb-2">{activeBook.author}</p>
+                  {/* Line 4: All Labels */}
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-xs font-bold text-slate-800">{activeBook.author}</p>
-                    {activeBook.publish_year && (
+                    {activeBook.first_issue_year && (
                       <>
-                        <span className="text-slate-300">•</span>
+                        <span className="bg-blue-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-blue-800">
+                          First Issue: {activeBook.first_issue_year}
+                        </span>
+                      </>
+                    )}
+                    {activeBook.publish_year && !activeBook.first_issue_year && (
+                      <>
                         <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
                           {activeBook.publish_year}
                         </span>
@@ -7142,15 +8362,20 @@ export default function App() {
                     )}
                     {activeBook.genre && (
                       <>
-                        <span className="text-slate-300">•</span>
                         <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
                           {activeBook.genre}
                         </span>
                       </>
                     )}
+                    {activeBook.isbn && (
+                      <>
+                        <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
+                          ISBN: {activeBook.isbn}
+                        </span>
+                      </>
+                    )}
                     {(activeBook.wikipedia_url || activeBook.google_books_url) && (
                       <>
-                        <span className="text-slate-300">•</span>
                         <a 
                           href={activeBook.google_books_url || activeBook.wikipedia_url || '#'} 
                           target="_blank" 
@@ -7519,6 +8744,7 @@ export default function App() {
               setShowBookshelf(false);
               setShowBookshelfCovers(false);
               setShowNotesView(false);
+              setShowAccountPage(false);
               // Scroll to top to show books
               const main = document.querySelector('main');
               if (main) {
@@ -7526,7 +8752,7 @@ export default function App() {
               }
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
-              !showBookshelf && !showNotesView
+              !showBookshelf && !showNotesView && !showAccountPage
                 ? 'bg-white/40 hover:bg-white/50' 
                 : 'bg-white/20 hover:bg-white/30'
             }`}
@@ -7541,6 +8767,8 @@ export default function App() {
               setShowBookshelfCovers(!showBookshelfCovers);
               setShowBookshelf(false);
               setShowNotesView(false);
+              setShowAccountPage(false);
+              setShowSortingResults(false);
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
               showBookshelfCovers 
@@ -7558,6 +8786,8 @@ export default function App() {
               setShowNotesView(!showNotesView);
               setShowBookshelf(false);
               setShowBookshelfCovers(false);
+              setShowAccountPage(false);
+              setShowSortingResults(false);
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
               showNotesView 
@@ -7577,6 +8807,351 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {/* Game Overlay */}
+      <AnimatePresence>
+        {(isPlayingGame && (gameBook1 && gameBook2 || isGameCompleting || showGameResults)) && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !showGameResults) {
+                setIsPlayingGame(false);
+                setShowGameResults(false);
+                setIsGameCompleting(false);
+              }
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ 
+                scale: 1, 
+                y: 0
+              }}
+              exit={{ scale: 0.9, y: 20 }}
+              transition={{ 
+                duration: 0.4
+              }}
+              className={`relative bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-3xl shadow-2xl border border-white/30 p-4 max-w-4xl w-full overflow-y-auto max-h-[90vh]`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Game Header */}
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-xl font-black text-white">
+                  {showGameResults ? 'Ranked Results' : 'Pick Your Favorite'}
+                </h2>
+                <div className="flex items-center gap-2">
+                  {showGameResults && (
+                    <button
+                      onClick={() => {
+                        // Reset merge sort state to replay
+                        if (typeof window !== 'undefined') {
+                          localStorage.removeItem('bookMergeSortState');
+                          localStorage.removeItem('bookComparisonResults');
+                        }
+                        // Reset game state first - close results view
+                        setShowGameResults(false);
+                        setIsGameCompleting(false);
+                        
+                        // Then start new game after a brief delay to allow animation to reset
+                        setTimeout(() => {
+                          const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                          if (availableBooks.length >= 2) {
+                            const mergePair = getNextMergePair(availableBooks);
+                            if (mergePair) {
+                              const [book1, book2] = mergePair;
+                              setGameBook1(book1);
+                              setGameBook2(book2);
+                              setGameShownBooks(new Set([book1.id, book2.id]));
+                              setGameRound(1);
+                            } else {
+                              // If somehow no pair available, just close
+                              setIsPlayingGame(false);
+                            }
+                          } else {
+                            // Not enough books, just close
+                            setIsPlayingGame(false);
+                          }
+                        }, 100); // Small delay to let dialog reset its size
+                      }}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-xs transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95"
+                    >
+                      <Play size={14} />
+                      <span>Replay</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setIsPlayingGame(false);
+                      setShowGameResults(false);
+                      setIsGameCompleting(false);
+                    }}
+                    className="text-white/80 hover:text-white transition-colors"
+                  >
+                    <ChevronLeft size={24} />
+                  </button>
+                </div>
+              </div>
+              
+              {/* Progress Bar - Show merge sort progress */}
+              {(() => {
+                const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                const n = availableBooks.length;
+                const totalComparisons = getTotalMergeComparisons(n);
+                const comparedCount = getCurrentComparisonCount();
+                const progress = totalComparisons > 0 ? (comparedCount / totalComparisons) * 100 : 0;
+                
+                return (
+                  <div className="mb-4">
+                    <div className="text-xs text-slate-400 text-center mb-2">
+                      {comparedCount} / ~{totalComparisons} comparisons ({Math.round(progress)}%)
+                    </div>
+                    <div className="w-full h-2 bg-slate-400/20 rounded-full overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${progress}%` }}
+                        transition={{ duration: 0.3 }}
+                        className="h-full bg-blue-600 rounded-full"
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+              
+              {/* Two Books Side by Side - Hide when completing or showing results */}
+              {!isGameCompleting && !showGameResults && gameBook1 && gameBook2 && (
+              <div className="grid grid-cols-2 gap-4 relative">
+                {/* Book 1 */}
+                <AnimatePresence mode="wait">
+                  <motion.button
+                    key={gameBook1.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                    // Record comparison: book1 beats book2
+                    if (gameBook1 && gameBook2) {
+                      const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                      recordMergeComparisonForGame(gameBook1.id, gameBook2.id, availableBooks);
+                    }
+                    
+                    // Replace both books with next merge sort comparison
+                    const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                    const nextPair = getNextMergePair(availableBooks);
+                    
+                    if (!nextPair) {
+                      // Merge sort complete - clear books and show spinner, then expand to show results
+                      setGameBook1(null);
+                      setGameBook2(null);
+                      setIsGameCompleting(true);
+                      setTimeout(() => {
+                        setIsGameCompleting(false);
+                        setShowGameResults(true);
+                      }, 1500); // Show spinner for 1.5 seconds
+                      return;
+                    }
+                    
+                    const [newBook1, newBook2] = nextPair;
+                    setGameBook1(newBook1);
+                    setGameBook2(newBook2);
+                    setGameShownBooks(new Set([newBook1.id, newBook2.id]));
+                    setGameRound(prev => prev + 1);
+                  }}
+                  className="flex items-center justify-center p-2 rounded-2xl hover:bg-white/20 transition-colors"
+                >
+                  {gameBook1 && (
+                    <>
+                      {gameBook1.cover_url ? (
+                        <img 
+                          src={gameBook1.cover_url} 
+                          alt={gameBook1.title}
+                          className="w-full aspect-[2/3] object-cover rounded-lg shadow-lg"
+                        />
+                      ) : (
+                        <div className={`w-full aspect-[2/3] flex items-center justify-center bg-gradient-to-br ${getGradient(gameBook1.id)} rounded-lg shadow-lg`}>
+                          <BookOpen size={48} className="text-white opacity-50" />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </motion.button>
+                </AnimatePresence>
+                
+                {/* Book 2 */}
+                <AnimatePresence mode="wait">
+                  <motion.button
+                    key={gameBook2.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => {
+                    // Record comparison: book2 beats book1
+                    if (gameBook1 && gameBook2) {
+                      const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                      recordMergeComparisonForGame(gameBook2.id, gameBook1.id, availableBooks);
+                    }
+                    
+                    // Replace both books with next merge sort comparison
+                    const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                    const nextPair = getNextMergePair(availableBooks);
+                    
+                    if (!nextPair) {
+                      // Merge sort complete - clear books and show spinner, then expand to show results
+                      setGameBook1(null);
+                      setGameBook2(null);
+                      setIsGameCompleting(true);
+                      setTimeout(() => {
+                        setIsGameCompleting(false);
+                        setShowGameResults(true);
+                      }, 1500); // Show spinner for 1.5 seconds
+                      return;
+                    }
+                    
+                    const [newBook1, newBook2] = nextPair;
+                    setGameBook1(newBook1);
+                    setGameBook2(newBook2);
+                    setGameShownBooks(new Set([newBook1.id, newBook2.id]));
+                    setGameRound(prev => prev + 1);
+                  }}
+                  className="flex items-center justify-center p-2 rounded-2xl hover:bg-white/20 transition-colors"
+                >
+                  {gameBook2 && (
+                    <>
+                      {gameBook2.cover_url ? (
+                        <img 
+                          src={gameBook2.cover_url} 
+                          alt={gameBook2.title}
+                          className="w-full aspect-[2/3] object-cover rounded-lg shadow-lg"
+                        />
+                      ) : (
+                        <div className={`w-full aspect-[2/3] flex items-center justify-center bg-gradient-to-br ${getGradient(gameBook2.id)} rounded-lg shadow-lg`}>
+                          <BookOpen size={48} className="text-white opacity-50" />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </motion.button>
+                </AnimatePresence>
+              </div>
+              )}
+              
+              {/* Completion Spinner - Show on top of empty dialog */}
+              <AnimatePresence>
+                {isGameCompleting && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="flex items-center justify-center min-h-[400px] rounded-3xl"
+                  >
+                    <div className="text-center">
+                      <BookLoading />
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              
+              {/* Ranked Results List - Expand vertically after spinner */}
+              <AnimatePresence>
+                {showGameResults && (() => {
+                  const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                  const sortedBooks = getSortedBooks(availableBooks);
+                  
+                  if (sortedBooks.length === 0) {
+                    return (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.6, ease: "easeInOut" }}
+                        className="flex items-center justify-center min-h-[200px] text-white"
+                      >
+                        <p className="text-sm">No books to display</p>
+                      </motion.div>
+                    );
+                  }
+                  
+                  return (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.6, ease: "easeInOut" }}
+                      className="space-y-3 mt-4"
+                    >
+                      {sortedBooks.map((book: BookWithRatings, index: number) => (
+                        <motion.div
+                          key={book.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="bg-white/20 backdrop-blur-md rounded-2xl p-4 border border-white/30 shadow-lg cursor-pointer hover:bg-white/30 transition-all"
+                          onClick={() => {
+                            const bookIndex = books.findIndex(b => b.id === book.id);
+                            if (bookIndex !== -1) {
+                              setSelectedIndex(bookIndex);
+                              setIsPlayingGame(false);
+                              setShowGameResults(false);
+                            }
+                          }}
+                        >
+                          <div className="flex gap-4 items-center">
+                            {/* Rank Number */}
+                            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-lg">
+                              {index + 1}
+                            </div>
+                            
+                            {/* Book Cover */}
+                            <div className="flex-shrink-0">
+                              {book.cover_url ? (
+                                <img 
+                                  src={book.cover_url} 
+                                  alt={book.title}
+                                  className="w-16 h-24 object-cover rounded-lg shadow-md"
+                                />
+                              ) : (
+                                <div className={`w-16 h-24 rounded-lg flex items-center justify-center bg-gradient-to-br ${getGradient(book.id)}`}>
+                                  <BookOpen size={24} className="text-white opacity-50" />
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Book Info */}
+                            <div className="flex-1 min-w-0">
+                              <h2 className="text-sm font-bold text-white mb-1 line-clamp-1">{book.title}</h2>
+                              <p className="text-xs text-white/80 mb-1">{book.author}</p>
+                              {(() => {
+                                const avgScore = calculateAvg(book.ratings);
+                                if (avgScore) {
+                                  return (
+                                    <div className="flex items-center gap-1">
+                                      <Star size={12} className="fill-amber-400 text-amber-400" />
+                                      <span className="text-xs font-bold text-white">{avgScore}</span>
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                  );
+                })()}
+              </AnimatePresence>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {isAdding && (

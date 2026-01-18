@@ -22,7 +22,7 @@ export function BookLoading() {
         }
         
         .book-loading {
-          font-size: 12px;
+          font-size: 6px;
         }
         
         .book-loading .book,
