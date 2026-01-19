@@ -4489,52 +4489,17 @@ async function generateTriviaQuestions(triviaNotes: TriviaNote[]): Promise<Array
     author_facts: [note.fact]
   }));
   
-  const prompt = `You are an expert creator of The Guardian Thursday Quiz-style questions: short (1-2 lines max), witty, punchy, slightly irreverent trivia that mixes quirky behind-the-scenes author facts, odd inspirations, personal anecdotes, research rabbit holes, and literary details. Questions are phrased openly but designed for multiple-choice reveal.
-
-IMPORTANT RULES FOR ANSWERS:
-- The correct_answer MUST be a specific, extractable detail FROM the facts — NOT the author's name, NOT "who wrote the book", NOT just the book title.
-- Focus on quirky elements: real people who inspired characters, objects/symbols (e.g. hat, cat collar, typewriter), locations, numbers (e.g. notebooks, months, rejections), phrases/slogans, research finds, personal mishaps, hidden gems, inspirations from real life, etc.
-- Avoid questions where the answer is simply the author. If a fact is about the author, reframe the question around the DETAIL (e.g. not "who wrote X?", but "what red hunting hat symbol came from sightings of Manhattan eccentrics?").
-- Vary answer types heavily across the 11 questions: people, objects, places, numbers, events, phrases, animals, recipes, etc.
-- Make wrong_answers plausible "close" distractors: similar details from other facts in the list, common literary mix-ups, near-miss inspirations, or logical red herrings.
-
-Task: From the provided JSON array (each object has "author_facts": array of fact strings about books/authors), generate exactly 11 quiz questions.
-
-For each question:
-- Keep very concise (under 25 words preferred, max 30).
-- Use playful, cheeky, mildly sarcastic tone where fitting.
-- Include book titles in quotes when relevant.
-- Optionally add "(pictured)" if a visual fits naturally.
-- Draw from varied facts across the entire list (avoid clustering on one book/author).
-- Output ONLY valid JSON—no extra text, explanations, or markdown.
-
-Output schema (exact structure):
-{
-  "questions": [
-    {
-      "question": "Holden Caulfield's iconic red hunting hat was inspired by sightings of what during lonely Manhattan walks?",
-      "correct_answer": "eccentric characters",
-      "wrong_answers": [
-        "prep school bullies",
-        "Central Park ducks",
-        "Greenwich Village poets"
-      ]
-    },
-    {
-      "question": "Which real ancient English wall did George R.R. Martin climb to inspire the massive icy barrier in 'A Game of Thrones'?",
-      "correct_answer": "Hadrian's Wall",
-      "wrong_answers": [
-        "Great Wall of China",
-        "Berlin Wall",
-        "Antonine Wall"
-      ]
-    },
-    ...
-  ]
-}
-
-Input facts:
-${JSON.stringify(factsJson, null, 2)}`;
+  // Load prompt from prompts.yaml
+  const prompts = await loadPrompts();
+  if (!prompts.trivia_questions || !prompts.trivia_questions.prompt) {
+    console.error('[generateTriviaQuestions] ❌ trivia_questions prompt not found in prompts config');
+    return [];
+  }
+  
+  // Format the prompt with the facts JSON
+  const prompt = formatPrompt(prompts.trivia_questions.prompt, { 
+    FACTS_JSON: JSON.stringify(factsJson, null, 2) 
+  });
 
   await new Promise(resolve => setTimeout(resolve, 2000));
   
@@ -6072,15 +6037,47 @@ export default function App() {
       // Play when trivia game is active (has questions and not complete)
       if (isPlayingTrivia && triviaQuestions.length > 0 && !triviaGameComplete && !isTriviaReady && !isTriviaLoading) {
         audio.loop = true;
+        // Resume from current position if already loaded, otherwise start from beginning
         audio.play().catch(err => {
           console.warn('Failed to play trivia theme:', err);
         });
-      } else {
-        // Pause when game ends, closes, or is in ready/loading state
+      } else if (!isPlayingTrivia) {
+        // Only pause when game is closed (not when in ready/loading state)
         audio.pause();
-        audio.currentTime = 0;
+        // Don't reset currentTime so it can resume when reopened
+      } else if (triviaGameComplete || isTriviaReady || isTriviaLoading) {
+        // Pause when game ends or is in ready/loading state, but keep position
+        audio.pause();
       }
     }
+  }, [isPlayingTrivia, triviaQuestions.length, triviaGameComplete, isTriviaReady, isTriviaLoading]);
+
+  // Pause music when browser goes to background
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const handleVisibilityChange = () => {
+      if (triviaAudioRef.current) {
+        const audio = triviaAudioRef.current;
+        if (document.hidden) {
+          // Browser went to background - pause music
+          audio.pause();
+        } else {
+          // Browser came back to foreground - resume if game is active
+          if (isPlayingTrivia && triviaQuestions.length > 0 && !triviaGameComplete && !isTriviaReady && !isTriviaLoading) {
+            audio.loop = true;
+            audio.play().catch(err => {
+              console.warn('Failed to resume trivia theme:', err);
+            });
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [isPlayingTrivia, triviaQuestions.length, triviaGameComplete, isTriviaReady, isTriviaLoading]);
 
   // Track which books we're currently fetching influences for to prevent duplicate concurrent fetches
@@ -9447,16 +9444,23 @@ export default function App() {
               setShowAccountPage(false);
               setShowSortingResults(false);
               
-              // Show ready screen
-              setIsPlayingTrivia(true);
-              setIsTriviaReady(true);
-              setCurrentTriviaQuestionIndex(0);
-              setTriviaScore(0);
-              setSelectedTriviaAnswer(null);
-              setTriviaGameComplete(false);
-              setTriviaSelectedAnswers(new Map());
-              setIsTriviaTransitioning(false);
-              setTriviaShuffledAnswers([]);
+              // If we have questions and are mid-game, resume from where we left off
+              if (triviaQuestions.length > 0 && currentTriviaQuestionIndex < triviaQuestions.length && !triviaGameComplete) {
+                // Resume mid-game - don't reset state, just reopen
+                setIsPlayingTrivia(true);
+                setIsTriviaReady(false);
+              } else {
+                // Start new game - reset everything
+                setIsPlayingTrivia(true);
+                setIsTriviaReady(true);
+                setCurrentTriviaQuestionIndex(0);
+                setTriviaScore(0);
+                setSelectedTriviaAnswer(null);
+                setTriviaGameComplete(false);
+                setTriviaSelectedAnswers(new Map());
+                setIsTriviaTransitioning(false);
+                setTriviaShuffledAnswers([]);
+              }
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
               isPlayingTrivia 
@@ -9948,8 +9952,13 @@ export default function App() {
             className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-end justify-center px-4"
             onClick={(e) => {
               if (e.target === e.currentTarget && !triviaGameComplete) {
+                // Minimize game - preserve state, just close the overlay
                 setIsPlayingTrivia(false);
-                setIsTriviaReady(false);
+                // Don't reset isTriviaReady if we have questions (mid-game)
+                // Only reset if we're in the initial ready state
+                if (triviaQuestions.length === 0) {
+                  setIsTriviaReady(false);
+                }
               }
             }}
           >

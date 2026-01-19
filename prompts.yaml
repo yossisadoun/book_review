@@ -215,10 +215,10 @@ trivia_questions:
     - Keep very concise (under 25 words preferred, max 30).
     - Use playful, cheeky, mildly sarcastic tone where fitting.
     - Include book titles in quotes when relevant.
+    - Absolutely no questions where the answer is a number or a date.
     - Optionally add "(pictured)" if a visual fits naturally.
     - Draw from varied facts across the entire list (avoid clustering on one book/author).
     - Output ONLY valid JSON—no extra text, explanations, or markdown.
-    - No questions where the answer is numbers or dates
 
     Output schema (exact structure):
     {
