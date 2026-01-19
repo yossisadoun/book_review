@@ -4527,6 +4527,11 @@ async function generateTriviaQuestions(triviaNotes: TriviaNote[]): Promise<Array
       body: JSON.stringify(payload)
     });
     
+    // Log usage
+    if (data.usage) {
+      logGrokUsage('generateTriviaQuestions', data.usage);
+    }
+    
     const content = data.choices?.[0]?.message?.content || '{}';
     // Extract JSON from markdown if needed
     const jsonMatch = content.match(/\{[\s\S]*\}/);
