@@ -9134,7 +9134,7 @@ export default function App() {
                       {shouldBlurInsights && (
                         <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
                           <div className="text-center px-4">
-                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk.</p>
+                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Insights.</p>
                             <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
                           </div>
                         </div>
@@ -9249,7 +9249,7 @@ export default function App() {
                       {shouldBlurPodcasts && (
                         <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
                           <div className="text-center px-4">
-                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk.</p>
+                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Podcasts.</p>
                             <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
                           </div>
                         </div>
@@ -9327,7 +9327,7 @@ export default function App() {
                       {shouldBlurAnalysis && (
                         <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
                           <div className="text-center px-4">
-                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk.</p>
+                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Analysis.</p>
                             <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
                           </div>
                         </div>
@@ -9397,7 +9397,7 @@ export default function App() {
                       {shouldBlurVideos && (
                         <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
                           <div className="text-center px-4">
-                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk.</p>
+                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Videos.</p>
                             <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
                           </div>
                         </div>
@@ -9469,7 +9469,7 @@ export default function App() {
                       {shouldBlurRelated && (
                         <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
                           <div className="text-center px-4">
-                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk.</p>
+                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Related.</p>
                             <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
                           </div>
                         </div>
@@ -9633,7 +9633,7 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end justify-center px-4"
             onClick={(e) => {
               if (e.target === e.currentTarget && !showGameResults) {
                 setIsPlayingGame(false);
@@ -9643,65 +9643,64 @@ export default function App() {
             }}
           >
             <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ 
-                scale: 1, 
-                y: 0
-              }}
-              exit={{ scale: 0.9, y: 20 }}
-              transition={{ 
-                duration: 0.4
-              }}
-              className={`relative bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-3xl shadow-2xl border border-white/30 p-4 max-w-4xl w-full overflow-y-auto max-h-[90vh]`}
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="w-full max-w-md bg-white/80 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 relative"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Game Header */}
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-xl font-black text-white">
-                  {showGameResults ? 'Ranked Results' : 'Pick Your Favorite'}
-                </h2>
-                <div className="flex items-center gap-2">
+              {/* Handle bar */}
+              <div className="w-full flex justify-center pt-3 pb-2">
+                <div className="w-12 h-1 bg-slate-400 rounded-full" />
+              </div>
+              
+              <div className="px-4 pb-6 max-h-[90vh] overflow-y-auto">
+                {/* Game Header */}
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-bold text-slate-950">
+                    {showGameResults ? 'Ranked Results' : 'Pick Your Favorite'}
+                  </h2>
                   <button
                     onClick={() => {
                       setIsPlayingGame(false);
                       setShowGameResults(false);
                       setIsGameCompleting(false);
                     }}
-                    className="text-white/80 hover:text-white transition-colors"
+                    className="w-8 h-8 rounded-full bg-white/80 backdrop-blur-md hover:bg-white/85 border border-white/30 active:scale-95 transition-all flex items-center justify-center shadow-sm"
                   >
-                    <ChevronLeft size={24} />
+                    <ChevronLeft size={16} className="text-slate-700 rotate-90" />
                   </button>
                 </div>
-              </div>
               
-              {/* Progress Bar - Show merge sort progress */}
-              {(() => {
-                const availableBooks = books.filter(b => b.reading_status === 'read_it');
-                const n = availableBooks.length;
-                const totalComparisons = getTotalMergeComparisons(n);
-                const comparedCount = getCurrentComparisonCount();
-                const progress = totalComparisons > 0 ? (comparedCount / totalComparisons) * 100 : 0;
-                
-                return (
-                  <div className="mb-4">
-                    <div className="text-xs text-slate-400 text-center mb-2">
-                      {comparedCount} / ~{totalComparisons} comparisons ({Math.round(progress)}%)
+                {/* Progress Bar - Show merge sort progress */}
+                {!showGameResults && (() => {
+                  const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                  const n = availableBooks.length;
+                  const totalComparisons = getTotalMergeComparisons(n);
+                  const comparedCount = getCurrentComparisonCount();
+                  const progress = totalComparisons > 0 ? (comparedCount / totalComparisons) * 100 : 0;
+                  
+                  return (
+                    <div className="mb-4">
+                      <div className="text-xs text-slate-600 text-center mb-2">
+                        {comparedCount} / ~{totalComparisons} comparisons ({Math.round(progress)}%)
+                      </div>
+                      <div className="w-full h-2 bg-slate-300/50 rounded-full overflow-hidden">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${progress}%` }}
+                          transition={{ duration: 0.3 }}
+                          className="h-full bg-blue-600 rounded-full"
+                        />
+                      </div>
                     </div>
-                    <div className="w-full h-2 bg-slate-400/20 rounded-full overflow-hidden">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${progress}%` }}
-                        transition={{ duration: 0.3 }}
-                        className="h-full bg-blue-600 rounded-full"
-                      />
-                    </div>
-                  </div>
-                );
-              })()}
+                  );
+                })()}
               
-              {/* Two Books Side by Side - Hide when completing or showing results */}
-              {!isGameCompleting && !showGameResults && gameBook1 && gameBook2 && (
-              <div className="grid grid-cols-2 gap-4 relative">
+                {/* Two Books Side by Side - Hide when completing or showing results */}
+                {!isGameCompleting && !showGameResults && gameBook1 && gameBook2 && (
+                <div className="grid grid-cols-2 gap-4 relative">
                 {/* Book 1 */}
                 <AnimatePresence mode="wait">
                   <motion.button
@@ -9811,28 +9810,28 @@ export default function App() {
                   )}
                 </motion.button>
                 </AnimatePresence>
-              </div>
-              )}
-              
-              {/* Completion Spinner - Show on top of empty dialog */}
-              <AnimatePresence>
-                {isGameCompleting && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="flex items-center justify-center min-h-[400px] rounded-3xl"
-                  >
-                    <div className="text-center">
-                      <BookLoading />
-                    </div>
-                  </motion.div>
+                </div>
                 )}
-              </AnimatePresence>
-              
-              {/* Ranked Results List - Expand vertically after spinner */}
-              <AnimatePresence>
-                {showGameResults && (() => {
+                
+                {/* Completion Spinner - Show on top of empty dialog */}
+                <AnimatePresence>
+                  {isGameCompleting && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="flex items-center justify-center min-h-[400px] rounded-3xl"
+                    >
+                      <div className="text-center">
+                        <BookLoading />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                
+                {/* Ranked Results List - Expand vertically after spinner */}
+                <AnimatePresence>
+                  {showGameResults && (() => {
                   const availableBooks = books.filter(b => b.reading_status === 'read_it');
                   // Reference resultsUpdateTrigger to force re-render after manual reorder
                   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -9846,19 +9845,18 @@ export default function App() {
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
                         transition={{ duration: 0.6, ease: "easeInOut" }}
-                        className="flex items-center justify-center min-h-[200px] text-white"
+                        className="flex items-center justify-center min-h-[200px] text-slate-700"
                       >
-                        <p className="text-sm">No books to display</p>
+                        <p className="text-xs">No books to display</p>
                       </motion.div>
                     );
                   }
                   
                   return (
                     <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.6, ease: "easeInOut" }}
+                      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ duration: 0.4, ease: "easeOut" }}
                       className="space-y-3 mt-4"
                     >
                       {sortedBooks.map((book: BookWithRatings, index: number) => {
@@ -9925,8 +9923,8 @@ export default function App() {
                               setDraggedBookId(null);
                               setDragOverIndex(null);
                             }}
-                            className={`bg-white/20 backdrop-blur-md rounded-2xl p-4 border border-white/30 shadow-lg transition-all ${
-                              isDragging ? 'cursor-grabbing opacity-50' : 'cursor-grab hover:bg-white/30'
+                            className={`bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-sm transition-all ${
+                              isDragging ? 'cursor-grabbing opacity-50' : 'cursor-grab hover:bg-white/85'
                             } ${isDragOver ? 'border-blue-400 border-2' : ''}`}
                             onClick={(e) => {
                               // Only navigate if not dragging
@@ -9951,12 +9949,12 @@ export default function App() {
                           >
                           <div className="flex gap-4 items-center">
                             {/* Drag Handle */}
-                            <div className="flex-shrink-0 text-white/40 cursor-grab active:cursor-grabbing">
+                            <div className="flex-shrink-0 text-slate-400 cursor-grab active:cursor-grabbing">
                               <GripVertical size={20} />
                             </div>
                             
                             {/* Rank Number */}
-                            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-lg">
+                            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm">
                               {index + 1}
                             </div>
                             
@@ -9966,7 +9964,7 @@ export default function App() {
                                 <img 
                                   src={book.cover_url} 
                                   alt={book.title}
-                                  className="w-16 h-24 object-cover rounded-lg shadow-md"
+                                  className="w-16 h-24 object-cover rounded-lg shadow-sm"
                                 />
                               ) : (
                                 <div className={`w-16 h-24 rounded-lg flex items-center justify-center bg-gradient-to-br ${getGradient(book.id)}`}>
@@ -9977,10 +9975,10 @@ export default function App() {
                             
                             {/* Book Info */}
                             <div className="flex-1 min-w-0">
-                              <h2 className="text-sm font-bold text-white mb-1 line-clamp-1">{book.title}</h2>
-                              <p className="text-xs text-white/80 mb-1">{book.author}</p>
+                              <h2 className="text-xs font-bold text-slate-950 mb-1 line-clamp-1">{book.title}</h2>
+                              <p className="text-xs text-slate-700 mb-1">{book.author}</p>
                               {book.genre && (
-                                <p className="text-xs text-white/70 mb-1">{book.genre}</p>
+                                <p className="text-xs text-slate-600 mb-1">{book.genre}</p>
                               )}
                               {(() => {
                                 const avgScore = calculateAvg(book.ratings);
@@ -9988,7 +9986,7 @@ export default function App() {
                                   return (
                                     <div className="flex items-center gap-1">
                                       <Star size={12} className="fill-amber-400 text-amber-400" />
-                                      <span className="text-xs font-bold text-white">{avgScore}</span>
+                                      <span className="text-xs font-bold text-slate-950">{avgScore}</span>
                                     </div>
                                   );
                                 }
@@ -10066,11 +10064,11 @@ export default function App() {
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: sortedBooks.length * 0.05 }}
-                            className="mt-4 pt-4 border-t border-white/20"
+                            className="mt-4 pt-4 border-t border-white/30"
                           >
                             <button
                               onClick={buttonAction}
-                              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-bold text-sm transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95"
+                              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95 shadow-sm"
                             >
                               <Play size={16} />
                               <span>{buttonText}</span>
@@ -10082,6 +10080,7 @@ export default function App() {
                   );
                 })()}
               </AnimatePresence>
+              </div>
             </motion.div>
           </motion.div>
         )}
