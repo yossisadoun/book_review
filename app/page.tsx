@@ -23,6 +23,8 @@ import {
   BookMarked,
   ChevronDown,
   User,
+  GripVertical,
+  Trophy,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -4408,6 +4410,177 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
   );
 }
 
+// --- Trivia Game Functions ---
+
+interface TriviaNote {
+  fact: string;
+  bookId: string;
+  bookTitle: string;
+  bookAuthor: string;
+}
+
+// Collect random trivia notes from books
+function collectTriviaNotes(books: BookWithRatings[]): TriviaNote[] {
+  console.log('[collectTriviaNotes] Collecting trivia notes from books...');
+  
+  // Filter books that are completed reading and have author_facts
+  const booksWithFacts = books.filter(book => 
+    book.reading_status === 'read_it' &&
+    book.author_facts && 
+    Array.isArray(book.author_facts) && 
+    book.author_facts.length > 0
+  );
+  
+  if (booksWithFacts.length < 10) {
+    console.warn('[collectTriviaNotes] ⚠️ Need at least 10 books with facts, found:', booksWithFacts.length);
+    return [];
+  }
+  
+  // Shuffle and take at least 10 different books
+  const shuffled = [...booksWithFacts].sort(() => Math.random() - 0.5);
+  const selectedBooks = shuffled.slice(0, Math.max(10, Math.min(20, shuffled.length)));
+  
+  // Collect 20 trivia notes total, ensuring at least one from each selected book
+  const triviaNotes: TriviaNote[] = [];
+  const notesPerBook = Math.floor(20 / selectedBooks.length);
+  const remainder = 20 % selectedBooks.length;
+  
+  for (let i = 0; i < selectedBooks.length; i++) {
+    const book = selectedBooks[i];
+    const facts = book.author_facts || [];
+    const count = notesPerBook + (i < remainder ? 1 : 0);
+    
+    // Shuffle facts and take random ones
+    const shuffledFacts = [...facts].sort(() => Math.random() - 0.5);
+    const selectedFacts = shuffledFacts.slice(0, Math.min(count, shuffledFacts.length));
+    
+    for (const fact of selectedFacts) {
+      triviaNotes.push({
+        fact,
+        bookId: book.id,
+        bookTitle: book.title,
+        bookAuthor: book.author
+      });
+    }
+  }
+  
+  // Shuffle all collected notes
+  const finalNotes = triviaNotes.sort(() => Math.random() - 0.5).slice(0, 20);
+  
+  console.log(`[collectTriviaNotes] ✅ Collected ${finalNotes.length} trivia notes from ${selectedBooks.length} books`);
+  return finalNotes;
+}
+
+// Generate trivia questions from trivia notes using Grok
+async function generateTriviaQuestions(triviaNotes: TriviaNote[]): Promise<Array<{
+  question: string;
+  correct_answer: string;
+  wrong_answers: string[];
+}>> {
+  console.log('[generateTriviaQuestions] Generating trivia questions via Grok...');
+  
+  if (!grokApiKey) {
+    console.warn('[generateTriviaQuestions] API key is missing!');
+    return [];
+  }
+  
+  // Compile trivia notes into JSON format for the prompt
+  const factsJson = triviaNotes.map((note, idx) => ({
+    author_facts: [note.fact]
+  }));
+  
+  const prompt = `You are an expert creator of The Guardian Thursday Quiz-style questions: short (1-2 lines max), witty, punchy, slightly irreverent trivia that mixes quirky behind-the-scenes author facts, odd inspirations, personal anecdotes, research rabbit holes, and literary details. Questions are phrased openly but designed for multiple-choice reveal.
+
+IMPORTANT RULES FOR ANSWERS:
+- The correct_answer MUST be a specific, extractable detail FROM the facts — NOT the author's name, NOT "who wrote the book", NOT just the book title.
+- Focus on quirky elements: real people who inspired characters, objects/symbols (e.g. hat, cat collar, typewriter), locations, numbers (e.g. notebooks, months, rejections), phrases/slogans, research finds, personal mishaps, hidden gems, inspirations from real life, etc.
+- Avoid questions where the answer is simply the author. If a fact is about the author, reframe the question around the DETAIL (e.g. not "who wrote X?", but "what red hunting hat symbol came from sightings of Manhattan eccentrics?").
+- Vary answer types heavily across the 11 questions: people, objects, places, numbers, events, phrases, animals, recipes, etc.
+- Make wrong_answers plausible "close" distractors: similar details from other facts in the list, common literary mix-ups, near-miss inspirations, or logical red herrings.
+
+Task: From the provided JSON array (each object has "author_facts": array of fact strings about books/authors), generate exactly 11 quiz questions.
+
+For each question:
+- Keep very concise (under 25 words preferred, max 30).
+- Use playful, cheeky, mildly sarcastic tone where fitting.
+- Include book titles in quotes when relevant.
+- Optionally add "(pictured)" if a visual fits naturally.
+- Draw from varied facts across the entire list (avoid clustering on one book/author).
+- Output ONLY valid JSON—no extra text, explanations, or markdown.
+
+Output schema (exact structure):
+{
+  "questions": [
+    {
+      "question": "Holden Caulfield's iconic red hunting hat was inspired by sightings of what during lonely Manhattan walks?",
+      "correct_answer": "eccentric characters",
+      "wrong_answers": [
+        "prep school bullies",
+        "Central Park ducks",
+        "Greenwich Village poets"
+      ]
+    },
+    {
+      "question": "Which real ancient English wall did George R.R. Martin climb to inspire the massive icy barrier in 'A Game of Thrones'?",
+      "correct_answer": "Hadrian's Wall",
+      "wrong_answers": [
+        "Great Wall of China",
+        "Berlin Wall",
+        "Antonine Wall"
+      ]
+    },
+    ...
+  ]
+}
+
+Input facts:
+${JSON.stringify(factsJson, null, 2)}`;
+
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  
+  const url = 'https://api.x.ai/v1/chat/completions';
+  const payload = {
+    messages: [
+      {
+        role: "user",
+        content: prompt
+      }
+    ],
+    model: "grok-4-1-fast-non-reasoning",
+    stream: false,
+    temperature: 0.8
+  };
+
+  try {
+    const data = await fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload)
+    });
+    
+    const content = data.choices?.[0]?.message?.content || '{}';
+    // Extract JSON from markdown if needed
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    const parsed = JSON.parse(jsonStr);
+    
+    const questions = parsed.questions || [];
+    
+    // Shuffle questions
+    const shuffledQuestions = questions.sort(() => Math.random() - 0.5);
+    
+    console.log(`[generateTriviaQuestions] ✅ Generated ${shuffledQuestions.length} trivia questions`);
+    return shuffledQuestions;
+  } catch (err: any) {
+    console.error('[generateTriviaQuestions] ❌ Error:', err);
+    return [];
+  }
+}
+
 export default function App() {
   const { user, loading: authLoading, signOut } = useAuth();
   const [books, setBooks] = useState<BookWithRatings[]>([]);
@@ -4510,6 +4683,27 @@ export default function App() {
   const [showSortingResults, setShowSortingResults] = useState(false);
   const [isGameCompleting, setIsGameCompleting] = useState(false);
   const [showGameResults, setShowGameResults] = useState(false);
+  const [draggedBookId, setDraggedBookId] = useState<string | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [resultsUpdateTrigger, setResultsUpdateTrigger] = useState(0);
+  
+  // Trivia Game state
+  const [isPlayingTrivia, setIsPlayingTrivia] = useState(false);
+  const [triviaQuestions, setTriviaQuestions] = useState<Array<{
+    question: string;
+    correct_answer: string;
+    wrong_answers: string[];
+  }>>([]);
+  const [currentTriviaQuestionIndex, setCurrentTriviaQuestionIndex] = useState(0);
+  const [triviaScore, setTriviaScore] = useState(0);
+  const [selectedTriviaAnswer, setSelectedTriviaAnswer] = useState<string | null>(null);
+  const [isTriviaLoading, setIsTriviaLoading] = useState(false);
+  const [triviaGameComplete, setTriviaGameComplete] = useState(false);
+  const [triviaSelectedAnswers, setTriviaSelectedAnswers] = useState<Map<number, string>>(new Map());
+  const [isTriviaTransitioning, setIsTriviaTransitioning] = useState(false);
+  const [triviaShuffledAnswers, setTriviaShuffledAnswers] = useState<string[]>([]);
+  const [isTriviaReady, setIsTriviaReady] = useState(false);
+  const triviaAudioRef = useRef<HTMLAudioElement | null>(null);
   
   // Merge Sort Implementation - O(n log n) comparisons
   // Uses a queue-based state machine to track merge operations
@@ -4961,15 +5155,50 @@ export default function App() {
     saveMergeSortStateToStorage(updatedState);
   };
   
+  // Clean merge sort state by removing book IDs that no longer exist
+  const cleanMergeSortState = (state: MergeSortStateV2, availableBookIds: Set<string>): MergeSortStateV2 => {
+    // Filter merge stack operations
+    const cleanedMergeStack = state.mergeStack
+      .map(op => ({
+        ...op,
+        leftList: op.leftList.filter(id => availableBookIds.has(id)),
+        rightList: op.rightList.filter(id => availableBookIds.has(id)),
+        merged: op.merged.filter(id => availableBookIds.has(id))
+      }))
+      .filter(op => op.leftList.length > 0 && op.rightList.length > 0); // Remove operations with empty lists
+    
+    // Filter completed sorted lists
+    const cleanedCompletedLists = (state.completedSortedLists || [])
+      .map(list => list.filter(id => availableBookIds.has(id)))
+      .filter(list => list.length > 0); // Remove empty lists
+    
+    return {
+      ...state,
+      mergeStack: cleanedMergeStack,
+      completedSortedLists: cleanedCompletedLists
+    };
+  };
+
   // Get next pair to compare (merge sort approach)
   const getNextMergePair = (availableBooks: BookWithRatings[]): [BookWithRatings, BookWithRatings] | null => {
     let state = getMergeSortStateFromStorage();
+    
+    // Create set of available book IDs for quick lookup
+    const availableBookIds = new Set(availableBooks.map(b => b.id));
     
     // Initialize if needed
     if (!state) {
       console.log('[getNextMergePair] 🎮 No state found, initializing...');
       state = initializeMergeSortV2(availableBooks);
       saveMergeSortStateToStorage(state);
+    } else {
+      // Clean state to remove any book IDs that no longer exist
+      const cleanedState = cleanMergeSortState(state, availableBookIds);
+      if (JSON.stringify(cleanedState) !== JSON.stringify(state)) {
+        console.log('[getNextMergePair] 🧹 Cleaned merge sort state - removed missing books');
+        state = cleanedState;
+        saveMergeSortStateToStorage(state);
+      }
     }
     
     // If mergeStack is empty but we have multiple completed lists, create new merge operations
@@ -4982,7 +5211,7 @@ export default function App() {
       for (let i = 0; i < completedLists.length; i += 2) {
         const left = completedLists[i];
         const right = completedLists[i + 1];
-        if (left && right) {
+        if (left && right && left.length > 0 && right.length > 0) {
           newMergeStack.push({
             leftList: left,
             rightList: right,
@@ -4995,7 +5224,9 @@ export default function App() {
       
       // If there's an odd list left (no pair), keep it in completedSortedLists for next level
       const hasOddList = completedLists.length % 2 === 1;
-      const remainingCompletedList = hasOddList ? [completedLists[completedLists.length - 1]] : [];
+      const remainingCompletedList = hasOddList && completedLists[completedLists.length - 1].length > 0 
+        ? [completedLists[completedLists.length - 1]] 
+        : [];
       
       console.log('[getNextMergePair] 📊 Created', newMergeStack.length, 'new merge operations', hasOddList ? '(1 list left unpaired)' : '');
       
@@ -5008,25 +5239,10 @@ export default function App() {
       saveMergeSortStateToStorage(state);
     }
     
-    console.log('[getNextMergePair] 🔍 Getting next comparison...');
     let comparison = getNextComparisonFromMerge(state);
     
-    // If comparison is null because merge is exhausted, try to advance
-    if (!comparison && state.mergeStack.length > 0) {
-      const currentMerge = state.mergeStack[0];
-      const leftExhausted = currentMerge.leftIdx >= currentMerge.leftList.length;
-      const rightExhausted = currentMerge.rightIdx >= currentMerge.rightList.length;
-      
-      if (leftExhausted || rightExhausted) {
-        console.log('[getNextMergePair] ⚠️ Merge exhausted but not handled, mergeStack:', state.mergeStack.length);
-        // The merge should have been completed in recordMergeComparisonV2
-        // If we're here, it means the merge wasn't completed properly
-      }
-    }
-    
     if (!comparison) {
-      console.log('[getNextMergePair] ❌ No comparison available - sorting may be complete or stuck');
-      console.log('[getNextMergePair] 📊 Final state:', JSON.stringify(state, null, 2));
+      // Don't log when checking button state - only log when actually playing
       return null; // Sorting complete or needs state update
     }
     
@@ -5034,7 +5250,10 @@ export default function App() {
     const book2 = availableBooks.find(b => b.id === comparison.rightId);
     
     if (!book1 || !book2) {
-      console.error('[getNextMergePair] ❌ Books not found:', { leftId: comparison.leftId, rightId: comparison.rightId });
+      // Books not found - clean state and return null
+      console.warn('[getNextMergePair] ⚠️ Books not found, cleaning state:', { leftId: comparison.leftId, rightId: comparison.rightId });
+      const cleanedState = cleanMergeSortState(state, availableBookIds);
+      saveMergeSortStateToStorage(cleanedState);
       return null;
     }
     
@@ -5042,6 +5261,55 @@ export default function App() {
     return [book1, book2];
   };
   
+  // Update comparison results when a book is manually moved in the results list
+  const updateComparisonResultsForManualMove = (movedBookId: string, newIndex: number, sortedBooks: BookWithRatings[]) => {
+    if (typeof window === 'undefined') return;
+    
+    try {
+      const stored = localStorage.getItem('bookComparisonResults');
+      const results: { [key: string]: { beats: string[]; losesTo: string[] } } = stored ? JSON.parse(stored) : {};
+      
+      // Ensure the moved book has an entry
+      if (!results[movedBookId]) {
+        results[movedBookId] = { beats: [], losesTo: [] };
+      }
+      
+      // Update comparisons: the moved book beats all books below it (higher index)
+      // and loses to all books above it (lower index)
+      sortedBooks.forEach((book, index) => {
+        if (book.id === movedBookId) return; // Skip the moved book itself
+        
+        // Ensure this book has an entry
+        if (!results[book.id]) {
+          results[book.id] = { beats: [], losesTo: [] };
+        }
+        
+        if (index < newIndex) {
+          // Book is above the moved book - moved book loses to it
+          if (!results[movedBookId].losesTo.includes(book.id)) {
+            results[movedBookId].losesTo.push(book.id);
+          }
+          if (!results[book.id].beats.includes(movedBookId)) {
+            results[book.id].beats.push(movedBookId);
+          }
+        } else if (index > newIndex) {
+          // Book is below the moved book - moved book beats it
+          if (!results[movedBookId].beats.includes(book.id)) {
+            results[movedBookId].beats.push(book.id);
+          }
+          if (!results[book.id].losesTo.includes(movedBookId)) {
+            results[book.id].losesTo.push(movedBookId);
+          }
+        }
+      });
+      
+      localStorage.setItem('bookComparisonResults', JSON.stringify(results));
+      console.log('[updateComparisonResultsForManualMove] ✅ Updated comparison results for manual move');
+    } catch (err) {
+      console.warn('[updateComparisonResultsForManualMove] Failed to update comparison results:', err);
+    }
+  };
+
   // Record comparison (merge sort approach)
   const recordMergeComparisonForGame = (winnerId: string, loserId: string, availableBooks: BookWithRatings[]) => {
     console.log('[recordMergeComparisonForGame] 🎮 Recording game comparison:', { winnerId, loserId });
@@ -5796,6 +6064,24 @@ export default function App() {
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
+
+  // Control trivia theme music playback
+  useEffect(() => {
+    if (triviaAudioRef.current) {
+      const audio = triviaAudioRef.current;
+      // Play when trivia game is active (has questions and not complete)
+      if (isPlayingTrivia && triviaQuestions.length > 0 && !triviaGameComplete && !isTriviaReady && !isTriviaLoading) {
+        audio.loop = true;
+        audio.play().catch(err => {
+          console.warn('Failed to play trivia theme:', err);
+        });
+      } else {
+        // Pause when game ends, closes, or is in ready/loading state
+        audio.pause();
+        audio.currentTime = 0;
+      }
+    }
+  }, [isPlayingTrivia, triviaQuestions.length, triviaGameComplete, isTriviaReady, isTriviaLoading]);
 
   // Track which books we're currently fetching influences for to prevent duplicate concurrent fetches
   const fetchingInfluencesForBooksRef = useRef<Set<string>>(new Set());
@@ -9151,6 +9437,36 @@ export default function App() {
             <Pencil size={18} className="text-slate-950" />
           </button>
 
+          {/* Game button - trivia game */}
+          <button
+            onClick={() => {
+              setScrollY(0);
+              setShowBookshelf(false);
+              setShowBookshelfCovers(false);
+              setShowNotesView(false);
+              setShowAccountPage(false);
+              setShowSortingResults(false);
+              
+              // Show ready screen
+              setIsPlayingTrivia(true);
+              setIsTriviaReady(true);
+              setCurrentTriviaQuestionIndex(0);
+              setTriviaScore(0);
+              setSelectedTriviaAnswer(null);
+              setTriviaGameComplete(false);
+              setTriviaSelectedAnswers(new Map());
+              setIsTriviaTransitioning(false);
+              setTriviaShuffledAnswers([]);
+            }}
+            className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
+              isPlayingTrivia 
+                ? 'bg-white/40 hover:bg-white/50' 
+                : 'bg-white/20 hover:bg-white/30'
+            }`}
+          >
+            <Trophy size={18} className="text-slate-950" />
+          </button>
+
           {/* Search button - right (circular) */}
           <button
             onClick={() => setIsAdding(true)}
@@ -9259,14 +9575,10 @@ export default function App() {
                     const nextPair = getNextMergePair(availableBooks);
                     
                     if (!nextPair) {
-                      // Merge sort complete - clear books and show spinner, then expand to show results
+                      // Merge sort complete - show results immediately
                       setGameBook1(null);
                       setGameBook2(null);
-                      setIsGameCompleting(true);
-                      setTimeout(() => {
-                        setIsGameCompleting(false);
-                        setShowGameResults(true);
-                      }, 1500); // Show spinner for 1.5 seconds
+                      setShowGameResults(true);
                       return;
                     }
                     
@@ -9318,14 +9630,10 @@ export default function App() {
                     const nextPair = getNextMergePair(availableBooks);
                     
                     if (!nextPair) {
-                      // Merge sort complete - clear books and show spinner, then expand to show results
+                      // Merge sort complete - show results immediately
                       setGameBook1(null);
                       setGameBook2(null);
-                      setIsGameCompleting(true);
-                      setTimeout(() => {
-                        setIsGameCompleting(false);
-                        setShowGameResults(true);
-                      }, 1500); // Show spinner for 1.5 seconds
+                      setShowGameResults(true);
                       return;
                     }
                     
@@ -9377,6 +9685,9 @@ export default function App() {
               <AnimatePresence>
                 {showGameResults && (() => {
                   const availableBooks = books.filter(b => b.reading_status === 'read_it');
+                  // Reference resultsUpdateTrigger to force re-render after manual reorder
+                  // eslint-disable-next-line react-hooks/exhaustive-deps
+                  const _trigger = resultsUpdateTrigger;
                   const sortedBooks = getSortedBooks(availableBooks);
                   
                   if (sortedBooks.length === 0) {
@@ -9401,32 +9712,100 @@ export default function App() {
                       transition={{ duration: 0.6, ease: "easeInOut" }}
                       className="space-y-3 mt-4"
                     >
-                      {sortedBooks.map((book: BookWithRatings, index: number) => (
-                        <motion.div
-                          key={book.id}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: index * 0.05 }}
-                          className="bg-white/20 backdrop-blur-md rounded-2xl p-4 border border-white/30 shadow-lg cursor-pointer hover:bg-white/30 transition-all"
-                          onClick={() => {
-                            const bookIndex = books.findIndex(b => b.id === book.id);
-                            if (bookIndex !== -1) {
-                              setSelectedIndex(bookIndex);
-                              setIsPlayingGame(false);
-                              setShowGameResults(false);
-                              setShowBookshelf(false);
-                              setShowBookshelfCovers(false);
-                              setShowNotesView(false);
-                              // Reset scroll to top
-                              setScrollY(0);
-                              const main = document.querySelector('main');
-                              if (main) {
-                                main.scrollTo({ top: 0, behavior: 'smooth' });
+                      {sortedBooks.map((book: BookWithRatings, index: number) => {
+                        const isDragging = draggedBookId === book.id;
+                        const isDragOver = dragOverIndex === index && draggedBookId !== book.id;
+                        
+                        return (
+                          <motion.div
+                            key={book.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ 
+                              opacity: isDragging ? 0.5 : isDragOver ? 0.8 : 1, 
+                              y: 0,
+                              scale: isDragOver ? 1.02 : 1
+                            }}
+                            transition={{ delay: index * 0.05 }}
+                            draggable
+                            onDragStart={(e) => {
+                              const dragEvent = e as unknown as React.DragEvent;
+                              setDraggedBookId(book.id);
+                              dragEvent.dataTransfer.effectAllowed = 'move';
+                              dragEvent.dataTransfer.setData('text/plain', book.id);
+                            }}
+                            onDragOver={(e) => {
+                              const dragEvent = e as unknown as React.DragEvent;
+                              dragEvent.preventDefault();
+                              dragEvent.dataTransfer.dropEffect = 'move';
+                              if (draggedBookId !== book.id) {
+                                setDragOverIndex(index);
                               }
-                            }
-                          }}
-                        >
+                            }}
+                            onDragLeave={() => {
+                              if (dragOverIndex === index) {
+                                setDragOverIndex(null);
+                              }
+                            }}
+                            onDrop={(e) => {
+                              const dragEvent = e as unknown as React.DragEvent;
+                              dragEvent.preventDefault();
+                              const droppedBookId = dragEvent.dataTransfer.getData('text/plain');
+                              
+                              if (droppedBookId && droppedBookId !== book.id) {
+                                // Find the old index of the dragged book
+                                const oldIndex = sortedBooks.findIndex(b => b.id === droppedBookId);
+                                
+                                if (oldIndex !== -1 && oldIndex !== index) {
+                                  // Create new order by moving the book
+                                  const newSortedBooks = [...sortedBooks];
+                                  const [movedBook] = newSortedBooks.splice(oldIndex, 1);
+                                  newSortedBooks.splice(index, 0, movedBook);
+                                  
+                                  // Update comparison results to reflect new order
+                                  updateComparisonResultsForManualMove(droppedBookId, index, newSortedBooks);
+                                  
+                                  // Force re-render by updating trigger state
+                                  setResultsUpdateTrigger(prev => prev + 1);
+                                }
+                              }
+                              
+                              setDraggedBookId(null);
+                              setDragOverIndex(null);
+                            }}
+                            onDragEnd={() => {
+                              setDraggedBookId(null);
+                              setDragOverIndex(null);
+                            }}
+                            className={`bg-white/20 backdrop-blur-md rounded-2xl p-4 border border-white/30 shadow-lg transition-all ${
+                              isDragging ? 'cursor-grabbing opacity-50' : 'cursor-grab hover:bg-white/30'
+                            } ${isDragOver ? 'border-blue-400 border-2' : ''}`}
+                            onClick={(e) => {
+                              // Only navigate if not dragging
+                              if (!draggedBookId) {
+                                const bookIndex = books.findIndex(b => b.id === book.id);
+                                if (bookIndex !== -1) {
+                                  setSelectedIndex(bookIndex);
+                                  setIsPlayingGame(false);
+                                  setShowGameResults(false);
+                                  setShowBookshelf(false);
+                                  setShowBookshelfCovers(false);
+                                  setShowNotesView(false);
+                                  // Reset scroll to top
+                                  setScrollY(0);
+                                  const main = document.querySelector('main');
+                                  if (main) {
+                                    main.scrollTo({ top: 0, behavior: 'smooth' });
+                                  }
+                                }
+                              }
+                            }}
+                          >
                           <div className="flex gap-4 items-center">
+                            {/* Drag Handle */}
+                            <div className="flex-shrink-0 text-white/40 cursor-grab active:cursor-grabbing">
+                              <GripVertical size={20} />
+                            </div>
+                            
                             {/* Rank Number */}
                             <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-lg">
                               {index + 1}
@@ -9469,7 +9848,8 @@ export default function App() {
                             </div>
                           </div>
                         </motion.div>
-                      ))}
+                        );
+                      })}
                       
                       {/* Replay/Rank More Button - At bottom of list */}
                       {(() => {
@@ -9557,6 +9937,310 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Trivia Game Overlay */}
+      <AnimatePresence>
+        {isPlayingTrivia && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-end justify-center px-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !triviaGameComplete) {
+                setIsPlayingTrivia(false);
+                setIsTriviaReady(false);
+              }
+            }}
+          >
+            {/* Trivia theme music */}
+            <audio
+              ref={triviaAudioRef}
+              src={getAssetPath('/trivia_theme.mp3')}
+              preload="auto"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="w-full max-w-md bg-white/80 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Trivia Logo - Anchored to top of trivia box, centered on box x-axis */}
+              <AnimatePresence>
+                {!triviaGameComplete && (isTriviaReady || triviaQuestions.length > 0) && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="absolute left-1/2 -translate-x-1/2 z-30 pointer-events-none"
+                    style={{ 
+                      top: 'calc(-10rem + 60px)'
+                    }}
+                  >
+                    <img 
+                      src={getAssetPath('/trivia.png')} 
+                      alt="Trivia" 
+                      className="h-40 w-auto object-contain block mx-auto"
+                      style={{ marginLeft: 'auto', marginRight: 'auto' }}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              
+              {/* Handle bar */}
+              <div className="w-full flex justify-center pt-3 pb-2">
+                <div className="w-12 h-1 bg-slate-400 rounded-full" />
+              </div>
+              
+              <div className="px-4 pb-6 max-h-[90vh] overflow-y-auto">
+                  {isTriviaReady && !isTriviaLoading && !triviaGameComplete && triviaQuestions.length === 0 ? (
+                  <div className="text-center">
+                    <h2 className="text-sm font-bold text-slate-950 mb-0">Ready to play!</h2>
+                    <p className="text-xs text-slate-700 mb-4">Tap to test your knowledge</p>
+                  <button
+                    onClick={async () => {
+                      setIsTriviaLoading(true);
+                      
+                      try {
+                        // Collect trivia notes
+                        const triviaNotes = collectTriviaNotes(books);
+                        if (triviaNotes.length === 0) {
+                          alert('Need at least 10 books with trivia facts to play!');
+                          setIsTriviaLoading(false);
+                          return;
+                        }
+                        
+                        // Generate questions
+                        const questions = await generateTriviaQuestions(triviaNotes);
+                        if (questions.length === 0) {
+                          alert('Failed to generate trivia questions. Please try again.');
+                          setIsTriviaLoading(false);
+                          return;
+                        }
+                        
+                        setTriviaQuestions(questions);
+                        setIsTriviaReady(false);
+                      } catch (err) {
+                        console.error('[Trivia Game] Error:', err);
+                        alert('Error starting trivia game. Please try again.');
+                        setIsTriviaLoading(false);
+                      } finally {
+                        setIsTriviaLoading(false);
+                      }
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95 shadow-sm"
+                  >
+                    <Play size={16} />
+                    <span>Play</span>
+                  </button>
+                </div>
+              ) : isTriviaLoading ? (
+                <div className="w-full">
+                  <motion.div
+                    animate={{ opacity: [0.5, 0.8, 0.5] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+                  >
+                    <div className="h-12 flex items-center justify-center">
+                      <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                    </div>
+                  </motion.div>
+                </div>
+              ) : triviaGameComplete ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ duration: 0.4, ease: "easeOut" }}
+                  className="space-y-4"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                      <h2 className="text-sm font-bold text-slate-950">Trivia Complete!</h2>
+                      <button
+                        onClick={() => {
+                          setIsPlayingTrivia(false);
+                          setTriviaGameComplete(false);
+                          setCurrentTriviaQuestionIndex(0);
+                          setTriviaScore(0);
+                          setSelectedTriviaAnswer(null);
+                          setTriviaSelectedAnswers(new Map());
+                          setTriviaShuffledAnswers([]);
+                          setIsTriviaReady(false);
+                        }}
+                        className="w-8 h-8 rounded-full bg-white/80 backdrop-blur-md hover:bg-white/85 border border-white/30 active:scale-95 transition-all flex items-center justify-center shadow-sm"
+                      >
+                        <ChevronLeft size={16} className="text-slate-700 rotate-90" />
+                      </button>
+                    </div>
+                    <div className="bg-blue-50/80 backdrop-blur-md rounded-xl p-4 border border-blue-200/30 mb-4 shadow-sm">
+                      <p className="text-xs font-medium text-slate-700 text-center mb-2">Your Score</p>
+                      <p className="text-slate-950 text-center text-2xl font-bold mb-2">{triviaScore} / {triviaQuestions.length}</p>
+                      <p className="text-xs text-slate-600 text-center">
+                      {triviaScore === triviaQuestions.length 
+                        ? 'Perfect score! 🎉' 
+                        : triviaScore >= triviaQuestions.length * 0.8
+                        ? 'Great job! 🎯'
+                        : triviaScore >= triviaQuestions.length * 0.6
+                        ? 'Good effort! 👍'
+                        : 'Keep practicing! 📚'}
+                    </p>
+                  </div>
+                  
+                    {/* Answers Summary */}
+                    <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 space-y-3 max-h-[50vh] overflow-y-auto shadow-sm">
+                      <h3 className="text-xs font-medium text-slate-700 mb-3">Answers Summary</h3>
+                    {triviaQuestions.map((question, qIdx) => {
+                      const selectedAnswer = triviaSelectedAnswers.get(qIdx);
+                      const isCorrect = selectedAnswer === question.correct_answer;
+                      
+                      return (
+                        <div key={qIdx} className="border-b border-white/30 pb-3 last:border-b-0 last:pb-0">
+                          <p className="text-xs font-bold text-slate-950 mb-2">{qIdx + 1}. {question.question}</p>
+                          <div className="space-y-1.5">
+                            <div className={`px-3 py-2 rounded-xl ${isCorrect ? 'bg-green-50/80 border border-green-200/30' : 'bg-red-50/80 border border-red-200/30'} backdrop-blur-md shadow-sm`}>
+                              <p className="text-[10px] font-bold text-slate-950 mb-1">
+                                {isCorrect ? '✓ Correct' : '✗ Incorrect'}
+                              </p>
+                              <p className="text-xs text-slate-800">Your answer: <span className="font-bold">{selectedAnswer || 'No answer'}</span></p>
+                            </div>
+                            {!isCorrect && (
+                              <div className="px-3 py-2 rounded-xl bg-green-50/80 border border-green-200/30 backdrop-blur-md shadow-sm">
+                                <p className="text-xs text-slate-800">Correct answer: <span className="font-bold">{question.correct_answer}</span></p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  
+                  <button
+                    onClick={() => {
+                      setIsPlayingTrivia(false);
+                      setTriviaGameComplete(false);
+                      setCurrentTriviaQuestionIndex(0);
+                      setTriviaScore(0);
+                      setSelectedTriviaAnswer(null);
+                      setTriviaSelectedAnswers(new Map());
+                      setTriviaShuffledAnswers([]);
+                      setIsTriviaReady(false);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95 shadow-sm mt-4"
+                  >
+                    <Trophy size={16} />
+                    <span>Play Again</span>
+                  </button>
+                </motion.div>
+              ) : triviaQuestions.length > 0 && currentTriviaQuestionIndex < triviaQuestions.length ? (
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={currentTriviaQuestionIndex}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    transition={{ duration: 0.3 }}
+                    className="space-y-4"
+                    style={{ minHeight: '200px' }}
+                  >
+                    {(() => {
+                      // Shuffle answers only when question changes
+                      const currentQuestion = triviaQuestions[currentTriviaQuestionIndex];
+                      if (triviaShuffledAnswers.length === 0 || 
+                          (triviaShuffledAnswers.length > 0 && 
+                           !triviaShuffledAnswers.includes(currentQuestion.correct_answer))) {
+                        const allAnswers = [
+                          currentQuestion.correct_answer,
+                          ...currentQuestion.wrong_answers
+                        ].sort(() => Math.random() - 0.5);
+                        setTriviaShuffledAnswers(allAnswers);
+                      }
+                      return null;
+                    })()}
+                    
+                      <div className="flex items-center justify-between mb-3">
+                        <h2 className="text-sm font-bold text-slate-950">Trivia Game</h2>
+                        <span className="text-xs text-slate-700">
+                          Question {currentTriviaQuestionIndex + 1} / {triviaQuestions.length}
+                        </span>
+                      </div>
+                      
+                      <div className="bg-blue-50/80 backdrop-blur-md rounded-xl p-4 border border-blue-200/30 mb-4 shadow-sm">
+                        <p className="text-xs font-bold text-slate-950 mb-4">
+                          {triviaQuestions[currentTriviaQuestionIndex].question}
+                        </p>
+                      
+                      <div className="space-y-2">
+                        {triviaShuffledAnswers.map((answer, idx) => {
+                          const currentQuestion = triviaQuestions[currentTriviaQuestionIndex];
+                          const isSelected = selectedTriviaAnswer === answer;
+                          
+                          // Highlight selected answer in gray
+                          const bgColor = isSelected 
+                            ? 'bg-slate-200/80 border-2 border-slate-400' 
+                            : selectedTriviaAnswer !== null
+                            ? 'bg-white/50 opacity-50'
+                            : 'bg-white/80 backdrop-blur-md hover:bg-white/85 border border-white/30';
+                          
+                          return (
+                            <button
+                              key={idx}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                if (selectedTriviaAnswer === null) {
+                                  setSelectedTriviaAnswer(answer);
+                                  // Store selected answer
+                                  setTriviaSelectedAnswers(prev => {
+                                    const newMap = new Map(prev);
+                                    newMap.set(currentTriviaQuestionIndex, answer);
+                                    return newMap;
+                                  });
+                                  
+                                  if (answer === currentQuestion.correct_answer) {
+                                    setTriviaScore(prev => prev + 1);
+                                  }
+                                  
+                                  // Auto-advance after 0.5 seconds with fade transition
+                                  setTimeout(() => {
+                                    setIsTriviaTransitioning(true);
+                                    setTimeout(() => {
+                                      if (currentTriviaQuestionIndex < triviaQuestions.length - 1) {
+                                        setCurrentTriviaQuestionIndex(prev => prev + 1);
+                                        setSelectedTriviaAnswer(null);
+                                        setIsTriviaTransitioning(false);
+                                        setTriviaShuffledAnswers([]); // Reset for next question
+                                      } else {
+                                        setTriviaGameComplete(true);
+                                      }
+                                    }, 150); // Wait for fade out
+                                  }, 500);
+                                }
+                              }}
+                              disabled={selectedTriviaAnswer !== null}
+                              className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors text-xs font-bold text-slate-950 shadow-sm ${
+                                selectedTriviaAnswer === null ? 'cursor-pointer' : 'cursor-not-allowed'
+                              } ${bgColor}`}
+                              style={{ 
+                                minHeight: '40px',
+                                display: 'flex',
+                                alignItems: 'center'
+                              }}
+                            >
+                              {answer}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </motion.div>
+                </AnimatePresence>
+              ) : null}
+              </div>
+            </motion.div>
+          </motion.div>
+          )}
+        </AnimatePresence>
 
       <AnimatePresence>
         {isAdding && (
