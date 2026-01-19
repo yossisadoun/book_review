@@ -4669,6 +4669,7 @@ export default function App() {
   const [triviaShuffledAnswers, setTriviaShuffledAnswers] = useState<string[]>([]);
   const [isTriviaReady, setIsTriviaReady] = useState(false);
   const triviaAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [spoilerRevealed, setSpoilerRevealed] = useState<Map<string, Set<string>>>(new Map());
   
   // Merge Sort Implementation - O(n log n) comparisons
   // Uses a queue-based state machine to track merge operations
@@ -9032,6 +9033,10 @@ export default function App() {
               <>
                 {/* Insights: Show if we have facts, research, or are loading */}
                 {(() => {
+                  const isNotRead = activeBook.reading_status !== 'read_it';
+                  const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
+                  const isInsightsRevealed = revealedSections.has('insights');
+                  const shouldBlurInsights = isNotRead && !isInsightsRevealed;
                   const hasFacts = activeBook.author_facts && activeBook.author_facts.length > 0;
                   const research = researchData.get(activeBook.id) || null;
                   const hasResearch = research && research.pillars && research.pillars.length > 0;
@@ -9107,9 +9112,31 @@ export default function App() {
                   }
                   
                   return (
-                    <div className="w-full space-y-2">
-                      {/* Insights Header with Category Selector */}
-                      <div className="flex items-center justify-center mb-2 relative z-[40]">
+                    <div 
+                      className={`w-full space-y-2 relative ${shouldBlurInsights ? 'cursor-pointer' : ''}`}
+                      onClick={() => {
+                        if (shouldBlurInsights) {
+                          setSpoilerRevealed(prev => {
+                            const newMap = new Map(prev);
+                            const revealed = newMap.get(activeBook.id) || new Set<string>();
+                            revealed.add('insights');
+                            newMap.set(activeBook.id, revealed);
+                            return newMap;
+                          });
+                        }
+                      }}
+                    >
+                      {shouldBlurInsights && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
+                          <div className="text-center px-4">
+                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk.</p>
+                            <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                          </div>
+                        </div>
+                      )}
+                      <div className={shouldBlurInsights ? 'blur-sm pointer-events-none select-none' : ''}>
+                        {/* Insights Header with Category Selector */}
+                        <div className="flex items-center justify-center mb-2 relative z-[40]">
                         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm relative">
                           <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">INSIGHTS:</span>
                           {categories.length > 1 && (
@@ -9179,12 +9206,18 @@ export default function App() {
                           isLoading={false}
                         />
                       ) : null}
+                      </div>
                     </div>
                   );
                 })()}
                 
                 {/* Podcast Episodes - Show below author facts */}
                 {(() => {
+                  const isNotRead = activeBook.reading_status !== 'read_it';
+                  const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
+                  const isPodcastsRevealed = revealedSections.has('podcasts');
+                  const shouldBlurPodcasts = isNotRead && !isPodcastsRevealed;
+                  
                   const episodes = combinedPodcastEpisodes;
                   const hasEpisodes = episodes.length > 0;
                   // Only show loading if we don't have episodes yet. Once loaded, always show.
@@ -9194,9 +9227,31 @@ export default function App() {
                   if (!isLoading && !hasEpisodes) return null;
                   
                   return (
-                    <div className="w-full space-y-2">
-                      {/* Podcast Header */}
-                      <div className="flex items-center justify-center mb-2">
+                    <div 
+                      className={`w-full space-y-2 relative ${shouldBlurPodcasts ? 'cursor-pointer' : ''}`}
+                      onClick={() => {
+                        if (shouldBlurPodcasts) {
+                          setSpoilerRevealed(prev => {
+                            const newMap = new Map(prev);
+                            const revealed = newMap.get(activeBook.id) || new Set<string>();
+                            revealed.add('podcasts');
+                            newMap.set(activeBook.id, revealed);
+                            return newMap;
+                          });
+                        }
+                      }}
+                    >
+                      {shouldBlurPodcasts && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
+                          <div className="text-center px-4">
+                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk.</p>
+                            <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                          </div>
+                        </div>
+                      )}
+                      <div className={shouldBlurPodcasts ? 'blur-sm pointer-events-none select-none' : ''}>
+                        {/* Podcast Header */}
+                        <div className="flex items-center justify-center mb-2">
                         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
                           <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">PODCASTS:</span>
                           <span className="text-[10px] font-bold text-slate-400">/</span>
@@ -9222,12 +9277,18 @@ export default function App() {
                           isLoading={false}
                         />
                       )}
+                      </div>
                     </div>
                   );
                 })()}
                 
                 {/* Analysis Articles - Show below podcasts */}
                 {(() => {
+                  const isNotRead = activeBook.reading_status !== 'read_it';
+                  const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
+                  const isAnalysisRevealed = revealedSections.has('analysis');
+                  const shouldBlurAnalysis = isNotRead && !isAnalysisRevealed;
+                  
                   const articles = analysisArticles.get(activeBook.id) || [];
                   // Check if we have real articles (not just the fallback search URL)
                   // A fallback article has a title that starts with "Search Google Scholar" and URL contains "scholar.google.com/scholar?q="
@@ -9244,9 +9305,31 @@ export default function App() {
                   if (!isLoading && !hasArticles) return null;
                   
                   return (
-                    <div className="w-full space-y-2">
-                      {/* Analysis Header */}
-                      <div className="flex items-center justify-center mb-2">
+                    <div 
+                      className={`w-full space-y-2 relative ${shouldBlurAnalysis ? 'cursor-pointer' : ''}`}
+                      onClick={() => {
+                        if (shouldBlurAnalysis) {
+                          setSpoilerRevealed(prev => {
+                            const newMap = new Map(prev);
+                            const revealed = newMap.get(activeBook.id) || new Set<string>();
+                            revealed.add('analysis');
+                            newMap.set(activeBook.id, revealed);
+                            return newMap;
+                          });
+                        }
+                      }}
+                    >
+                      {shouldBlurAnalysis && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
+                          <div className="text-center px-4">
+                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk.</p>
+                            <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                          </div>
+                        </div>
+                      )}
+                      <div className={shouldBlurAnalysis ? 'blur-sm pointer-events-none select-none' : ''}>
+                        {/* Analysis Header */}
+                        <div className="flex items-center justify-center mb-2">
                         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
                           <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">ANALYSIS:</span>
                           <span className="text-[10px] font-bold text-slate-400">/</span>
@@ -9272,12 +9355,18 @@ export default function App() {
                           isLoading={false}
                         />
                       )}
+                      </div>
                     </div>
                   );
                 })()}
                 
                 {/* YouTube Videos - Show below analysis */}
                 {(() => {
+                  const isNotRead = activeBook.reading_status !== 'read_it';
+                  const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
+                  const isVideosRevealed = revealedSections.has('videos');
+                  const shouldBlurVideos = isNotRead && !isVideosRevealed;
+                  
                   const videos = youtubeVideos.get(activeBook.id) || [];
                   const hasVideos = videos.length > 0;
                   const isLoading = loadingVideosForBookId === activeBook.id && !hasVideos;
@@ -9286,9 +9375,31 @@ export default function App() {
                   if (!isLoading && !hasVideos) return null;
                   
                   return (
-                    <div className="w-full space-y-2">
-                      {/* Videos Header */}
-                      <div className="flex items-center justify-center mb-2">
+                    <div 
+                      className={`w-full space-y-2 relative ${shouldBlurVideos ? 'cursor-pointer' : ''}`}
+                      onClick={() => {
+                        if (shouldBlurVideos) {
+                          setSpoilerRevealed(prev => {
+                            const newMap = new Map(prev);
+                            const revealed = newMap.get(activeBook.id) || new Set<string>();
+                            revealed.add('videos');
+                            newMap.set(activeBook.id, revealed);
+                            return newMap;
+                          });
+                        }
+                      }}
+                    >
+                      {shouldBlurVideos && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
+                          <div className="text-center px-4">
+                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk.</p>
+                            <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                          </div>
+                        </div>
+                      )}
+                      <div className={shouldBlurVideos ? 'blur-sm pointer-events-none select-none' : ''}>
+                        {/* Videos Header */}
+                        <div className="flex items-center justify-center mb-2">
                         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
                           <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">VIDEOS:</span>
                           <span className="text-[10px] font-bold text-slate-400">/</span>
@@ -9313,12 +9424,18 @@ export default function App() {
                           isLoading={false}
                         />
                       )}
+                      </div>
                     </div>
                   );
                 })()}
 
                 {/* Related Books - Show below videos */}
                 {(() => {
+                  const isNotRead = activeBook.reading_status !== 'read_it';
+                  const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
+                  const isRelatedRevealed = revealedSections.has('related');
+                  const shouldBlurRelated = isNotRead && !isRelatedRevealed;
+                  
                   const related = relatedBooks.get(activeBook.id);
                   // Check if we have data (including empty array which means we fetched but got no results)
                   const hasData = related !== undefined; // undefined means not fetched yet, [] means fetched but empty
@@ -9330,9 +9447,31 @@ export default function App() {
                   if (!isLoading && !hasRelated) return null;
                   
                   return (
-                    <div className="w-full space-y-2">
-                      {/* Related Books Header */}
-                      <div className="flex items-center justify-center mb-2">
+                    <div 
+                      className={`w-full space-y-2 relative ${shouldBlurRelated ? 'cursor-pointer' : ''}`}
+                      onClick={() => {
+                        if (shouldBlurRelated) {
+                          setSpoilerRevealed(prev => {
+                            const newMap = new Map(prev);
+                            const revealed = newMap.get(activeBook.id) || new Set<string>();
+                            revealed.add('related');
+                            newMap.set(activeBook.id, revealed);
+                            return newMap;
+                          });
+                        }
+                      }}
+                    >
+                      {shouldBlurRelated && (
+                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
+                          <div className="text-center px-4">
+                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk.</p>
+                            <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                          </div>
+                        </div>
+                      )}
+                      <div className={shouldBlurRelated ? 'blur-sm pointer-events-none select-none' : ''}>
+                        {/* Related Books Header */}
+                        <div className="flex items-center justify-center mb-2">
                         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
                           <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">RELATED:</span>
                           <span className="text-[10px] font-bold text-slate-400">/</span>
@@ -9358,6 +9497,7 @@ export default function App() {
                           onAddBook={handleAddBook}
                         />
                       )}
+                      </div>
                     </div>
                   );
                 })()}
