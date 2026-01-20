@@ -25,6 +25,8 @@ import {
   User,
   GripVertical,
   Trophy,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -1034,6 +1036,21 @@ async function saveAuthorFactsToCache(bookTitle: string, bookAuthor: string, fac
       }
     } else {
       console.log(`[saveAuthorFactsToCache] ✅ Saved ${facts.length} author facts to cache`);
+      
+      // Generate trivia questions for this book (fire and forget - don't wait)
+      // Note: We can't pass a callback here since this is a global function
+      // The useEffect will pick up changes when books.length changes
+      if (facts.length > 0) {
+        generateTriviaQuestionsForBook(bookTitle, bookAuthor, facts)
+          .then(questions => {
+            if (questions.length > 0) {
+              return saveTriviaQuestionsToCache(bookTitle, bookAuthor, questions);
+            }
+          })
+          .catch(err => {
+            console.error('[saveAuthorFactsToCache] ⚠️ Error generating trivia questions:', err);
+          });
+      }
     }
   } catch (err: any) {
     console.error('[saveAuthorFactsToCache] ❌ Error:', err);
@@ -1534,7 +1551,7 @@ async function getGoogleScholarAnalysis(bookTitle: string, author: string): Prom
       // Continue to next proxy
     }
   }
-
+  
   // Check if we successfully parsed pages but found no articles
   // This means Google Scholar has no results for this book, so save empty array to prevent future calls
   console.log(`[getGoogleScholarAnalysis] ⚠️ No articles found after trying all proxies. This book may have no scholarly analysis available.`);
@@ -1554,7 +1571,7 @@ async function getGoogleScholarAnalysis(bookTitle: string, author: string): Prom
     snippet: `Google Scholar blocks automated access. Click to view search results directly on Google Scholar.`,
     url: searchUrl,
   };
-
+  
   // Return fallback for display, but don't save to database
   // Only real article results should be cached
   return [fallbackArticle];
@@ -2963,7 +2980,7 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
     if (insightsKey !== prevInsightsRef.current) {
       prevInsightsRef.current = insightsKey;
       // Only reset index, keep visibility to prevent flickering
-      setCurrentIndex(0);
+    setCurrentIndex(0);
       // Ensure visibility is true if we have insights
       if (insights.length > 0) {
         setIsVisible(true);
@@ -2974,7 +2991,7 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
   // Separate effect for book changes to reset everything
   useEffect(() => {
     setCurrentIndex(0);
-    setIsVisible(true);
+      setIsVisible(true);
     prevInsightsRef.current = '';
   }, [actualBookId]);
 
@@ -4156,7 +4173,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
         // Fetch AI suggestions only when no results
         try {
           const aiSuggestions = await getAISuggestions(titleToSearch);
-          setSuggestions(aiSuggestions);
+      setSuggestions(aiSuggestions);
         } catch (aiErr) {
           console.error('Error fetching AI suggestions:', aiErr);
           // Don't set error for AI suggestions failure, just leave suggestions empty
@@ -4243,10 +4260,15 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
                 ref={inputRef}
                 type="text" 
                 inputMode="search"
+                enterKeyHint="search"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck="false"
                 placeholder={isQueryHebrew ? "חפש ספר..." : "Search for a book..."}
                 value={query} 
                 onChange={e => setQuery(e.target.value)}
-                className={`w-full h-12 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 rounded-full focus:outline-none text-sm transition-all ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
+                className={`w-full h-12 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 rounded-full focus:outline-none text-sm transition-all hide-input-accessory ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
                 dir={isQueryHebrew ? "rtl" : "ltr"}
               />
               <Search 
@@ -4271,11 +4293,11 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
                   {bookshelfResults.slice(0, 5).map((book, i) => (
                     <motion.button
                       key={book.id}
-                      type="button"
+                type="button"
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: i * 0.05 }}
-                      onClick={() => {
+                onClick={() => {
                         if (onSelectBook) {
                           onSelectBook(book.id);
                         }
@@ -4303,13 +4325,13 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
                           )}
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-blue-700 bg-blue-100">
                             Your Book
-                          </span>
-                        </div>
-                      </div>
+                </span>
+            </div>
+              </div>
                     </motion.button>
                   ))}
                 </motion.div>
-              )}
+            )}
             </AnimatePresence>
 
             {/* Search Results */}
@@ -4349,7 +4371,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
                         <h3 className="text-sm font-bold text-slate-950 truncate">{book.title}</h3>
                         <p className="text-xs text-slate-800 truncate">{book.author}</p>
                         <div className="flex items-center gap-2 mt-1">
-                          {book.publish_year && (
+                        {book.publish_year && (
                             <p className="text-[10px] text-slate-600">{book.publish_year}</p>
                           )}
                           {book.source && (
@@ -4361,9 +4383,9 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
                                   : 'text-purple-700 bg-purple-100'
                               }`}>
                                 {book.source === 'apple_books' ? 'Apple Books' : 'Wikipedia'}
-                              </span>
+                        </span>
                             </>
-                          )}
+                      )}
                         </div>
                       </div>
                     </motion.button>
@@ -4472,6 +4494,255 @@ function collectTriviaNotes(books: BookWithRatings[]): TriviaNote[] {
 }
 
 // Generate trivia questions from trivia notes using Grok
+// Generate trivia questions for a single book when author_facts are available
+async function generateTriviaQuestionsForBook(bookTitle: string, bookAuthor: string, facts: string[]): Promise<Array<{
+  question: string;
+  correct_answer: string;
+  wrong_answers: string[];
+  source: string;
+  source_detail?: string;
+  url?: string;
+}>> {
+  console.log(`[generateTriviaQuestionsForBook] Generating trivia questions for "${bookTitle}" by ${bookAuthor}...`);
+  
+  if (!grokApiKey) {
+    console.warn('[generateTriviaQuestionsForBook] API key is missing!');
+    return [];
+  }
+  
+  if (!facts || facts.length === 0) {
+    console.warn('[generateTriviaQuestionsForBook] No facts provided');
+    return [];
+  }
+  
+  // Format facts as JSON array
+  const factsJson = facts.map(fact => ({ author_facts: [fact] }));
+  
+  // Load prompt from prompts.yaml
+  const prompts = await loadPrompts();
+  if (!prompts.trivia_questions || !prompts.trivia_questions.prompt) {
+    console.error('[generateTriviaQuestionsForBook] ❌ trivia_questions prompt not found in prompts config');
+    return [];
+  }
+  
+  // Format the prompt with book title, author, and facts JSON
+  const prompt = formatPrompt(prompts.trivia_questions.prompt, { 
+    book_title: bookTitle,
+    author_name: bookAuthor,
+    FACTS_JSON: JSON.stringify(factsJson, null, 2) 
+  });
+
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  
+  const url = 'https://api.x.ai/v1/chat/completions';
+  const payload = {
+    messages: [
+      {
+        role: "user",
+        content: prompt
+      }
+    ],
+    model: "grok-4-1-fast-non-reasoning",
+    stream: false,
+    temperature: 0.8
+  };
+
+  try {
+    const data = await fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload)
+    });
+    
+    // Log usage
+    if (data.usage) {
+      logGrokUsage('generateTriviaQuestionsForBook', data.usage);
+    }
+    
+    const content = data.choices?.[0]?.message?.content || '{}';
+    // Extract JSON from markdown if needed
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    const parsed = JSON.parse(jsonStr);
+    
+    const questions = parsed.questions || [];
+    
+    console.log(`[generateTriviaQuestionsForBook] ✅ Generated ${questions.length} trivia questions`);
+    return questions;
+  } catch (err: any) {
+    console.error('[generateTriviaQuestionsForBook] ❌ Error:', err);
+    return [];
+  }
+}
+
+// Global ref to store refresh callback (set by component)
+let triviaQuestionsCountRefreshCallback: (() => void) | null = null;
+
+function setTriviaQuestionsCountRefreshCallback(callback: (() => void) | null) {
+  triviaQuestionsCountRefreshCallback = callback;
+}
+
+// Save trivia questions to cache table
+async function saveTriviaQuestionsToCache(bookTitle: string, bookAuthor: string, questions: Array<{
+  question: string;
+  correct_answer: string;
+  wrong_answers: string[];
+  source: string;
+  source_detail?: string;
+  url?: string;
+}>): Promise<void> {
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = bookAuthor.toLowerCase().trim();
+    
+    if (questions.length === 0) {
+      console.warn('[saveTriviaQuestionsToCache] No questions to save');
+      return;
+    }
+    
+    // Check if questions already exist for this book
+    const { data: existing, error: checkError } = await supabase
+      .from('trivia_questions_cache')
+      .select('id')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+    
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('[saveTriviaQuestionsToCache] ❌ Error checking existing record:', checkError);
+    }
+    
+    const recordData = {
+      book_title: normalizedTitle,
+      book_author: normalizedAuthor,
+      questions: questions,
+      updated_at: new Date().toISOString(),
+    };
+    
+    let result;
+    if (existing) {
+      // Update existing record
+      result = await supabase
+        .from('trivia_questions_cache')
+        .update(recordData)
+        .eq('book_title', normalizedTitle)
+        .eq('book_author', normalizedAuthor);
+    } else {
+      // Insert new record
+      result = await supabase
+        .from('trivia_questions_cache')
+        .insert(recordData);
+    }
+    
+    if (result.error) {
+      console.error('[saveTriviaQuestionsToCache] ❌ Error saving trivia questions:', {
+        message: result.error.message,
+        code: result.error.code,
+        details: result.error.details,
+        hint: result.error.hint,
+      });
+      
+      // Check if table doesn't exist
+      if (result.error.code === '42P01' || result.error.message?.includes('does not exist')) {
+        console.error('[saveTriviaQuestionsToCache] ⚠️ Table "trivia_questions_cache" does not exist. Please run the migration in Supabase SQL Editor.');
+      }
+    } else {
+      console.log(`[saveTriviaQuestionsToCache] ✅ Saved ${questions.length} trivia questions to cache`);
+      // Trigger refresh callback if available
+      if (triviaQuestionsCountRefreshCallback) {
+        triviaQuestionsCountRefreshCallback();
+      }
+    }
+  } catch (err: any) {
+    console.error('[saveTriviaQuestionsToCache] ❌ Error:', err);
+  }
+}
+
+// Count books with trivia questions in cache
+async function countBooksWithTriviaQuestions(): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .from('trivia_questions_cache')
+      .select('*', { count: 'exact', head: true });
+    
+    if (error) {
+      console.error('[countBooksWithTriviaQuestions] ❌ Error counting books:', error);
+      return 0;
+    }
+    
+    return count || 0;
+  } catch (err: any) {
+    console.error('[countBooksWithTriviaQuestions] ❌ Error:', err);
+    return 0;
+  }
+}
+
+// Load random trivia questions from cache (11 questions from all available books)
+async function loadRandomTriviaQuestions(): Promise<Array<{
+  question: string;
+  correct_answer: string;
+  wrong_answers: string[];
+}>> {
+  console.log('[loadRandomTriviaQuestions] Loading random trivia questions from cache...');
+  
+  try {
+    // Get all trivia questions from cache
+    const { data: allQuestions, error } = await supabase
+      .from('trivia_questions_cache')
+      .select('questions');
+    
+    if (error) {
+      console.error('[loadRandomTriviaQuestions] ❌ Error loading questions:', error);
+      return [];
+    }
+    
+    if (!allQuestions || allQuestions.length === 0) {
+      console.warn('[loadRandomTriviaQuestions] ⚠️ No trivia questions found in cache');
+      return [];
+    }
+    
+    // Flatten all questions from all books
+    const allQuestionsFlat: Array<{
+      question: string;
+      correct_answer: string;
+      wrong_answers: string[];
+    }> = [];
+    
+    for (const record of allQuestions) {
+      if (record.questions && Array.isArray(record.questions)) {
+        for (const q of record.questions) {
+          // Extract only the fields we need for the game
+          allQuestionsFlat.push({
+            question: q.question,
+            correct_answer: q.correct_answer,
+            wrong_answers: q.wrong_answers || []
+          });
+        }
+      }
+    }
+    
+    if (allQuestionsFlat.length === 0) {
+      console.warn('[loadRandomTriviaQuestions] ⚠️ No questions found after flattening');
+      return [];
+    }
+    
+    // Shuffle and take 11 random questions
+    const shuffled = [...allQuestionsFlat].sort(() => Math.random() - 0.5);
+    const selected = shuffled.slice(0, Math.min(11, shuffled.length));
+    
+    console.log(`[loadRandomTriviaQuestions] ✅ Loaded ${selected.length} random trivia questions from ${allQuestions.length} books`);
+    return selected;
+  } catch (err: any) {
+    console.error('[loadRandomTriviaQuestions] ❌ Error:', err);
+    return [];
+  }
+}
+
+// Legacy function for backward compatibility (used by old trivia game flow)
 async function generateTriviaQuestions(triviaNotes: TriviaNote[]): Promise<Array<{
   question: string;
   correct_answer: string;
@@ -4664,6 +4935,7 @@ export default function App() {
     correct_answer: string;
     wrong_answers: string[];
   }>>([]);
+  const [triviaFirstPlayTimestamp, setTriviaFirstPlayTimestamp] = useState<number | null>(null);
   const [currentTriviaQuestionIndex, setCurrentTriviaQuestionIndex] = useState(0);
   const [triviaScore, setTriviaScore] = useState(0);
   const [selectedTriviaAnswer, setSelectedTriviaAnswer] = useState<string | null>(null);
@@ -4673,7 +4945,13 @@ export default function App() {
   const [isTriviaTransitioning, setIsTriviaTransitioning] = useState(false);
   const [triviaShuffledAnswers, setTriviaShuffledAnswers] = useState<string[]>([]);
   const [isTriviaReady, setIsTriviaReady] = useState(false);
+  const [isTriviaMuted, setIsTriviaMuted] = useState(false);
+  const [triviaAnswerFeedback, setTriviaAnswerFeedback] = useState<'correct' | 'incorrect' | null>(null);
+  const [booksWithTriviaQuestions, setBooksWithTriviaQuestions] = useState<number>(0);
+  const [triviaQuestionsRefreshTrigger, setTriviaQuestionsRefreshTrigger] = useState(0);
+  const [nextQuestionsCountdown, setNextQuestionsCountdown] = useState<{hours: number; minutes: number; seconds: number} | null>(null);
   const triviaAudioRef = useRef<HTMLAudioElement | null>(null);
+  const prevTriviaGameCompleteRef = useRef(false);
   const [spoilerRevealed, setSpoilerRevealed] = useState<Map<string, Set<string>>>(new Map());
   
   // Merge Sort Implementation - O(n log n) comparisons
@@ -5476,6 +5754,157 @@ export default function App() {
     loadBooks();
   }, [user, authLoading]);
 
+  // Set default view to bookshelf when user has no books
+  useEffect(() => {
+    if (isLoaded && books.length === 0 && !showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage) {
+      setShowBookshelf(true);
+      setBookshelfGrouping('reading_status'); // Ensure it's grouped by status
+    }
+  }, [isLoaded, books.length, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage]);
+
+  // Update count of books with trivia questions
+  useEffect(() => {
+    const refreshCount = () => {
+      if (isLoaded && user) {
+        countBooksWithTriviaQuestions().then(count => {
+          setBooksWithTriviaQuestions(count);
+        }).catch(err => {
+          console.error('[App] Error counting books with trivia questions:', err);
+        });
+      }
+    };
+    
+    // Set the global callback so saveTriviaQuestionsToCache can trigger refresh
+    setTriviaQuestionsCountRefreshCallback(refreshCount);
+    
+    // Initial load
+    refreshCount();
+    
+    // Cleanup
+    return () => {
+      setTriviaQuestionsCountRefreshCallback(null);
+    };
+  }, [isLoaded, user, books.length, triviaQuestionsRefreshTrigger]); // Update when books change or refresh is triggered
+
+  // Fire confetti when trivia game completes
+  useEffect(() => {
+    // Only fire confetti when game transitions from incomplete to complete
+    if (triviaGameComplete && !prevTriviaGameCompleteRef.current) {
+      // Play confetti sound
+      const confettiSound = new Audio(getAssetPath('/confetti-pop-sound.mp3'));
+      confettiSound.volume = 0.5; // Set volume to 50%
+      confettiSound.play().catch(err => {
+        console.warn('Failed to play confetti sound:', err);
+      });
+
+      // Check if confetti is available
+      if (typeof window !== 'undefined' && (window as any).confetti) {
+        const count = 200;
+        const defaults = {
+          origin: { y: 0.7 },
+        };
+
+        function fire(particleRatio: number, opts: any) {
+          (window as any).confetti(
+            Object.assign({}, defaults, opts, {
+              particleCount: Math.floor(count * particleRatio),
+            })
+          );
+        }
+
+        fire(0.25, {
+          spread: 26,
+          startVelocity: 55,
+        });
+
+        fire(0.2, {
+          spread: 60,
+        });
+
+        fire(0.35, {
+          spread: 100,
+          decay: 0.91,
+          scalar: 0.8,
+        });
+
+        fire(0.1, {
+          spread: 120,
+          startVelocity: 25,
+          decay: 0.92,
+          scalar: 1.2,
+        });
+
+        fire(0.1, {
+          spread: 120,
+          startVelocity: 45,
+        });
+      }
+    }
+    
+    // Update ref to track previous state
+    prevTriviaGameCompleteRef.current = triviaGameComplete;
+  }, [triviaGameComplete]);
+
+  // Load trivia first play timestamp from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('triviaFirstPlayTimestamp');
+      if (saved) {
+        const timestamp = parseInt(saved, 10);
+        if (!isNaN(timestamp)) {
+          setTriviaFirstPlayTimestamp(timestamp);
+        }
+      }
+    } catch (err) {
+      console.warn('[Trivia Timer] Error loading timestamp from localStorage:', err);
+    }
+  }, []);
+
+  // Calculate countdown to next batch of questions (24 hours)
+  useEffect(() => {
+    if (!triviaFirstPlayTimestamp) {
+      setNextQuestionsCountdown(null);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const now = Date.now();
+      const twentyFourHours = 24 * 60 * 60 * 1000;
+      const timeUntilNext = (triviaFirstPlayTimestamp! + twentyFourHours) - now;
+
+      if (timeUntilNext <= 0) {
+        // 24 hours expired - reset timestamp to now to start new period
+        const newTimestamp = Date.now();
+        setTriviaFirstPlayTimestamp(newTimestamp);
+        try {
+          localStorage.setItem('triviaFirstPlayTimestamp', newTimestamp.toString());
+        } catch (err) {
+          console.warn('[Trivia Timer] Error saving timestamp to localStorage:', err);
+        }
+        // Update countdown for new period
+        const newTimeUntilNext = twentyFourHours;
+        const hours = Math.floor(newTimeUntilNext / (60 * 60 * 1000));
+        const minutes = Math.floor((newTimeUntilNext % (60 * 60 * 1000)) / (60 * 1000));
+        const seconds = Math.floor((newTimeUntilNext % (60 * 1000)) / 1000);
+        setNextQuestionsCountdown({ hours, minutes, seconds });
+      } else {
+        const hours = Math.floor(timeUntilNext / (60 * 60 * 1000));
+        const minutes = Math.floor((timeUntilNext % (60 * 60 * 1000)) / (60 * 1000));
+        const seconds = Math.floor((timeUntilNext % (60 * 1000)) / 1000);
+        
+        setNextQuestionsCountdown({ hours, minutes, seconds });
+      }
+    };
+
+    // Update immediately
+    updateCountdown();
+
+    // Update every second
+    const interval = setInterval(updateCountdown, 1000);
+
+    return () => clearInterval(interval);
+  }, [triviaFirstPlayTimestamp]);
+
   // All hooks must be called before any conditional returns
   const activeBook = books[selectedIndex] || null;
   const [editingDimension, setEditingDimension] = useState<typeof RATING_DIMENSIONS[number] | null>(null);
@@ -5728,9 +6157,9 @@ export default function App() {
           label: genreDisplayNames.get(genreLower) || genreLower, // Use original case for display
           books: books.sort((a, b) => {
             // Sort books within each genre by title
-            const titleA = (a.title || '').toUpperCase();
-            const titleB = (b.title || '').toUpperCase();
-            return titleA.localeCompare(titleB);
+          const titleA = (a.title || '').toUpperCase();
+          const titleB = (b.title || '').toUpperCase();
+          return titleA.localeCompare(titleB);
           })
         }))
         .sort((a, b) => {
@@ -5942,7 +6371,7 @@ export default function App() {
       return;
     }
 
-    const bookId = currentBook.id;
+      const bookId = currentBook.id;
     const bookTitle = currentBook.title;
     const bookAuthor = currentBook.author;
     
@@ -5956,7 +6385,7 @@ export default function App() {
     
     if (hasFacts) {
       // Facts already loaded in state, no need to fetch again
-      setLoadingFactsForBookId(null);
+        setLoadingFactsForBookId(null);
       return;
     }
     
@@ -5991,11 +6420,11 @@ export default function App() {
           
           // Update local state for display (cache is already saved by getAuthorFacts)
           // Only update if the book is still the active one
-          setBooks(prev => prev.map(book => 
-            book.id === bookId 
+            setBooks(prev => prev.map(book => 
+              book.id === bookId 
               ? { ...book, author_facts: result.facts, first_issue_year: result.first_issue_year || book.first_issue_year }
-              : book
-          ));
+                : book
+            ));
           
           // Save first_issue_year to database if we got it
           if (result.first_issue_year && user) {
@@ -6011,7 +6440,7 @@ export default function App() {
               } else {
                 console.log(`[Author Facts] 💾 Saved first_issue_year ${result.first_issue_year} to database for "${bookTitle}"`);
               }
-            } catch (err) {
+          } catch (err) {
               console.error('[Author Facts] ❌ Error saving first_issue_year:', err);
             }
           }
@@ -6040,6 +6469,9 @@ export default function App() {
   useEffect(() => {
     if (triviaAudioRef.current) {
       const audio = triviaAudioRef.current;
+      // Set volume based on mute state
+      audio.muted = isTriviaMuted;
+      
       // Play when trivia game is active (has questions and not complete)
       if (isPlayingTrivia && triviaQuestions.length > 0 && !triviaGameComplete && !isTriviaReady && !isTriviaLoading) {
         audio.loop = true;
@@ -6056,7 +6488,7 @@ export default function App() {
         audio.pause();
       }
     }
-  }, [isPlayingTrivia, triviaQuestions.length, triviaGameComplete, isTriviaReady, isTriviaLoading]);
+  }, [isPlayingTrivia, triviaQuestions.length, triviaGameComplete, isTriviaReady, isTriviaLoading, isTriviaMuted]);
 
   // Pause music when browser goes to background
   useEffect(() => {
@@ -6065,6 +6497,7 @@ export default function App() {
     const handleVisibilityChange = () => {
       if (triviaAudioRef.current) {
         const audio = triviaAudioRef.current;
+        audio.muted = isTriviaMuted; // Update mute state
         if (document.hidden) {
           // Browser went to background - pause music
           audio.pause();
@@ -6084,7 +6517,7 @@ export default function App() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isPlayingTrivia, triviaQuestions.length, triviaGameComplete, isTriviaReady, isTriviaLoading]);
+  }, [isPlayingTrivia, triviaQuestions.length, triviaGameComplete, isTriviaReady, isTriviaLoading, isTriviaMuted]);
 
   // Track which books we're currently fetching influences for to prevent duplicate concurrent fetches
   const fetchingInfluencesForBooksRef = useRef<Set<string>>(new Set());
@@ -6278,8 +6711,8 @@ export default function App() {
     }
 
     const bookId = currentBook.id;
-    const bookTitle = currentBook.title;
-    const bookAuthor = currentBook.author;
+      const bookTitle = currentBook.title;
+      const bookAuthor = currentBook.author;
     
     // Check if context insights already exist in local state
     const contextInsights = bookContext.get(bookId);
@@ -6310,8 +6743,8 @@ export default function App() {
 
     // Add a delay to avoid rate limits when scrolling through books
     const fetchTimer = setTimeout(() => {
-      if (cancelled) return;
-      
+        if (cancelled) return;
+        
       console.log(`[Book Context] 🔄 Fetching context insights for "${bookTitle}" by ${bookAuthor}...`);
       getBookContext(bookTitle, bookAuthor).then((contextInsights) => {
         if (cancelled) return;
@@ -6364,7 +6797,7 @@ export default function App() {
   useEffect(() => {
     const currentBook = books[selectedIndex];
     if (!currentBook || !currentBook.title || !currentBook.author) {
-      setLoadingPodcastsForBookId(null);
+        setLoadingPodcastsForBookId(null);
       return;
     }
 
@@ -6427,15 +6860,15 @@ export default function App() {
           });
           
           // Update local state for display (cache is already saved by getPodcastEpisodes)
-          setBooks(prev => prev.map(book => 
-            book.id === bookId 
+            setBooks(prev => prev.map(book => 
+              book.id === bookId 
               ? { 
                   ...book, 
                   podcast_episodes_curated: curated,
                   podcast_episodes_apple: apple
                 }
-              : book
-          ));
+                : book
+            ));
         } else {
           console.log(`[Podcast Episodes] ⚠️ No episodes found for "${bookTitle}"`);
         }
@@ -6459,7 +6892,7 @@ export default function App() {
 
   // Track which books we're currently fetching analysis for to prevent duplicate concurrent fetches
   const fetchingAnalysisForBooksRef = useRef<Set<string>>(new Set());
-  
+
   // Load analysis articles from Google Scholar
   useEffect(() => {
     const currentBook = books[selectedIndex];
@@ -6478,7 +6911,7 @@ export default function App() {
       setLoadingAnalysisForBookId(null);
       return;
     }
-    
+
     if (isCurrentlyFetching) {
       // Fetch already in progress, just wait
       setLoadingAnalysisForBookId(bookId);
@@ -6508,11 +6941,11 @@ export default function App() {
         fetchingAnalysisForBooksRef.current.delete(bookId);
         
         // Store in state (including empty arrays to prevent future fetches)
-        setAnalysisArticles(prev => {
-          const newMap = new Map(prev);
-          newMap.set(bookId, articles);
-          return newMap;
-        });
+          setAnalysisArticles(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, articles);
+            return newMap;
+          });
 
         if (articles.length > 0) {
           console.log(`[Analysis Articles] ✅ Received ${articles.length} articles for "${bookTitle}"`);
@@ -7025,10 +7458,10 @@ export default function App() {
             // If status is "read_it", proceed to rating dimensions
             setPendingBookMeta(null);
             setSelectingReadingStatusInRating(false);
-            setTimeout(() => {
-              setIsEditing(true);
-              setEditingDimension(null); // Will default to first unrated dimension
-            }, 100);
+          setTimeout(() => {
+            setIsEditing(true);
+            setEditingDimension(null); // Will default to first unrated dimension
+          }, 100);
           } else {
             // For "reading" or "want_to_read", just close
             setPendingBookMeta(null);
@@ -7067,11 +7500,11 @@ export default function App() {
         // If status is "read_it", proceed to rating dimensions
         setPendingBookMeta(null);
         setSelectingReadingStatusInRating(false);
-        setTimeout(() => {
-          setIsEditing(true);
-          setEditingDimension(null); // Will default to first unrated dimension
-        }, 100);
-      } else {
+      setTimeout(() => {
+        setIsEditing(true);
+        setEditingDimension(null); // Will default to first unrated dimension
+      }, 100);
+          } else {
         // For "reading" or "want_to_read", just close
         setPendingBookMeta(null);
         setSelectingReadingStatusInRating(false);
@@ -7296,13 +7729,13 @@ export default function App() {
 
     if (!currentTextTrimmed) {
       // Empty notes - save as null
-      try {
-        const { error } = await supabase
-          .from('books')
-          .update({ 
+    try {
+      const { error } = await supabase
+        .from('books')
+        .update({ 
             notes: null,
-            updated_at: new Date().toISOString()
-          })
+          updated_at: new Date().toISOString()
+        })
           .eq('id', targetBookId)
           .eq('user_id', user.id);
 
@@ -7487,19 +7920,19 @@ export default function App() {
             ) : (
               <BookOpen size={24} className="text-slate-950" />
             )}
-            <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
+          <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
               {showAccountPage
                 ? 'ACCOUNT'
                 : showSortingResults
                   ? 'SORTED RESULTS'
-                  : showNotesView 
-                    ? 'NOTES' 
+              : showNotesView 
+                ? 'NOTES' 
                     : showBookshelfCovers
                       ? 'BOOKSHELF'
-                      : showBookshelf 
-                      ? 'BOOKSHELF' 
-                      : 'BOOKS'}
-            </h1>
+                : showBookshelf 
+                  ? 'BOOKSHELF' 
+                  : 'BOOKS'}
+          </h1>
           </div>
         
         {/* User avatar on right - or back button when on account page or sorting results */}
@@ -8041,8 +8474,8 @@ export default function App() {
                     const isComplete = availableBooks.length >= 2 && !getNextMergePair(availableBooks);
                     
                     return (
-                      <button
-                        onClick={() => {
+                              <button
+                                onClick={() => {
                           if (isComplete) {
                             // Show results in glassmorphic dialog
                             setIsPlayingGame(true);
@@ -8115,7 +8548,7 @@ export default function App() {
                     {/* Covers Grid */}
                     <div className="px-[4vw] grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4">
                       {group.books.map((book, idx) => {
-                        const bookIndex = books.findIndex(b => b.id === book.id);
+                                  const bookIndex = books.findIndex(b => b.id === book.id);
                         const avgScore = calculateAvg(book.ratings);
                         
                         return (
@@ -8129,11 +8562,11 @@ export default function App() {
                             }}
                             className="flex flex-col items-center cursor-pointer group"
                             onClick={() => {
-                              if (bookIndex !== -1) {
+                                  if (bookIndex !== -1) {
                                 setScrollY(0);
-                                setSelectedIndex(bookIndex);
+                                    setSelectedIndex(bookIndex);
                                 setShowBookshelfCovers(false);
-                                setTimeout(() => {
+                                    setTimeout(() => {
                                   const main = document.querySelector('main');
                                   if (main) {
                                     main.scrollTo({ top: 0, behavior: 'smooth' });
@@ -8153,21 +8586,21 @@ export default function App() {
                               ) : (
                                 <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${getGradient(book.id)}`}>
                                   <BookOpen size={32} className="text-white opacity-30" />
-                                </div>
+                            </div>
                               )}
                               {/* Rating Badge */}
                               {avgScore && (
                                 <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
                                   <Star size={12} className="fill-amber-400 text-amber-400" />
                                   <span className="text-xs font-bold text-white">{avgScore}</span>
-                                </div>
-                              )}
-                            </div>
+                          </div>
+                        )}
+                      </div>
                             {/* Book Title or Author */}
                             <p className="text-xs font-medium text-slate-800 text-center line-clamp-2 px-1">
                               {bookshelfGrouping === 'author' ? (book.author || 'Unknown Author') : book.title}
                             </p>
-                          </motion.div>
+                  </motion.div>
                         );
                       })}
                     </div>
@@ -8194,11 +8627,22 @@ export default function App() {
             <div 
               className="w-full flex flex-col items-center px-4"
             >
+              {books.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 py-20">
+                  <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
+                  <button
+                    onClick={() => setIsAdding(true)}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
+                  >
+                    Add first book
+                  </button>
+                </div>
+              ) : (
               <div className="w-full max-w-[1600px] flex flex-col gap-2.5 py-8">
                 {/* Grouping Selector - Dropdown */}
                 <div className="flex items-center justify-start px-4 mb-1.5">
                   <div className="relative" ref={bookshelfGroupingDropdownRef}>
-                    <button
+                  <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setIsBookshelfGroupingDropdownOpen(!isBookshelfGroupingDropdownOpen);
@@ -8218,7 +8662,7 @@ export default function App() {
                         size={16} 
                         className={`transition-transform ${isBookshelfGroupingDropdownOpen ? 'rotate-180' : ''}`}
                       />
-                    </button>
+                  </button>
                     {isBookshelfGroupingDropdownOpen && (
                       <>
                         {/* Backdrop to close menu */}
@@ -8243,7 +8687,7 @@ export default function App() {
                             { value: 'genre', label: 'Genre' },
                             { value: 'publication_year', label: 'Year' },
                           ].map((option, idx) => (
-                            <button
+                  <button
                               key={option.value}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -8259,7 +8703,7 @@ export default function App() {
                               }`}
                             >
                               {option.label}
-                            </button>
+                  </button>
                           ))}
                         </motion.div>
                       </>
@@ -8566,6 +9010,7 @@ export default function App() {
                   </div>
                 ))}
               </div>
+              )}
             </div>
           </motion.main>
         ) : (
@@ -8622,7 +9067,7 @@ export default function App() {
             <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
             <button
               onClick={() => setIsAdding(true)}
-              className="px-6 py-3 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-xl border border-white/30 shadow-lg font-bold text-slate-950 hover:bg-opacity-20 active:scale-95 transition-all"
+              className="px-6 py-3 bg-blue-600 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
             >
               Add first book
             </button>
@@ -8650,7 +9095,7 @@ export default function App() {
                       <motion.div key={activeBook.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="relative w-full h-full rounded-lg overflow-hidden">
                         {activeBook.cover_url ? (
                           <>
-                            <img src={activeBook.cover_url} alt={activeBook.title} className="w-full h-full object-cover" />
+                          <img src={activeBook.cover_url} alt={activeBook.title} className="w-full h-full object-cover" />
                             {/* Skeuomorphic book effect overlay */}
                             <div 
                               className="absolute inset-0 pointer-events-none rounded-lg"
@@ -8820,44 +9265,44 @@ export default function App() {
                       </motion.div>
                     ) : currentEditingDimension ? (
                       // Rating Dimensions
-                      <motion.div 
-                        key={currentEditingDimension} 
-                        initial={{ opacity: 0, scale: 0.9 }} 
-                        animate={{ opacity: 1, scale: 1 }} 
-                        exit={{ opacity: 0, scale: 0.9 }} 
-                        className="w-full"
-                      >
-                        <RatingStars 
-                          dimension={currentEditingDimension} 
-                          value={activeBook.ratings[currentEditingDimension]} 
-                          onRate={(dim, val) => handleRate(activeBook.id, dim, val)} 
-                        />
-                        {/* Navigation dots and Skip button */}
-                        <div className="flex items-center justify-center gap-3 mt-3">
-                          <div className="flex gap-1.5">
-                            {RATING_DIMENSIONS.map((dim, idx) => (
-                              <button
-                                key={dim}
-                                onClick={() => setEditingDimension(dim)}
-                                className={`w-2 h-2 rounded-full transition-all ${
-                                  dim === currentEditingDimension 
-                                    ? 'bg-blue-600 w-6' 
-                                    : 'bg-slate-400'
-                                }`}
-                              />
-                            ))}
-                          </div>
+                    <motion.div 
+                      key={currentEditingDimension} 
+                      initial={{ opacity: 0, scale: 0.9 }} 
+                      animate={{ opacity: 1, scale: 1 }} 
+                      exit={{ opacity: 0, scale: 0.9 }} 
+                      className="w-full"
+                    >
+                      <RatingStars 
+                        dimension={currentEditingDimension} 
+                        value={activeBook.ratings[currentEditingDimension]} 
+                        onRate={(dim, val) => handleRate(activeBook.id, dim, val)} 
+                      />
+                    {/* Navigation dots and Skip button */}
+                    <div className="flex items-center justify-center gap-3 mt-3">
+                      <div className="flex gap-1.5">
+                        {RATING_DIMENSIONS.map((dim, idx) => (
                           <button
-                            onClick={() => {
-                              if (activeBook && currentEditingDimension) {
-                                handleRate(activeBook.id, currentEditingDimension, null);
-                              }
-                            }}
-                            className="px-3 py-1 text-xs font-medium text-black hover:text-slate-800 active:scale-95 transition-all"
-                          >
-                            Skip
-                          </button>
-                        </div>
+                            key={dim}
+                            onClick={() => setEditingDimension(dim)}
+                            className={`w-2 h-2 rounded-full transition-all ${
+                              dim === currentEditingDimension 
+                                ? 'bg-blue-600 w-6' 
+                                : 'bg-slate-400'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (activeBook && currentEditingDimension) {
+                            handleRate(activeBook.id, currentEditingDimension, null);
+                          }
+                        }}
+                        className="px-3 py-1 text-xs font-medium text-black hover:text-slate-800 active:scale-95 transition-all"
+                      >
+                        Skip
+                      </button>
+                    </div>
                       </motion.div>
                     ) : null}
                   </motion.div>
@@ -9234,7 +9679,7 @@ export default function App() {
                   return (
                     <div 
                       className={`w-full space-y-2 relative ${shouldBlurPodcasts ? 'cursor-pointer' : ''}`}
-                      onClick={() => {
+                          onClick={() => {
                         if (shouldBlurPodcasts) {
                           setSpoilerRevealed(prev => {
                             const newMap = new Map(prev);
@@ -9333,8 +9778,8 @@ export default function App() {
                         </div>
                       )}
                       <div className={shouldBlurAnalysis ? 'blur-sm pointer-events-none select-none' : ''}>
-                        {/* Analysis Header */}
-                        <div className="flex items-center justify-center mb-2">
+                      {/* Analysis Header */}
+                      <div className="flex items-center justify-center mb-2">
                         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
                           <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">ANALYSIS:</span>
                           <span className="text-[10px] font-bold text-slate-400">/</span>
@@ -9580,41 +10025,91 @@ export default function App() {
           </button>
 
           {/* Game button - trivia game */}
-          <button
-            onClick={() => {
-              setScrollY(0);
-              setShowBookshelf(false);
-              setShowBookshelfCovers(false);
-              setShowNotesView(false);
-              setShowAccountPage(false);
-              setShowSortingResults(false);
+          <div className="relative group">
+            {(() => {
+              const minBooks = 5;
+              const minBooksWithQuestions = 5;
+              const hasEnoughBooks = books.length >= minBooks;
+              const hasEnoughQuestions = booksWithTriviaQuestions >= minBooksWithQuestions;
+              const isDisabled = !hasEnoughBooks || !hasEnoughQuestions;
               
-              // If we have questions and are mid-game, resume from where we left off
-              if (triviaQuestions.length > 0 && currentTriviaQuestionIndex < triviaQuestions.length && !triviaGameComplete) {
-                // Resume mid-game - don't reset state, just reopen
-                setIsPlayingTrivia(true);
-                setIsTriviaReady(false);
-              } else {
-                // Start new game - reset everything
-                setIsPlayingTrivia(true);
-                setIsTriviaReady(true);
-                setCurrentTriviaQuestionIndex(0);
-                setTriviaScore(0);
-                setSelectedTriviaAnswer(null);
-                setTriviaGameComplete(false);
-                setTriviaSelectedAnswers(new Map());
-                setIsTriviaTransitioning(false);
-                setTriviaShuffledAnswers([]);
-              }
-            }}
-            className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
-              isPlayingTrivia 
-                ? 'bg-white/40 hover:bg-white/50' 
-                : 'bg-white/20 hover:bg-white/30'
-            }`}
-          >
-            <Trophy size={18} className="text-slate-950" />
-          </button>
+              // Calculate remaining books needed (whichever is higher)
+              const remainingBooks = Math.max(
+                hasEnoughBooks ? 0 : minBooks - books.length,
+                hasEnoughQuestions ? 0 : minBooksWithQuestions - booksWithTriviaQuestions
+              );
+              
+              return (
+                <>
+                  <button
+                    onClick={() => {
+                      if (isDisabled) return;
+                      
+                      setScrollY(0);
+                      setShowBookshelf(false);
+                      setShowBookshelfCovers(false);
+                      setShowNotesView(false);
+                      setShowAccountPage(false);
+                      setShowSortingResults(false);
+                      
+                      // If we have questions and are mid-game, resume from where we left off
+                      if (triviaQuestions.length > 0 && currentTriviaQuestionIndex < triviaQuestions.length && !triviaGameComplete) {
+                        // Resume mid-game - don't reset state, just reopen
+                        setIsPlayingTrivia(true);
+                        setIsTriviaReady(false);
+                      } else {
+                        // Start new game - reset everything
+                        setIsPlayingTrivia(true);
+                        setIsTriviaReady(true);
+                        setCurrentTriviaQuestionIndex(0);
+                        setTriviaScore(0);
+                        setSelectedTriviaAnswer(null);
+                        setTriviaAnswerFeedback(null);
+                        setTriviaGameComplete(false);
+                        setTriviaSelectedAnswers(new Map());
+                        setIsTriviaTransitioning(false);
+                        setTriviaShuffledAnswers([]);
+                      }
+                    }}
+                    disabled={isDisabled}
+                    className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
+                      isDisabled
+                        ? 'bg-white/10 opacity-50 cursor-not-allowed'
+                        : isPlayingTrivia 
+                          ? 'bg-white/40 hover:bg-white/50' 
+                          : 'bg-white/20 hover:bg-white/30'
+                    }`}
+                  >
+                    <Trophy size={18} className="text-slate-950" />
+                  </button>
+                  {isDisabled && (
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50"
+                      style={{
+                        background: '#1d1d1f',
+                        color: '#fff',
+                        padding: '8px 14px',
+                        borderRadius: '10px',
+                        fontSize: '0.75rem',
+                        fontWeight: '700',
+                        boxShadow: '0 10px 20px rgba(0,0,0,0.1)',
+                      }}
+                    >
+                      Add {remainingBooks} more {remainingBooks === 1 ? 'book' : 'books'} to unlock trivia!
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1"
+                        style={{
+                          width: 0,
+                          height: 0,
+                          borderLeft: '6px solid transparent',
+                          borderRight: '6px solid transparent',
+                          borderTop: '6px solid #1d1d1f',
+                        }}
+                      />
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
 
           {/* Search button - right (circular) */}
           <button
@@ -10122,7 +10617,7 @@ export default function App() {
             >
               {/* Trivia Logo - Anchored to top of trivia box, centered on box x-axis */}
               <AnimatePresence>
-                {!triviaGameComplete && (isTriviaReady || triviaQuestions.length > 0) && (
+                {(isTriviaReady || triviaQuestions.length > 0 || triviaGameComplete) && (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -10130,7 +10625,7 @@ export default function App() {
                     transition={{ duration: 0.3 }}
                     className="absolute left-1/2 -translate-x-1/2 z-30 pointer-events-none"
                     style={{ 
-                      top: 'calc(-10rem + 60px)'
+                      top: 'calc(-10rem + 70px)'
                     }}
                   >
                     <img 
@@ -10158,27 +10653,40 @@ export default function App() {
                       setIsTriviaLoading(true);
                       
                       try {
-                        // Collect trivia notes
-                        const triviaNotes = collectTriviaNotes(books);
-                        if (triviaNotes.length === 0) {
-                          alert('Need at least 10 books with trivia facts to play!');
-                          setIsTriviaLoading(false);
-                          return;
+                        // Check if we need to load questions
+                        const shouldFetchNew = triviaQuestions.length === 0;
+                        
+                        if (shouldFetchNew) {
+                          // Load new random questions from cache
+                          const questions = await loadRandomTriviaQuestions();
+                          if (questions.length === 0) {
+                            alert('No trivia questions available yet. Add more books with author facts to generate questions!');
+                            setIsTriviaLoading(false);
+                            return;
+                          }
+                          
+                          if (questions.length < 11) {
+                            console.warn(`[Trivia Game] Only ${questions.length} questions available, using all of them`);
+                          }
+                          
+                          setTriviaQuestions(questions);
                         }
                         
-                        // Generate questions
-                        const questions = await generateTriviaQuestions(triviaNotes);
-                        if (questions.length === 0) {
-                          alert('Failed to generate trivia questions. Please try again.');
-                          setIsTriviaLoading(false);
-                          return;
+                        // Set first play timestamp if not already set (when user first plays)
+                        if (!triviaFirstPlayTimestamp) {
+                          const timestamp = Date.now();
+                          setTriviaFirstPlayTimestamp(timestamp);
+                          try {
+                            localStorage.setItem('triviaFirstPlayTimestamp', timestamp.toString());
+                          } catch (err) {
+                            console.warn('[Trivia Timer] Error saving timestamp to localStorage:', err);
+                          }
                         }
                         
-                        setTriviaQuestions(questions);
                         setIsTriviaReady(false);
                       } catch (err) {
                         console.error('[Trivia Game] Error:', err);
-                        alert('Error starting trivia game. Please try again.');
+                        alert('Error loading trivia questions. Please try again.');
                         setIsTriviaLoading(false);
                       } finally {
                         setIsTriviaLoading(false);
@@ -10218,6 +10726,7 @@ export default function App() {
                           setCurrentTriviaQuestionIndex(0);
                           setTriviaScore(0);
                           setSelectedTriviaAnswer(null);
+                          setTriviaAnswerFeedback(null);
                           setTriviaSelectedAnswers(new Map());
                           setTriviaShuffledAnswers([]);
                           setIsTriviaReady(false);
@@ -10269,22 +10778,52 @@ export default function App() {
                     })}
                   </div>
                   
-                  <button
-                    onClick={() => {
-                      setIsPlayingTrivia(false);
-                      setTriviaGameComplete(false);
-                      setCurrentTriviaQuestionIndex(0);
-                      setTriviaScore(0);
-                      setSelectedTriviaAnswer(null);
-                      setTriviaSelectedAnswers(new Map());
-                      setTriviaShuffledAnswers([]);
-                      setIsTriviaReady(false);
-                    }}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95 shadow-sm mt-4"
-                  >
-                    <Trophy size={16} />
-                    <span>Play Again</span>
-                  </button>
+                  {nextQuestionsCountdown && triviaFirstPlayTimestamp ? (
+                    <div className="bg-slate-100/80 backdrop-blur-md rounded-xl p-4 border border-slate-200/30 shadow-sm mt-4">
+                      <p className="text-xs text-slate-700 text-center font-medium mb-3">New questions available in:</p>
+                      <div className="flex justify-center">
+                        <span className="countdown font-mono text-2xl">
+                          <span 
+                            style={{ 
+                              '--value': nextQuestionsCountdown.hours 
+                            } as React.CSSProperties} 
+                            aria-live="polite" 
+                            aria-label={nextQuestionsCountdown.hours.toString()}
+                          >
+                            {nextQuestionsCountdown.hours}
+                          </span>
+                          {' : '}
+                          <span 
+                            style={{ 
+                              '--value': nextQuestionsCountdown.minutes,
+                              '--digits': 2 
+                            } as React.CSSProperties} 
+                            aria-live="polite" 
+                            aria-label={nextQuestionsCountdown.minutes.toString()}
+                          >
+                            {String(nextQuestionsCountdown.minutes).padStart(2, '0')}
+                          </span>
+                          {' : '}
+                          <span 
+                            style={{ 
+                              '--value': nextQuestionsCountdown.seconds,
+                              '--digits': 2 
+                            } as React.CSSProperties} 
+                            aria-live="polite" 
+                            aria-label={nextQuestionsCountdown.seconds.toString()}
+                          >
+                            {String(nextQuestionsCountdown.seconds).padStart(2, '0')}
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                  ) : triviaFirstPlayTimestamp ? (
+                    <div className="bg-slate-100/80 backdrop-blur-md rounded-xl p-4 border border-slate-200/30 shadow-sm mt-4">
+                      <p className="text-xs text-slate-700 text-center font-medium">
+                        New questions available on next play!
+                      </p>
+                    </div>
+                  ) : null}
                 </motion.div>
               ) : triviaQuestions.length > 0 && currentTriviaQuestionIndex < triviaQuestions.length ? (
                 <AnimatePresence mode="wait">
@@ -10314,9 +10853,22 @@ export default function App() {
                     
                       <div className="flex items-center justify-between mb-3">
                         <h2 className="text-sm font-bold text-slate-950">Trivia Game</h2>
-                        <span className="text-xs text-slate-700">
-                          Question {currentTriviaQuestionIndex + 1} / {triviaQuestions.length}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setIsTriviaMuted(!isTriviaMuted)}
+                            className="w-8 h-8 rounded-full bg-white/80 backdrop-blur-md hover:bg-white/85 border border-white/30 active:scale-95 transition-all flex items-center justify-center shadow-sm"
+                            aria-label={isTriviaMuted ? 'Unmute music' : 'Mute music'}
+                          >
+                            {isTriviaMuted ? (
+                              <VolumeX size={14} className="text-slate-700" />
+                            ) : (
+                              <Volume2 size={14} className="text-slate-700" />
+                            )}
+                          </button>
+                          <span className="text-xs text-slate-700">
+                            Question {currentTriviaQuestionIndex + 1} / {triviaQuestions.length}
+                          </span>
+                        </div>
                       </div>
                       
                       <div className="bg-blue-50/80 backdrop-blur-md rounded-xl p-4 border border-blue-200/30 mb-4 shadow-sm">
@@ -10328,13 +10880,30 @@ export default function App() {
                         {triviaShuffledAnswers.map((answer, idx) => {
                           const currentQuestion = triviaQuestions[currentTriviaQuestionIndex];
                           const isSelected = selectedTriviaAnswer === answer;
+                          const isCorrect = answer === currentQuestion.correct_answer;
+                          const showFeedback = triviaAnswerFeedback !== null;
                           
-                          // Highlight selected answer in gray
-                          const bgColor = isSelected 
-                            ? 'bg-slate-200/80 border-2 border-slate-400' 
-                            : selectedTriviaAnswer !== null
-                            ? 'bg-white/50 opacity-50'
-                            : 'bg-white/80 backdrop-blur-md hover:bg-white/85 border border-white/30';
+                          // Determine background color based on state
+                          let bgColor = 'bg-white/80 backdrop-blur-md hover:bg-white/85';
+                          if (isSelected) {
+                            if (showFeedback) {
+                              // Show feedback color immediately
+                              bgColor = isCorrect 
+                                ? 'bg-green-200/80' 
+                                : 'bg-red-200/80';
+                            } else {
+                              // Just selected, waiting for feedback
+                              bgColor = 'bg-slate-200/80';
+                            }
+                          } else if (selectedTriviaAnswer !== null) {
+                            // Another answer was selected
+                            if (showFeedback && isCorrect) {
+                              // Highlight correct answer even if not selected
+                              bgColor = 'bg-green-100/80';
+                            } else {
+                              bgColor = 'bg-white/50 opacity-50';
+                            }
+                          }
                           
                           return (
                             <button
@@ -10350,28 +10919,33 @@ export default function App() {
                                     return newMap;
                                   });
                                   
-                                  if (answer === currentQuestion.correct_answer) {
+                                  const wasCorrect = answer === currentQuestion.correct_answer;
+                                  if (wasCorrect) {
                                     setTriviaScore(prev => prev + 1);
                                   }
                                   
-                                  // Auto-advance after 0.5 seconds with fade transition
+                                  // Show feedback immediately
+                                  setTriviaAnswerFeedback(wasCorrect ? 'correct' : 'incorrect');
+                                  
+                                  // Auto-advance after showing feedback (0.5 seconds)
                                   setTimeout(() => {
                                     setIsTriviaTransitioning(true);
                                     setTimeout(() => {
                                       if (currentTriviaQuestionIndex < triviaQuestions.length - 1) {
                                         setCurrentTriviaQuestionIndex(prev => prev + 1);
                                         setSelectedTriviaAnswer(null);
+                                        setTriviaAnswerFeedback(null);
                                         setIsTriviaTransitioning(false);
                                         setTriviaShuffledAnswers([]); // Reset for next question
                                       } else {
                                         setTriviaGameComplete(true);
                                       }
                                     }, 150); // Wait for fade out
-                                  }, 500);
+                                  }, 500); // Show feedback for 0.5 seconds
                                 }
                               }}
                               disabled={selectedTriviaAnswer !== null}
-                              className={`w-full text-left px-3 py-2.5 rounded-xl transition-colors text-xs font-bold text-slate-950 shadow-sm ${
+                              className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-950 shadow-sm ${
                                 selectedTriviaAnswer === null ? 'cursor-pointer' : 'cursor-not-allowed'
                               } ${bgColor}`}
                               style={{ 
@@ -10380,7 +10954,14 @@ export default function App() {
                                 alignItems: 'center'
                               }}
                             >
-                              {answer}
+                              <div className="flex items-center justify-between w-full">
+                                <span>{answer}</span>
+                                {isSelected && showFeedback && (
+                                  <span className="text-sm">
+                                    {isCorrect ? '✓' : '✗'}
+                                  </span>
+                                )}
+                              </div>
                             </button>
                           );
                         })}

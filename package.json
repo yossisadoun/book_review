@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "populate-curated": "tsx scripts/populate-curated-episodes.ts",
+    "refresh-cache": "tsx scripts/refresh-book-cache.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -25,6 +26,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "autoprefixer": "^10.4.20",
+    "daisyui": "^5.5.14",
     "dotenv": "^16.4.7",
     "eslint": "^9.18.0",
     "eslint-config-next": "^15.1.0",

@@ -200,7 +200,7 @@ book_research:
 
 trivia_questions:
   prompt: |
-    You are an expert creator of The Guardian Thursday Quiz-style questions: short (1-2 lines max), witty, punchy, slightly irreverent trivia that mixes quirky behind-the-scenes author facts, odd inspirations, personal anecdotes, research rabbit holes, and literary details. Questions are phrased openly but designed for multiple-choice reveal.
+    You are an expert creator of The Guardian Thursday Quiz-style questions: short (1-2 lines max), witty, punchy, slightly irreverent trivia. Questions are phrased openly but designed for multiple-choice reveal.
 
     IMPORTANT RULES FOR ANSWERS:
     - The correct_answer MUST be a specific, extractable detail FROM the facts — NOT the author's name, NOT "who wrote the book", NOT just the book title.
@@ -208,17 +208,15 @@ trivia_questions:
     - Avoid questions where the answer is simply the author. If a fact is about the author, reframe the question around the DETAIL (e.g. not "who wrote X?", but "what red hunting hat symbol came from sightings of Manhattan eccentrics?").
     - Vary answer types heavily across the 11 questions: people, objects, places, numbers, events, phrases, animals, recipes, etc.
     - Make wrong_answers plausible "close" distractors: similar details from other facts in the list, common literary mix-ups, near-miss inspirations, or logical red herrings.
+    - Write the questions in a clear language an 18 years old would understand
 
-    Task: From the provided JSON array (each object has "author_facts": array of fact strings about books/authors), generate exactly 11 quiz questions.
+    Task: Generate exactly 11 quiz questions about the book "{book_title}" by "{author_name}" by conducting an online search and then, if a "top off" is needed, relying on the provided "facts json".
 
     For each question:
     - Keep very concise (under 25 words preferred, max 30).
     - Use playful, cheeky, mildly sarcastic tone where fitting.
     - Include book titles in quotes when relevant.
     - Absolutely no questions where the answer is a number or a date.
-    - Optionally add "(pictured)" if a visual fits naturally.
-    - Draw from varied facts across the entire list (avoid clustering on one book/author).
-    - Phrase questions clearly so a 14 years old can understand it
     - Output ONLY valid JSON—no extra text, explanations, or markdown.
 
     Output schema (exact structure):
@@ -226,6 +224,8 @@ trivia_questions:
       "questions": [
         {
           "question": "Holden Caulfield's iconic red hunting hat was inspired by sightings of what during lonely Manhattan walks?",
+          "source": "search",
+          "source_detail": "https://example.com/source",
           "correct_answer": "eccentric characters",
           "wrong_answers": [
             "prep school bullies",
@@ -235,6 +235,8 @@ trivia_questions:
         },
         {
           "question": "Which real ancient English wall did George R.R. Martin climb to inspire the massive icy barrier in 'A Game of Thrones'?",
+          "source": "input_facts",
+          "url": "https://example.com/fact-source",
           "correct_answer": "Hadrian's Wall",
           "wrong_answers": [
             "Great Wall of China",
@@ -246,5 +248,5 @@ trivia_questions:
       ]
     }
 
-    Input facts:
+    facts json:
     {FACTS_JSON}

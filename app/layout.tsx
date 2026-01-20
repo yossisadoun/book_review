@@ -16,6 +16,7 @@ export const metadata: Metadata = {
     initialScale: 1,
     maximumScale: 1,
     userScalable: false,
+    viewportFit: 'cover',
   },
   icons: {
     icon: [
@@ -51,11 +52,11 @@ export default function RootLayout({
               // Prevent zooming on mobile by setting viewport meta tag
               let viewport = document.querySelector('meta[name="viewport"]');
               if (viewport) {
-                viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+                viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover');
               } else {
                 viewport = document.createElement('meta');
                 viewport.setAttribute('name', 'viewport');
-                viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+                viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover');
                 document.head.appendChild(viewport);
               }
             })();
@@ -92,6 +93,10 @@ export default function RootLayout({
             })();
           `}
         </Script>
+        <Script
+          src="https://cdn.jsdelivr.net/npm/@tsparticles/confetti@3.0.3/tsparticles.confetti.bundle.min.js"
+          strategy="afterInteractive"
+        />
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

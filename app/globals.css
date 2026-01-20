@@ -93,3 +93,41 @@ body {
   animation: book-bounce 0.4s ease forwards;
   z-index: 50 !important;
 }
+
+/* DaisyUI countdown component - ensure numbers are visible */
+.countdown > span {
+  display: inline-block;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+/* Hide input accessory bar on iOS Safari (white box above keyboard) */
+.hide-input-accessory {
+  -webkit-appearance: none;
+  appearance: none;
+  /* Prevent iOS from showing input accessory bar */
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Target iOS Safari specifically to hide input accessory view */
+@supports (-webkit-touch-callout: none) {
+  .hide-input-accessory {
+    /* Use position and transform to help hide accessory bar */
+    position: relative;
+  }
+  
+  /* Hide the input accessory view container */
+  .hide-input-accessory::-webkit-input-placeholder {
+    opacity: 1;
+  }
+}
+
+/* Additional iOS-specific hiding */
+@media screen and (-webkit-min-device-pixel-ratio: 0) {
+  .hide-input-accessory {
+    /* Force iOS to not show accessory bar */
+    -webkit-appearance: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
