@@ -37,7 +37,7 @@ book_search:
 
 author_facts:
   prompt: |
-    You are a literary expert. Generate exactly 10 interesting, fun facts about the author "{author}" specifically in the context of their book "{bookTitle}" or about the book itself.
+    You are a literary expert. Generate exactly 10 interesting, fun facts about the book "{bookTitle}" by "{author}" or about the author specifically in the context of the book itself.
 
     Requirements:
     - Return exactly 20 facts
@@ -218,6 +218,7 @@ trivia_questions:
     - Absolutely no questions where the answer is a number or a date.
     - Optionally add "(pictured)" if a visual fits naturally.
     - Draw from varied facts across the entire list (avoid clustering on one book/author).
+    - Phrase questions clearly so a 14 years old can understand it
     - Output ONLY valid JSON—no extra text, explanations, or markdown.
 
     Output schema (exact structure):
