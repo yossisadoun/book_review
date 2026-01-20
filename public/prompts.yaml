@@ -37,16 +37,17 @@ book_search:
 
 author_facts:
   prompt: |
-    You are a literary expert. Generate exactly 10 interesting, fun facts about the author "{author}" specifically in the context of their book "{bookTitle}".
+    You are a literary expert. Generate exactly 10 interesting, fun facts about the book "{bookTitle}" by "{author}" or about the author specifically in the context of the book itself.
 
     Requirements:
-    - Return exactly 10 facts
+    - Return exactly 20 facts
     - Each fact should be concise (1-2 sentences max)
     - Focus on interesting, lesser-known details
     - Connect facts to the book when possible
     - Make facts engaging and fun
+    - add a url for the reference where you got the fact when relevant.
     - Also provide the original publication year (earliest known) for this book in its earliest version. This should be the year the book was first published in any language or format.
-    - Return ONLY valid JSON in this format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 10"], "first_issue_year": 1925 }
+    - Return ONLY valid JSON in this format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 20"], "first_issue_year": 1925 }
 
 book_influences:
   prompt: |
@@ -84,7 +85,7 @@ book_domain:
     The "Why": A deep-dive explanation of how this subject serves as the hidden engine of the book.
     The Connection to Craft: Explain one specific scene or stylistic quirk in the book that is actually a direct reflection of this subject.
     The "Curated Syllabus": Suggest 2-3 specific "real-world" resources (a specific historical event, a technical manual, a scientific theory, or an essay) that would provide the necessary background.
-    Tone: Insightful, revelatory, and intellectually curious, in a way a 16 year old can understand.
+    Tone: Insightful, revelatory, and intellectually curious.
     Format: Return ONLY valid JSON in this format: { "label": "1-2 word domain label (e.g., 'Taxonomy', 'Maritime Law', 'Victorian Botany')", "facts": ["Fact 1", "Fact 2", ..., "Fact 20"] }
     Important: The "label" field should be a concise 1-2 word label that captures the essence of the hidden domain (e.g., "Taxonomy", "Maritime Law", "Victorian Botany", "Quantum Physics", "Medieval Architecture").
 
@@ -100,7 +101,7 @@ book_context:
     Prioritize the 'Why' over the 'What': Don't just pick a time period; pick the specific tension within that time period (e.g., instead of 'Victorian England,' pick 'The Crisis of Faith post-Darwin').
     Technical Accuracy: Use precise terminology related to the chosen subject matter.
     
-    Tone: Authoritative, insightful, and academically rigorous, in a way a 16 year old can understand.
+    Tone: Authoritative, insightful, and academically rigorous.
 
 podcast_episodes:
   prompt: |
@@ -109,20 +110,21 @@ podcast_episodes:
     Very very concise with minimal description. Include: title, length, air_date, url, platform, podcast_name, episode_summary (short summary of the podcast episode), podcast_summary (short summary of the podcast itself).
     
     PRIORITIZE episodes from these top book podcasts first (in order of preference):
-    1. The Book Club Review (https://podcasts.apple.com/us/podcast/the-book-club-review/id1215730246) - thoughtful discussions & book club style deep dives
-    2. The Book Review by The New York Times (https://podcasts.apple.com/ie/podcast/the-book-review/id120315179) - expert roundtable reviews and commentary
-    3. Book Riot - The Podcast (https://podcasts.apple.com/us/podcast/book-riot-the-podcast/id1330436321) - weekly book news, trends, and lively discussions
-    4. Overdue (https://podcasts.apple.com/us/podcast/overdue/id1098078103) - two friends take on books with smart, entertaining review and analysis
-    5. Backlisted (https://podcasts.apple.com/us/podcast/backlisted/id892817183) - gives new life to great books from the past with intelligent conversation
-    6. If Books Could Kill (https://podcasts.apple.com/us/podcast/if-books-could-kill/id1660908304) - sharp critique of bestselling nonfiction with humor and cultural insight
-    7. World Book Club BBC (https://podcasts.apple.com/us/podcast/world-book-club/id309595551) - author interviews & discussions about noteworthy novels
-    8. Book Club with Michael Smerconish (https://podcasts.apple.com/us/podcast/book-club-with-michael-smerconish/id1522088009) - in-depth conversations about books
-    9. New Books Network (https://podcasts.apple.com/us/podcast/new-books-network/id150548015) - academic-leaning deep dives across many genres
-    10. Reading Glasses (https://podcasts.apple.com/us/podcast/reading-glasses/id1393888875) - two librarians discuss reading habits, books, and library life
+    1. The Book Club Review (https://podcasts.apple.com/us/podcast/the-book-club-review/id1215730246)
+    2. The Book Review by The New York Times (https://podcasts.apple.com/ie/podcast/the-book-review/id120315179)
+    3. Book Riot - The Podcast (https://podcasts.apple.com/us/podcast/book-riot-the-podcast/id1330436321)
+    4. Overdue (https://podcasts.apple.com/us/podcast/overdue/id1098078103)
+    5. Backlisted (https://podcasts.apple.com/us/podcast/backlisted/id892817183)
+    6. If Books Could Kill (https://podcasts.apple.com/us/podcast/if-books-could-kill/id1660908304)
+    7. World Book Club BBC (https://podcasts.apple.com/us/podcast/world-book-club/id309595551)
+    8. Book Club with Michael Smerconish (https://podcasts.apple.com/us/podcast/book-club-with-michael-smerconish/id1522088009)
+    9. New Books Network (https://podcasts.apple.com/us/podcast/new-books-network/id150548015)
+    10. Reading Glasses (https://podcasts.apple.com/us/podcast/reading-glasses/id1393888875)
+    11. Literary Disco (https://podcasts.apple.com/us/podcast/literary-disco/id926207844)
+    12. What Should I Read Next? (https://podcasts.apple.com/us/podcast/what-should-i-read-next/id695413960)
+    13. האחיות גרים - (https://podcasts.apple.com/us/podcast/%D7%94%D7%90%D7%97%D7%99%D7%95%D7%AA-%D7%92%D7%A8%D7%99%D7%9D/id1473785807)
+    14. Critics at Large - The New Yorker (https://podcasts.apple.com/us/podcast/critics-at-large-the-new-yorker/id1704902371)
     
-    Additional recommended podcasts to consider:
-    - Literary Disco (https://podcasts.apple.com/us/podcast/literary-disco/id926207844) - informal, fun discussions about books
-    - What Should I Read Next? (https://podcasts.apple.com/us/podcast/what-should-i-read-next/id695413960) - book recommendations framed by listener preferences
     
     After checking these prioritized podcasts, you may include episodes from other book review / book club type podcasts or deep interviews with the author about the book.
     Only include podcasts from Apple Podcasts.
@@ -216,6 +218,7 @@ trivia_questions:
     - Absolutely no questions where the answer is a number or a date.
     - Optionally add "(pictured)" if a visual fits naturally.
     - Draw from varied facts across the entire list (avoid clustering on one book/author).
+    - Phrase questions clearly so a 14 years old can understand it
     - Output ONLY valid JSON—no extra text, explanations, or markdown.
 
     Output schema (exact structure):
