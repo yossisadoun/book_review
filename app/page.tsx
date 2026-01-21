@@ -10356,30 +10356,7 @@ export default function App() {
           className="flex items-center gap-2 rounded-2xl px-3 py-2.5 pointer-events-auto"
           style={glassmorphicStyle}
         >
-          {/* Books button - left (active, circular) */}
-          <button
-            onClick={() => {
-              setScrollY(0); // Reset scroll when switching views
-              setShowBookshelf(false);
-              setShowBookshelfCovers(false);
-              setShowNotesView(false);
-              setShowAccountPage(false);
-              // Scroll to top to show books
-              const main = document.querySelector('main');
-              if (main) {
-                main.scrollTo({ top: 0, behavior: 'smooth' });
-              }
-            }}
-            className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
-              !showBookshelf && !showNotesView && !showAccountPage
-                ? 'bg-white/40 hover:bg-white/50' 
-                : 'bg-white/20 hover:bg-white/30'
-            }`}
-          >
-            <BookOpen size={18} className="text-slate-950" />
-          </button>
-
-          {/* Bookshelf button - middle (circular, grid view) */}
+          {/* Bookshelf button - left (circular, grid view) */}
           <button
             onClick={() => {
               setScrollY(0); // Reset scroll when switching views
@@ -10438,13 +10415,7 @@ export default function App() {
                     onClick={() => {
                       if (isDisabled) return;
                       
-                      setScrollY(0);
-                      setShowBookshelf(false);
-                      setShowBookshelfCovers(false);
-                      setShowNotesView(false);
-                      setShowAccountPage(false);
-                      setShowSortingResults(false);
-                      
+                      // Don't navigate away - just open trivia dialog on top of current page
                       // If we have questions and are mid-game, resume from where we left off
                       if (triviaQuestions.length > 0 && currentTriviaQuestionIndex < triviaQuestions.length && !triviaGameComplete) {
                         // Resume mid-game - don't reset state, just reopen
