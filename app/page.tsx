@@ -3952,6 +3952,16 @@ function ResearchSection({ research, bookId, isLoading = false }: ResearchSectio
     'bg-yellow-600', 'bg-cyan-600', 'bg-amber-600', 'bg-emerald-600',
     'bg-violet-600', 'bg-rose-600'
   ];
+  
+  // Consistent glassmorphism style (less transparent for book page info cards)
+  const glassmorphicStyle: React.CSSProperties = {
+    background: 'rgba(255, 255, 255, 0.45)',
+    borderRadius: '16px',
+    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+  };
 
   if (isLoading) {
     return (
