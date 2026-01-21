@@ -6527,31 +6527,38 @@ export default function App() {
   // Update background gradient when book changes
   useEffect(() => {
     const currentBook = books[selectedIndex];
-    const newGradient = currentBook?.cover_url 
-      ? null // Will be set async
-      : '241,245,249,226,232,240'; // Default slate colors
     
     if (currentBook?.cover_url) {
-      // Store previous gradient before updating
+      // Store previous gradient before updating - keep it visible until new one is ready
       setPreviousGradient(backgroundGradient);
       setIsGradientTransitioning(true);
       
+      // Extract new gradient asynchronously
       extractColorsFromImage(currentBook.cover_url).then(gradient => {
+        // Set new gradient - this will trigger the fade in
         setBackgroundGradient(gradient);
-        // After new gradient is set, wait a bit then fade out old one
+        // After new gradient fades in, fade out the old one
         setTimeout(() => {
           setPreviousGradient(null);
           setIsGradientTransitioning(false);
-        }, 200); // Half of transition duration (400ms total)
+        }, 400); // Wait for new gradient to fully fade in (400ms) before fading out old one
+      }).catch(() => {
+        // Fallback if extraction fails
+        setBackgroundGradient('241,245,249,226,232,240');
+        setTimeout(() => {
+          setPreviousGradient(null);
+          setIsGradientTransitioning(false);
+        }, 400);
       });
     } else {
+      // No cover - use default gradient
       setPreviousGradient(backgroundGradient);
       setIsGradientTransitioning(true);
       setBackgroundGradient('241,245,249,226,232,240'); // Default slate colors
       setTimeout(() => {
         setPreviousGradient(null);
         setIsGradientTransitioning(false);
-      }, 200);
+      }, 400);
     }
   }, [selectedIndex, books]);
 
@@ -8129,12 +8136,12 @@ export default function App() {
       {/* Gradient background - new gradient fades in first, then old fades out (only for book pages) */}
       {!shouldUseLoginGradient && (
         <>
-          {/* Previous gradient - fades out after new one fades in */}
+          {/* Previous gradient - stays at full opacity until new one is ready, then fades out */}
           {previousGradient && previousGradientStyle && (
             <motion.div
               key={`gradient-prev-${previousGradient}`}
               initial={{ opacity: 1 }}
-              animate={{ opacity: 0 }}
+              animate={{ opacity: isGradientTransitioning ? 1 : 0 }}
               exit={{ opacity: 0 }}
               className="fixed inset-0 pointer-events-none z-0"
               style={{
@@ -8148,12 +8155,12 @@ export default function App() {
                 height: '100dvh',
                 minHeight: '-webkit-fill-available',
               } as React.CSSProperties}
-              transition={{ duration: 0.4, ease: "easeInOut", delay: 0.2 }}
+              transition={{ duration: 0.4, ease: "easeInOut", delay: 0.4 }}
             />
           )}
-          {/* New gradient - fades in first */}
+          {/* New gradient - only fades in once it's ready (after extraction completes) */}
           <motion.div
-            key={`gradient-${books[selectedIndex]?.id || 'default'}`}
+            key={`gradient-${books[selectedIndex]?.id || 'default'}-${backgroundGradient}`}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="fixed inset-0 pointer-events-none z-0"
