@@ -100,3 +100,15 @@ body {
   visibility: visible !important;
   opacity: 1 !important;
 }
+
+/* Override default white background on search input - make it glassmorphic */
+.search-input-glassmorphic,
+input[type="text"][inputmode="search"].search-input-glassmorphic {
+  background-color: transparent !important;
+  background: transparent !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  /* Remove any default browser styling */
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+}
