@@ -2967,6 +2967,16 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
   const minSwipeDistance = 50;
   const prevInsightsRef = useRef<string>('');
   
+  // Consistent glassmorphism style (less transparent for book page info cards)
+  const glassmorphicStyle: React.CSSProperties = {
+    background: 'rgba(255, 255, 255, 0.45)',
+    borderRadius: '16px',
+    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+  };
+  
   // Extract actual book ID (remove category suffix if present)
   const actualBookId = bookId.split('-')[0];
   
@@ -3033,7 +3043,8 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
         <motion.div
           animate={{ opacity: [0.5, 0.8, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+          className="rounded-xl p-4"
+          style={glassmorphicStyle}
         >
             <div className="h-12 flex items-center justify-center">
             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
@@ -3074,7 +3085,8 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+            className="rounded-xl p-4"
+          style={glassmorphicStyle}
           >
             <div className="flex items-center justify-center gap-2 mb-2">
               <span className={`${labelColor} px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider`}>
@@ -3132,6 +3144,16 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
+  
+  // Consistent glassmorphism style (less transparent for book page info cards)
+  const glassmorphicStyle: React.CSSProperties = {
+    background: 'rgba(255, 255, 255, 0.45)',
+    borderRadius: '16px',
+    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+  };
 
   useEffect(() => {
     // Reset when book changes
@@ -3269,7 +3291,8 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
         <motion.div
           animate={{ opacity: [0.5, 0.8, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+          className="rounded-xl p-4"
+          style={glassmorphicStyle}
         >
           <div className="h-12 flex items-center justify-center">
             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
@@ -3307,7 +3330,8 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+            className="rounded-xl p-4"
+          style={glassmorphicStyle}
           >
             <div className="flex items-start gap-3 mb-2">
               {/* Thumbnail - show for Apple Podcasts */}
@@ -3402,6 +3426,16 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
+  
+  // Consistent glassmorphism style (less transparent for book page info cards)
+  const glassmorphicStyle: React.CSSProperties = {
+    background: 'rgba(255, 255, 255, 0.45)',
+    borderRadius: '16px',
+    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+  };
 
   useEffect(() => {
     // Reset when book changes
@@ -3456,7 +3490,8 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
         <motion.div
           animate={{ opacity: [0.5, 0.8, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+          className="rounded-xl p-4"
+          style={glassmorphicStyle}
         >
           <div className="h-12 flex items-center justify-center">
             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
@@ -3469,7 +3504,7 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
   if (videos.length === 0 || currentIndex >= videos.length) {
     return (
       <div className="w-full">
-        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
+        <div className="rounded-xl p-4" style={glassmorphicStyle}>
           <p className="text-xs text-slate-600 text-center">No videos found</p>
         </div>
       </div>
@@ -3504,7 +3539,8 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="bg-white/80 backdrop-blur-md rounded-xl overflow-hidden shadow-xl border border-white/30"
+            className="rounded-xl overflow-hidden"
+            style={glassmorphicStyle}
           >
             <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
               <iframe
@@ -3563,6 +3599,16 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
+  
+  // Consistent glassmorphism style (less transparent for book page info cards)
+  const glassmorphicStyle: React.CSSProperties = {
+    background: 'rgba(255, 255, 255, 0.45)',
+    borderRadius: '16px',
+    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+  };
 
   useEffect(() => {
     // Reset when book changes
@@ -3617,7 +3663,8 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
         <motion.div
           animate={{ opacity: [0.5, 0.8, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+          className="rounded-xl p-4"
+          style={glassmorphicStyle}
         >
           <div className="h-12 flex items-center justify-center">
             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
@@ -3655,7 +3702,8 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+            className="rounded-xl p-4"
+          style={glassmorphicStyle}
           >
             <div className="flex items-start gap-3 mb-2">
               <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
@@ -3705,6 +3753,16 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
+  
+  // Consistent glassmorphism style (less transparent for book page info cards)
+  const glassmorphicStyle: React.CSSProperties = {
+    background: 'rgba(255, 255, 255, 0.45)',
+    borderRadius: '16px',
+    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+  };
 
   useEffect(() => {
     // Reset when book changes
@@ -3759,7 +3817,8 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
         <motion.div
           animate={{ opacity: [0.5, 0.8, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+          className="rounded-xl p-4"
+          style={glassmorphicStyle}
         >
           <div className="h-12 flex items-center justify-center">
             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
@@ -3772,7 +3831,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
   if (books.length === 0 || currentIndex >= books.length) {
     return (
       <div className="w-full">
-        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
+        <div className="rounded-xl p-4" style={glassmorphicStyle}>
           <p className="text-xs text-slate-600 text-center">No related books found</p>
         </div>
       </div>
@@ -3829,7 +3888,8 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+            className="rounded-xl p-4"
+          style={glassmorphicStyle}
           >
             <div className="flex items-start gap-3 mb-2">
               {/* Thumbnail or icon */}
@@ -3899,7 +3959,8 @@ function ResearchSection({ research, bookId, isLoading = false }: ResearchSectio
         <motion.div
           animate={{ opacity: [0.5, 0.8, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+          className="rounded-xl p-4"
+          style={glassmorphicStyle}
         >
           <div className="h-12 flex items-center justify-center">
             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
@@ -3912,7 +3973,7 @@ function ResearchSection({ research, bookId, isLoading = false }: ResearchSectio
   if (!research || !research.pillars || research.pillars.length === 0) {
     return (
       <div className="w-full">
-        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30">
+        <div className="rounded-xl p-4" style={glassmorphicStyle}>
           <p className="text-xs text-slate-600 text-center">No research data available</p>
         </div>
       </div>
@@ -4012,7 +4073,8 @@ function ResearchSection({ research, bookId, isLoading = false }: ResearchSectio
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+            className="rounded-xl p-4"
+          style={glassmorphicStyle}
           >
             {/* Pillar Label */}
             <div className="mb-3">
@@ -4478,7 +4540,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
                   <Search size={18} />
                 </button>
               </div>
-            </form>
+          </form>
           </div>
         </div>
       </motion.div>
@@ -4932,6 +4994,7 @@ export default function App() {
   const noteTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const prevIsShowingNotesRef = useRef(false);
   const [isMetaExpanded, setIsMetaExpanded] = useState(true);
+  const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [loadingFactsForBookId, setLoadingFactsForBookId] = useState<string | null>(null);
   const [bookInfluences, setBookInfluences] = useState<Map<string, string[]>>(new Map());
   const [loadingInfluencesForBookId, setLoadingInfluencesForBookId] = useState<string | null>(null);
@@ -6299,6 +6362,7 @@ export default function App() {
     setIsInsightCategoryDropdownOpen(false); // Close dropdown when book changes
     
     setIsMetaExpanded(true);
+    setIsSummaryExpanded(false); // Reset summary expansion when book changes
     const timer = setTimeout(() => {
       setIsMetaExpanded(false);
     }, 2000);
@@ -7915,24 +7979,77 @@ export default function App() {
   const gradientStyle = {
     background: `linear-gradient(to bottom right, rgb(${r1}, ${g1}, ${b1}), rgb(${r2}, ${g2}, ${b2}))`,
   };
+  
+  // Use login screen gradient for bookshelf, notes, and account pages
+  const loginGradient = 'linear-gradient(to bottom, #C6DF8B 0%, #A1D821 30%, #FCCF47 100%)';
+  const shouldUseLoginGradient = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage;
+  
+  // Glassmorphic style for cover page buttons (20% less opacity)
+  const coverButtonGlassmorphicStyle: React.CSSProperties = {
+    background: 'rgba(255, 255, 255, 0.36)', // 0.45 * 0.8 = 0.36
+    borderRadius: '16px',
+    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+  };
 
+  // Standard glassmorphism style (for bookshelf, notes, account pages)
+  const standardGlassmorphicStyle: React.CSSProperties = {
+    background: 'rgba(255, 255, 255, 0.21)',
+    borderRadius: '16px',
+    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+  };
+  
+  // Consistent glassmorphism style (less transparent for book page info cards)
+  const glassmorphicStyle: React.CSSProperties = {
+    background: 'rgba(255, 255, 255, 0.45)',
+    borderRadius: '16px',
+    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+  };
+  
+  // Less transparent glassmorphism style for book page summary box and section menus
+  const bookPageGlassmorphicStyle: React.CSSProperties = {
+    background: 'rgba(255, 255, 255, 0.45)',
+    borderRadius: '16px',
+    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+  };
+  
   return (
-    <div className="fixed inset-0 bg-slate-50 text-slate-900 font-sans select-none overflow-hidden flex flex-col">
-      {/* Gradient background - fades in when book changes */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={`gradient-${books[selectedIndex]?.id || 'default'}`}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 pointer-events-none z-0"
-          style={{
-            ...gradientStyle,
-          }}
-          transition={{ duration: 0.4, ease: "easeInOut" }}
-        />
-      </AnimatePresence>
-      {/* Simple header - fades on scroll and during transitions */}
+    <div className="fixed inset-0 text-slate-900 font-sans select-none overflow-hidden flex flex-col"
+      style={{
+        background: shouldUseLoginGradient 
+          ? loginGradient 
+          : 'rgb(248, 250, 252)' // Default slate-50
+      }}
+    >
+      {/* Gradient background - fades in when book changes (only for book pages) */}
+      {!shouldUseLoginGradient && (
+        <AnimatePresence mode="wait">
+      <motion.div
+        key={`gradient-${books[selectedIndex]?.id || 'default'}`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+        className="fixed inset-0 pointer-events-none z-0"
+        style={{
+          ...gradientStyle,
+        }}
+        transition={{ duration: 0.4, ease: "easeInOut" }}
+      />
+        </AnimatePresence>
+      )}
+      {/* Simple header - fades on scroll and during transitions (hidden on book pages) */}
+      {!(!showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults) && (
       <AnimatePresence mode="wait">
         <motion.div 
           key={showSortingResults ? 'sorting-results-header' : showNotesView ? 'notes-header' : showBookshelf ? 'bookshelf-header' : 'books-header'}
@@ -7988,7 +8105,8 @@ export default function App() {
                 setShowAccountPage(false);
                 setShowSortingResults(false);
               }}
-              className="w-8 h-8 rounded-full bg-white/80 backdrop-blur-md border border-white/30 shadow-lg flex items-center justify-center hover:bg-white/90 active:scale-95 transition-all"
+              className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
+              style={{ ...glassmorphicStyle, borderRadius: '50%' }}
             >
               <ChevronLeft size={18} className="text-slate-950" />
             </button>
@@ -8039,7 +8157,8 @@ export default function App() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -10 }}
                   transition={{ duration: 0.2 }}
-                  className="absolute top-10 right-0 z-40 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-lg shadow-xl border border-white/30 min-w-[140px] overflow-hidden"
+                  className="absolute top-10 right-0 z-40 rounded-lg min-w-[140px] overflow-hidden"
+                  style={glassmorphicStyle}
                 >
                   <button
                     onClick={() => {
@@ -8068,6 +8187,7 @@ export default function App() {
         </div>
         </motion.div>
       </AnimatePresence>
+      )}
 
       <AnimatePresence mode="wait">
         {showAccountPage ? (
@@ -8078,7 +8198,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -8087,7 +8207,7 @@ export default function App() {
             {/* Account Page */}
             <div className="w-full max-w-[600px] flex flex-col gap-4 px-4 py-8">
               {/* User Info Card */}
-              <div className="bg-white/80 backdrop-blur-md rounded-2xl p-6 border border-white/30 shadow-lg">
+              <div className="rounded-2xl p-6" style={standardGlassmorphicStyle}>
                 <div className="flex items-center gap-4 mb-6">
                   {userAvatar ? (
                     <img 
@@ -8128,7 +8248,7 @@ export default function App() {
               </div>
 
               {/* Grok API Usage Logs */}
-              <div className="bg-white/80 backdrop-blur-md rounded-2xl p-4 border border-white/30 shadow-lg">
+              <div className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
                 <h3 className="text-sm font-bold text-slate-950 mb-3">Grok API Usage</h3>
                 {(() => {
                   const logs = getGrokUsageLogs();
@@ -8305,7 +8425,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -8322,7 +8442,7 @@ export default function App() {
 
                 if (booksWithNotes.length === 0) {
                   return (
-                    <div className="w-full bg-white/80 backdrop-blur-md rounded-2xl p-8 border border-white/30 shadow-lg text-center">
+                    <div className="w-full rounded-2xl p-8 text-center" style={glassmorphicStyle}>
                       <Pencil size={32} className="mx-auto mb-3 text-slate-400" />
                       <p className="text-slate-800 text-sm font-medium">No notes yet</p>
                       <p className="text-slate-600 text-xs mt-1">Add notes to your books to see them here</p>
@@ -8335,7 +8455,8 @@ export default function App() {
                     key={book.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="bg-white/80 backdrop-blur-md rounded-2xl p-4 border border-white/30 shadow-lg cursor-pointer hover:shadow-xl transition-shadow"
+                    className="rounded-2xl p-4 cursor-pointer hover:shadow-xl transition-shadow"
+                    style={glassmorphicStyle}
                     onClick={() => {
                       // Only navigate if not editing
                       if (editingNoteBookId !== book.id) {
@@ -8432,7 +8553,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -8443,6 +8564,34 @@ export default function App() {
               className="w-full flex flex-col items-center px-4"
             >
               <div className="w-full max-w-[1600px] flex flex-col gap-2.5 py-8">
+                {/* Profile Panel */}
+                <div 
+                  className="rounded-2xl p-4 mb-4"
+                  style={glassmorphicStyle}
+                >
+                  <div className="flex items-center gap-4">
+                    {/* Profile Picture - 2x size */}
+                    {userAvatar ? (
+                      <img 
+                        src={userAvatar} 
+                        alt={userName}
+                        className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-16 h-16 rounded-full bg-slate-300 flex items-center justify-center border-2 border-white/50">
+                        <span className="text-2xl font-bold text-slate-600">
+                          {userName.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                    )}
+                    {/* Total Books Count */}
+                    <div className="flex-1">
+                      <p className="text-sm text-slate-600 mb-1">Total Books</p>
+                      <p className="text-2xl font-bold text-slate-950">{books.length}</p>
+                    </div>
+                  </div>
+                </div>
                 {/* Grouping Selector - Dropdown and Play Button */}
                 <div className="flex items-center justify-between px-4 mb-1.5">
                   <div className="relative" ref={bookshelfGroupingDropdownRef}>
@@ -8451,7 +8600,8 @@ export default function App() {
                         e.stopPropagation();
                         setIsBookshelfGroupingDropdownOpen(!isBookshelfGroupingDropdownOpen);
                       }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 text-slate-700 hover:bg-opacity-15"
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 hover:opacity-80"
+                      style={glassmorphicStyle}
                     >
                       <span>
                         {bookshelfGrouping === 'reading_status' ? 'Status' :
@@ -8480,7 +8630,8 @@ export default function App() {
                           animate={{ opacity: 1, scale: 1, y: 0 }}
                           exit={{ opacity: 0, scale: 0.95, y: -10 }}
                           transition={{ duration: 0.2 }}
-                          className="absolute top-full left-0 mt-1 z-40 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-lg shadow-xl border border-white/30 min-w-[140px] overflow-hidden"
+                          className="absolute top-full left-0 mt-1 z-40 rounded-lg min-w-[140px] overflow-hidden"
+                          style={glassmorphicStyle}
                         >
                           {[
                             { value: 'reading_status', label: 'Status' },
@@ -8573,7 +8724,7 @@ export default function App() {
                     key={group.label} 
                     className="flex flex-col gap-4 rounded-2xl overflow-hidden"
                     style={{
-                      background: 'linear-gradient(to bottom, #FEFEFE, #F0F0F0)',
+                      ...glassmorphicStyle,
                       padding: '0.8rem 0',
                     }}
                   >
@@ -8662,7 +8813,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -8692,7 +8843,8 @@ export default function App() {
                         e.stopPropagation();
                         setIsBookshelfGroupingDropdownOpen(!isBookshelfGroupingDropdownOpen);
                       }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 text-slate-700 hover:bg-opacity-15"
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 hover:opacity-80"
+                      style={glassmorphicStyle}
                     >
                       <span>
                         {bookshelfGrouping === 'reading_status' ? 'Status' :
@@ -8721,7 +8873,8 @@ export default function App() {
                           animate={{ opacity: 1, scale: 1, y: 0 }}
                           exit={{ opacity: 0, scale: 0.95, y: -10 }}
                           transition={{ duration: 0.2 }}
-                          className="absolute top-full left-0 mt-1 z-40 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-lg shadow-xl border border-white/30 min-w-[140px] overflow-hidden"
+                          className="absolute top-full left-0 mt-1 z-40 rounded-lg min-w-[140px] overflow-hidden"
+                          style={glassmorphicStyle}
                         >
                           {[
                             { value: 'reading_status', label: 'Status' },
@@ -8779,7 +8932,7 @@ export default function App() {
                     return (
                       <>
                         {/* Total Books KPI */}
-                        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-lg flex flex-col items-center min-w-[100px]">
+                        <div className="rounded-xl p-4 flex flex-col items-center min-w-[100px]" style={glassmorphicStyle}>
                           <span className="text-lg font-bold text-slate-950 mb-1">
                             {totalBooks}
                           </span>
@@ -8787,7 +8940,7 @@ export default function App() {
                         </div>
 
                         {/* Average Score KPI */}
-                        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-lg flex flex-col items-center min-w-[100px]">
+                        <div className="rounded-xl p-4 flex flex-col items-center min-w-[100px]" style={glassmorphicStyle}>
                           <div className="flex items-center gap-1 mb-1">
                             <Star size={16} className="fill-amber-400 text-amber-400" />
                             <span className="text-lg font-bold text-slate-950">
@@ -8798,7 +8951,7 @@ export default function App() {
                         </div>
 
                         {/* Total Unrated KPI */}
-                        <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-lg flex flex-col items-center min-w-[100px]">
+                        <div className="rounded-xl p-4 flex flex-col items-center min-w-[100px]" style={glassmorphicStyle}>
                           <span className="text-lg font-bold text-slate-950 mb-1">
                             {totalUnrated}
                           </span>
@@ -8814,7 +8967,7 @@ export default function App() {
                     key={group.label} 
                     className="flex flex-col gap-4 rounded-2xl overflow-hidden"
                     style={{
-                      background: 'linear-gradient(to bottom, #FEFEFE, #F0F0F0)',
+                      ...glassmorphicStyle,
                       padding: '2rem 0',
                     }}
                   >
@@ -9107,6 +9260,99 @@ export default function App() {
               }
             }}
           >
+          {/* Back button to bookshelf */}
+          <div className="fixed top-[62px] left-4 z-50">
+            <button
+              onClick={() => {
+                setScrollY(0); // Reset scroll when switching views
+                setShowBookshelfCovers(true);
+                setShowBookshelf(false);
+                setShowNotesView(false);
+                setShowAccountPage(false);
+                setShowSortingResults(false);
+              }}
+              className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
+              style={{ ...glassmorphicStyle, borderRadius: '50%' }}
+            >
+              <ChevronLeft size={18} className="text-slate-950" />
+            </button>
+          </div>
+          {/* User avatar in top right corner */}
+          <div className="fixed top-[62px] right-4 z-50">
+            {userAvatar ? (
+              <button
+                onClick={() => setShowLogoutMenu(!showLogoutMenu)}
+                className="w-8 h-8 rounded-full overflow-hidden bg-slate-200 cursor-pointer active:scale-95 transition-transform"
+              >
+                <img 
+                  src={userAvatar} 
+                  alt={userName}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    // Fallback if image fails to load
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                    const parent = target.parentElement;
+                    if (parent) {
+                      parent.innerHTML = `<div class="w-full h-full flex items-center justify-center bg-slate-300"><span class="text-xs font-bold text-slate-600">${userName.charAt(0).toUpperCase()}</span></div>`;
+                    }
+                  }}
+                  referrerPolicy="no-referrer"
+                />
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowLogoutMenu(!showLogoutMenu)}
+                className="w-8 h-8 rounded-full bg-slate-300 flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
+              >
+                <span className="text-xs font-bold text-slate-600">
+                  {userName.charAt(0).toUpperCase()}
+                </span>
+              </button>
+            )}
+          </div>
+          {/* Logout menu for book page */}
+          <AnimatePresence>
+            {showLogoutMenu && !showAccountPage && !showSortingResults && !showBookshelf && !showBookshelfCovers && !showNotesView && (
+              <>
+                {/* Backdrop to close menu */}
+                <div
+                  className="fixed inset-0 z-30"
+                  onClick={() => setShowLogoutMenu(false)}
+                />
+                {/* Menu */}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                  className="fixed top-[70px] right-4 z-40 rounded-lg min-w-[140px] overflow-hidden"
+                  style={glassmorphicStyle}
+                >
+                  <button
+                    onClick={() => {
+                      setShowAccountPage(true);
+                      setShowLogoutMenu(false);
+                    }}
+                    className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 hover:bg-white/20 active:bg-white/30 transition-colors border-b border-white/20"
+                  >
+                    <User size={16} className="text-slate-600" />
+                    <span>Account</span>
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await signOut();
+                      setShowLogoutMenu(false);
+                    }}
+                    className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 hover:bg-white/20 active:bg-white/30 transition-colors"
+                  >
+                    <LogOut size={16} className="text-slate-600" />
+                    <span>Logout</span>
+                  </button>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
         {books.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
             <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
@@ -9242,7 +9488,8 @@ export default function App() {
                     initial={{ opacity: 0, y: 20 }} 
                     animate={{ opacity: 1, y: 0 }} 
                     exit={{ opacity: 0, y: 20 }} 
-                    className="absolute bottom-16 left-4 right-4 z-40 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 flex flex-col items-center justify-center p-4 rounded-2xl border border-white/30 shadow-2xl overflow-hidden"
+                    className="absolute bottom-16 left-4 right-4 z-40 flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden"
+                    style={standardGlassmorphicStyle}
                     onClick={(e) => e.stopPropagation()}
                   >
                     {showReadingStatusSelection ? (
@@ -9381,7 +9628,8 @@ export default function App() {
                       setSelectingReadingStatusForExisting(true);
                       setIsEditing(true);
                     }}
-                    className="absolute top-4 left-4 z-30 w-11 h-11 rounded-full bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 shadow-lg text-black hover:text-blue-600 active:scale-95 transition-all border border-white/30 flex items-center justify-center"
+                    className="absolute top-4 left-4 z-30 w-11 h-11 rounded-full shadow-lg text-black hover:text-blue-600 active:scale-95 transition-all flex items-center justify-center"
+                    style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
                   >
                     {activeBook.reading_status === 'read_it' ? (
                       <CheckCircle2 size={18} className="text-slate-950" />
@@ -9405,7 +9653,8 @@ export default function App() {
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3, delay: 0.3 }}
                     onClick={() => setIsShowingNotes(true)}
-                    className="absolute top-4 right-4 z-30 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 p-2.5 rounded-full shadow-lg text-black hover:text-blue-600 active:scale-90 transition-all border border-white/30"
+                    className="absolute top-4 right-4 z-30 p-2.5 rounded-full shadow-lg text-black hover:text-blue-600 active:scale-90 transition-all"
+                    style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
                   >
                     <Pencil size={20} />
                   </motion.button>
@@ -9421,7 +9670,8 @@ export default function App() {
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3, delay: 0.3 }}
                     onClick={() => setIsConfirmingDelete(true)} 
-                    className="absolute bottom-4 right-4 z-30 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 p-2.5 rounded-full shadow-lg text-black hover:text-red-600 active:scale-90 transition-all border border-white/30"
+                    className="absolute bottom-4 right-4 z-30 p-2.5 rounded-full shadow-lg text-black hover:text-red-600 active:scale-90 transition-all"
+                    style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
                   >
                     <Trash2 size={20} />
                   </motion.button>
@@ -9440,7 +9690,8 @@ export default function App() {
                       setIsEditing(true);
                       setEditingDimension(null); // Will default to first unrated or first dimension
                     }} 
-                    className="absolute bottom-4 left-4 z-30 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1 active:scale-90 transition-transform border border-white/30"
+                    className="absolute bottom-4 left-4 z-30 px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1 active:scale-90 transition-transform"
+                    style={coverButtonGlassmorphicStyle}
                   >
                     <Star size={14} className="fill-amber-400 text-amber-400" />
                     <span className="font-black text-sm text-slate-950">
@@ -9465,14 +9716,30 @@ export default function App() {
                 animate={{ opacity: 1, y: 0 }}
                 className="w-full mt-2"
               >
-                <div className="bg-white/80 backdrop-blur-md shadow-xl border border-white/30 rounded-2xl px-4 py-3 mx-auto">
+                <div className="rounded-2xl px-4 py-3 mx-auto" style={bookPageGlassmorphicStyle}>
                   {/* Line 1: Title */}
                   <h2 className="text-sm font-black text-slate-950 leading-tight line-clamp-2 mb-2">{activeBook.title}</h2>
                   {/* Line 2: Summary/Synopsis */}
                   {activeBook.summary && (
-                    <p className="text-xs text-slate-700 leading-relaxed mb-2">
-                      {activeBook.summary.length > 2000 ? activeBook.summary.substring(0, 2000) + '...' : activeBook.summary}
-                    </p>
+                    <div className="mb-2">
+                      <p 
+                        className={`text-xs text-black leading-relaxed ${!isSummaryExpanded ? 'line-clamp-5' : ''} cursor-pointer`}
+                        onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+                      >
+                        {activeBook.summary}
+                      </p>
+                      {activeBook.summary.length > 300 && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsSummaryExpanded(!isSummaryExpanded);
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+                        >
+                          {isSummaryExpanded ? 'Show less' : 'Show more'}
+                        </button>
+                      )}
+                    </div>
                   )}
                   {/* Line 3: Author */}
                   <p className="text-xs font-bold text-slate-800 mb-2">{activeBook.author}</p>
@@ -9632,7 +9899,7 @@ export default function App() {
                       <div className={shouldBlurInsights ? 'blur-sm pointer-events-none select-none' : ''}>
                         {/* Insights Header with Category Selector */}
                         <div className="flex items-center justify-center mb-2 relative z-[40]">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm relative">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm relative" style={bookPageGlassmorphicStyle}>
                           <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">INSIGHTS:</span>
                           {categories.length > 1 && (
                             <>
@@ -9688,7 +9955,8 @@ export default function App() {
                         <motion.div
                           animate={{ opacity: [0.5, 0.8, 0.5] }}
                           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+                          className="rounded-xl p-4"
+          style={glassmorphicStyle}
                         >
                           <div className="h-12 flex items-center justify-center">
                             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
@@ -9747,7 +10015,7 @@ export default function App() {
                       <div className={shouldBlurPodcasts ? 'blur-sm pointer-events-none select-none' : ''}>
                         {/* Podcast Header */}
                         <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
                           <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">PODCASTS:</span>
                           <span className="text-[10px] font-bold text-slate-400">/</span>
                           <span className="text-[10px] font-bold text-blue-700">Curated + Apple</span>
@@ -9758,7 +10026,8 @@ export default function App() {
                         <motion.div
                           animate={{ opacity: [0.5, 0.8, 0.5] }}
                           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+                          className="rounded-xl p-4"
+          style={glassmorphicStyle}
                         >
                           <div className="h-12 flex items-center justify-center">
                             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
@@ -9825,7 +10094,7 @@ export default function App() {
                       <div className={shouldBlurAnalysis ? 'blur-sm pointer-events-none select-none' : ''}>
                       {/* Analysis Header */}
                       <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
                           <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">ANALYSIS:</span>
                           <span className="text-[10px] font-bold text-slate-400">/</span>
                           <span className="text-[10px] font-bold text-blue-700">Google Scholar</span>
@@ -9836,7 +10105,8 @@ export default function App() {
                         <motion.div
                           animate={{ opacity: [0.5, 0.8, 0.5] }}
                           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+                          className="rounded-xl p-4"
+          style={glassmorphicStyle}
                         >
                           <div className="h-12 flex items-center justify-center">
                             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
@@ -9895,7 +10165,7 @@ export default function App() {
                       <div className={shouldBlurVideos ? 'blur-sm pointer-events-none select-none' : ''}>
                         {/* Videos Header */}
                         <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
                           <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">VIDEOS:</span>
                           <span className="text-[10px] font-bold text-slate-400">/</span>
                           <span className="text-[10px] font-bold text-blue-700">YouTube</span>
@@ -9906,7 +10176,8 @@ export default function App() {
                         <motion.div
                           animate={{ opacity: [0.5, 0.8, 0.5] }}
                           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+                          className="rounded-xl p-4"
+          style={glassmorphicStyle}
                         >
                           <div className="h-12 flex items-center justify-center">
                             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
@@ -9967,7 +10238,7 @@ export default function App() {
                       <div className={shouldBlurRelated ? 'blur-sm pointer-events-none select-none' : ''}>
                         {/* Related Books Header */}
                         <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/80 backdrop-blur-md border border-white/30 shadow-sm">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
                           <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">RELATED:</span>
                           <span className="text-[10px] font-bold text-slate-400">/</span>
                           <span className="text-[10px] font-bold text-blue-700">Grok</span>
@@ -9978,7 +10249,8 @@ export default function App() {
                         <motion.div
                           animate={{ opacity: [0.5, 0.8, 0.5] }}
                           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+                          className="rounded-xl p-4"
+          style={glassmorphicStyle}
                         >
                           <div className="h-12 flex items-center justify-center">
                             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
@@ -10007,7 +10279,10 @@ export default function App() {
 
       {/* Bottom Navigation Bar */}
       <div className="fixed bottom-4 left-0 right-0 z-[50] flex justify-center px-4 pointer-events-none">
-        <div className="flex items-center gap-2 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-2xl px-3 py-2.5 shadow-2xl border border-white/30 pointer-events-auto">
+        <div 
+          className="flex items-center gap-2 rounded-2xl px-3 py-2.5 pointer-events-auto"
+          style={glassmorphicStyle}
+        >
           {/* Books button - left (active, circular) */}
           <button
             onClick={() => {
@@ -10748,7 +11023,8 @@ export default function App() {
                   <motion.div
                     animate={{ opacity: [0.5, 0.8, 0.5] }}
                     transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                    className="bg-white/80 backdrop-blur-md rounded-xl p-4 shadow-xl border border-white/30"
+                    className="rounded-xl p-4"
+          style={glassmorphicStyle}
                   >
                     <div className="h-12 flex items-center justify-center">
                       <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />

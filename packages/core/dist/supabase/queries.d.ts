@@ -1,0 +1,12 @@
+import { SupabaseClient } from '@supabase/supabase-js';
+import { BookWithRatings, BookInput, ReadingStatus, PodcastEpisode, RelatedBook } from '../types/book';
+export declare function fetchBooks(client: SupabaseClient, userId: string): Promise<BookWithRatings[]>;
+export declare function insertBook(client: SupabaseClient, userId: string, bookData: Omit<BookInput, 'user_id' | 'canonical_book_id'>): Promise<BookWithRatings>;
+export declare function updateRating(client: SupabaseClient, bookId: string, dimension: string, value: number | null): Promise<void>;
+export declare function updateReadingStatus(client: SupabaseClient, bookId: string, status: ReadingStatus): Promise<void>;
+export declare function updateNotes(client: SupabaseClient, bookId: string, notes: string): Promise<void>;
+export declare function deleteBook(client: SupabaseClient, bookId: string): Promise<void>;
+export declare function updateAuthorFacts(client: SupabaseClient, bookId: string, facts: string[], firstIssueYear?: number | null): Promise<void>;
+export declare function updatePodcastEpisodes(client: SupabaseClient, bookId: string, source: 'grok' | 'apple' | 'curated', episodes: PodcastEpisode[]): Promise<void>;
+export declare function fetchRelatedBooks(client: SupabaseClient, bookTitle: string, bookAuthor: string): Promise<RelatedBook[] | null>;
+export declare function saveRelatedBooks(client: SupabaseClient, bookTitle: string, bookAuthor: string, relatedBooks: RelatedBook[]): Promise<void>;
