@@ -4404,13 +4404,16 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
     }
   }, [searchResults.length, bookshelfResults.length]);
 
-  if (!isOpen) return null;
-
   const isQueryHebrew = isHebrew(query);
+
+  if (!isOpen) return null;
 
   return (
     <motion.div 
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      initial={{ opacity: 0 }} 
+      animate={{ opacity: 1 }} 
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.3 }}
       className="fixed inset-0 z-[100] flex flex-col items-center justify-end bg-black/40 backdrop-blur-sm px-4"
       onClick={onClose}
       style={{
@@ -4418,8 +4421,10 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
       }}
     >
       <motion.div 
-        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        initial={{ y: '100%' }} 
+        animate={{ y: 0 }} 
+        exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300, duration: 0.4 }}
         className="w-full max-w-md bg-white/80 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 flex flex-col"
         onClick={e => e.stopPropagation()}
         style={{
@@ -4459,7 +4464,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
             </div>
                   {bookshelfResults.slice(0, 5).map((book, i) => (
                     <motion.button
-                      key={book.id}
+                      key={`bookshelf-${book.id || `book-${i}`}`}
                 type="button"
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -4515,7 +4520,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   </div>
                   {userResults.map((userResult, i) => (
                     <motion.button
-                      key={userResult.id}
+                      key={`user-${userResult.id || `user-${i}`}`}
                       type="button"
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -4566,7 +4571,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   </div>
                   {searchResults.map((book, i) => (
                     <motion.button
-                      key={i}
+                      key={`search-book-${i}-${book.title || ''}-${book.author || ''}`}
                       type="button"
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -4663,7 +4668,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   ref={inputRef}
                   type="text" 
                   inputMode="search"
-                  placeholder={isQueryHebrew ? "חפש ספר..." : "Search for a book..."}
+                  placeholder={isQueryHebrew ? "חפש ספר..." : "Search for book, user..."}
                   value={query} 
                   onChange={e => setQuery(e.target.value)}
                   className={`w-full h-11 bg-white/20 border border-white/30 rounded-full focus:outline-none focus:bg-white/30 text-sm transition-all text-slate-950 placeholder:text-slate-600 ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
@@ -11796,31 +11801,33 @@ export default function App() {
         </AnimatePresence>
 
       <AnimatePresence>
-        {isAdding && (
-          <AddBookSheet 
-            isOpen={isAdding} 
-            onClose={() => setIsAdding(false)} 
-            onAdd={handleAddBook}
-            books={books}
-            onSelectBook={(bookId) => {
-              const bookIndex = books.findIndex(b => b.id === bookId);
-              if (bookIndex !== -1) {
-                setSelectedIndex(bookIndex);
+        <AnimatePresence>
+          {isAdding && (
+            <AddBookSheet 
+              isOpen={isAdding} 
+              onClose={() => setIsAdding(false)} 
+              onAdd={handleAddBook}
+              books={books}
+              onSelectBook={(bookId) => {
+                const bookIndex = books.findIndex(b => b.id === bookId);
+                if (bookIndex !== -1) {
+                  setSelectedIndex(bookIndex);
+                  setShowBookshelf(false);
+                  setShowBookshelfCovers(false);
+                  setShowNotesView(false);
+                }
+              }}
+              onSelectUser={(userId) => {
+                setViewingUserId(userId);
                 setShowBookshelf(false);
-                setShowBookshelfCovers(false);
+                setShowBookshelfCovers(true);
                 setShowNotesView(false);
-              }
-            }}
-            onSelectUser={(userId) => {
-              setViewingUserId(userId);
-              setShowBookshelf(false);
-              setShowBookshelfCovers(true);
-              setShowNotesView(false);
-              setShowAccountPage(false);
-              setIsAdding(false);
-            }}
-          />
-        )}
+                setShowAccountPage(false);
+                setIsAdding(false);
+              }}
+            />
+          )}
+        </AnimatePresence>
 
         {/* Quick View Modal for Books from Other Users */}
         <AnimatePresence>
