@@ -4181,14 +4181,25 @@ interface AddBookSheetProps {
   onAdd: (book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) => void;
   books: BookWithRatings[];
   onSelectBook?: (bookId: string) => void;
+  onSelectUser?: (userId: string) => void;
 }
 
-function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSheetProps) {
+interface UserSearchResult {
+  id: string;
+  email: string;
+  full_name?: string | null;
+  avatar_url?: string | null;
+  book_count?: number;
+}
+
+function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUser }: AddBookSheetProps) {
+  const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [searchResults, setSearchResults] = useState<(Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> & { source?: 'apple_books' | 'wikipedia' })[]>([]);
+  const [userResults, setUserResults] = useState<UserSearchResult[]>([]);
   const [bookshelfResults, setBookshelfResults] = useState<BookWithRatings[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -4206,15 +4217,74 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
     }
   }, [query, books]);
 
+  // Search for users by querying users table
+  async function searchUsers(searchQuery: string) {
+    if (!searchQuery.trim() || !user) return [];
+    
+    try {
+      const lowerQuery = searchQuery.toLowerCase();
+      
+      // Query users table - search by email or full_name
+      const { data: usersData, error } = await supabase
+        .from('users')
+        .select('id, email, full_name, avatar_url')
+        .neq('id', user.id) // Exclude current user
+        .or(`email.ilike.%${lowerQuery}%,full_name.ilike.%${lowerQuery}%`)
+        .limit(10);
+      
+      if (error) {
+        console.error('Error searching users:', error);
+        return [];
+      }
+      
+      if (!usersData || usersData.length === 0) {
+        return [];
+      }
+      
+      // For each user, count their books
+      const userResults: UserSearchResult[] = [];
+      
+      for (const userData of usersData) {
+        // Count books for this user
+        const { count } = await supabase
+          .from('books')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', userData.id);
+        
+        userResults.push({
+          id: userData.id,
+          email: userData.email || userData.id,
+          full_name: userData.full_name,
+          avatar_url: userData.avatar_url,
+          book_count: count || 0,
+        });
+      }
+      
+      return userResults;
+    } catch (err) {
+      console.error('Error searching users:', err);
+      return [];
+    }
+  }
+
   async function handleSearch(titleToSearch = query) {
-    if (!titleToSearch.trim()) return;
+    if (!titleToSearch.trim()) {
+      setUserResults([]);
+      setSearchResults([]);
+      return;
+    }
+    
     setLoading(true);
     setError('');
     setSearchResults([]);
+    setUserResults([]);
     setSuggestions([]); // Clear suggestions first
 
     try {
-      // Start both searches simultaneously
+      // Search for users first (if query looks like it could be a user search)
+      const userSearchPromise = searchUsers(titleToSearch);
+      
+      // Start both book searches simultaneously
       const applePromise = lookupBooksOnAppleBooks(titleToSearch).then(results => 
         results.slice(0, 7).map(book => ({ ...book, source: 'apple_books' as const }))
       ).catch(() => []);
@@ -4222,6 +4292,12 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
       const wikiPromise = lookupBooksOnWikipedia(titleToSearch).then(results => 
         results.slice(0, 7).map(book => ({ ...book, source: 'wikipedia' as const }))
       ).catch(() => []);
+
+      // Wait for user search
+      const users = await userSearchPromise;
+      if (users.length > 0) {
+        setUserResults(users);
+      }
 
       // Show Apple Books results as soon as they return
       const appleResults = await applePromise;
@@ -4239,7 +4315,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
 
       // Check if we have any results after both complete
       const combinedResults = [...appleResults, ...wikiResults];
-      if (combinedResults.length === 0) {
+      if (combinedResults.length === 0 && users.length === 0) {
         setError(`No results found.`);
         
         // Fetch AI suggestions only when no results
@@ -4425,6 +4501,57 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
             )}
             </AnimatePresence>
 
+            {/* User Results */}
+            <AnimatePresence>
+              {userResults.length > 0 && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="space-y-2 mb-4"
+                >
+                  <div className="text-xs font-medium text-slate-700 mb-2">
+                    Users:
+                  </div>
+                  {userResults.map((userResult, i) => (
+                    <motion.button
+                      key={userResult.id}
+                      type="button"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      onClick={() => {
+                        if (onSelectUser) {
+                          onSelectUser(userResult.id);
+                        }
+                        onClose();
+                      }}
+                      className="w-full flex items-center gap-3 p-3 bg-purple-50/80 backdrop-blur-md hover:bg-purple-100/85 rounded-xl border border-purple-200/30 shadow-sm transition-all text-left"
+                    >
+                      {userResult.avatar_url ? (
+                        <img 
+                          src={userResult.avatar_url} 
+                          alt={userResult.full_name || userResult.email}
+                          className="w-12 h-12 rounded-full object-cover flex-shrink-0 border-2 border-purple-200/50"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-purple-200 flex-shrink-0 flex items-center justify-center">
+                          <User size={20} className="text-purple-700" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-bold text-slate-950 truncate">
+                          {userResult.full_name || userResult.email}
+                        </h3>
+                        <p className="text-xs text-slate-600">{userResult.book_count || 0} {userResult.book_count === 1 ? 'book' : 'books'}</p>
+                      </div>
+                    </motion.button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Search Results */}
             <AnimatePresence>
               {searchResults.length > 0 && (
@@ -4435,7 +4562,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
                   className="space-y-2 max-h-[400px] overflow-y-auto ios-scroll"
                 >
                   <div className="text-xs font-medium text-slate-700 mb-2">
-                    {bookshelfResults.length > 0 ? 'Other results:' : 'Select a book to add:'}
+                    {bookshelfResults.length > 0 || userResults.length > 0 ? 'Books:' : 'Select a book to add:'}
                   </div>
                   {searchResults.map((book, i) => (
                     <motion.button
@@ -4951,6 +5078,14 @@ async function generateTriviaQuestions(triviaNotes: TriviaNote[]): Promise<Array
 export default function App() {
   const { user, loading: authLoading, signOut } = useAuth();
   const [books, setBooks] = useState<BookWithRatings[]>([]);
+  const [viewingUserId, setViewingUserId] = useState<string | null>(null);
+  const [viewingUserBooks, setViewingUserBooks] = useState<BookWithRatings[]>([]);
+  const [viewingUserName, setViewingUserName] = useState<string>('');
+  const [viewingUserFullName, setViewingUserFullName] = useState<string | null>(null);
+  const [viewingUserAvatar, setViewingUserAvatar] = useState<string | null>(null);
+  const [viewingBookFromOtherUser, setViewingBookFromOtherUser] = useState<BookWithRatings | null>(null);
+  const [isLoadingViewingUserBooks, setIsLoadingViewingUserBooks] = useState(false);
+  const [isFadingOutViewingUser, setIsFadingOutViewingUser] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('lastSelectedBookIndex');
@@ -5917,6 +6052,64 @@ export default function App() {
     loadBooks();
   }, [user, authLoading]);
 
+  // Load another user's books when viewingUserId changes
+  useEffect(() => {
+    if (!viewingUserId || !user) {
+      setViewingUserBooks([]);
+      setViewingUserName('');
+      setViewingUserFullName(null);
+      setViewingUserAvatar(null);
+      return;
+    }
+
+    const userId = viewingUserId; // Store in local variable after null check
+
+    async function loadUserBooks() {
+      try {
+        // First, get user info from users table
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('id, email, full_name, avatar_url')
+          .eq('id', userId)
+          .single();
+
+        if (!userError && userData) {
+          setViewingUserFullName(userData.full_name);
+          setViewingUserAvatar(userData.avatar_url);
+          setViewingUserName(userData.full_name || userData.email || userId);
+        } else {
+          // Fallback if users table doesn't have the user
+          const emailMatch = userId.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
+          setViewingUserName(emailMatch ? userId.split('@')[0] : userId.substring(0, 8));
+          setViewingUserFullName(null);
+          setViewingUserAvatar(null);
+        }
+
+        // Then get their books
+        const { data, error } = await supabase
+          .from('books')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error('Error loading user books:', error);
+          setIsLoadingViewingUserBooks(false);
+          return;
+        }
+
+        const appBooks = (data || []).map(convertBookToApp);
+        setViewingUserBooks(appBooks);
+      } catch (err) {
+        console.error('Error loading user books:', err);
+      } finally {
+        setIsLoadingViewingUserBooks(false);
+      }
+    }
+
+    loadUserBooks();
+  }, [viewingUserId, user]);
+
   // Set default view to bookshelf covers when user has no books (first-time user)
   useEffect(() => {
     if (isLoaded && books.length === 0 && !showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage) {
@@ -6141,6 +6334,9 @@ export default function App() {
   };
 
   // Group books for bookshelf view based on selected grouping
+  // Determine which books to use for bookshelf display
+  const booksForBookshelf = viewingUserId ? viewingUserBooks : books;
+  
   const groupedBooksForBookshelf = useMemo(() => {
     if (bookshelfGrouping === 'reading_status') {
       const groups: { label: string; books: BookWithRatings[] }[] = [
@@ -6150,7 +6346,7 @@ export default function App() {
         { label: 'TBD', books: [] },
       ];
       
-      books.forEach(book => {
+      booksForBookshelf.forEach(book => {
         const status = book.reading_status;
         if (status === 'reading') {
           groups[0].books.push(book);
@@ -6185,7 +6381,7 @@ export default function App() {
         { label: 'Unrated', books: [] },
       ];
       
-      books.forEach(book => {
+      booksForBookshelf.forEach(book => {
         const score = calculateScore(book.ratings);
         
         if (score === 0) {
@@ -6228,7 +6424,7 @@ export default function App() {
         { label: 'Later', books: [] },
       ];
       
-      books.forEach(book => {
+      booksForBookshelf.forEach(book => {
         const createdDate = new Date(book.created_at);
         
         if (createdDate >= todayStart) {
@@ -6263,7 +6459,7 @@ export default function App() {
         { label: 'T-Z', books: [] },
       ];
       
-      books.forEach(book => {
+      booksForBookshelf.forEach(book => {
         const firstLetter = book.title?.[0]?.toUpperCase() || 'Z';
         const range = getAlphabeticalRange(firstLetter);
         const groupIndex = groups.findIndex(g => g.label === range);
@@ -6291,7 +6487,7 @@ export default function App() {
         { label: 'T-Z', books: [] },
       ];
       
-      books.forEach(book => {
+      booksForBookshelf.forEach(book => {
         const firstLetter = book.author?.[0]?.toUpperCase() || 'Z';
         const range = getAlphabeticalRange(firstLetter);
         const groupIndex = groups.findIndex(g => g.label === range);
@@ -6315,7 +6511,7 @@ export default function App() {
       const genreMap = new Map<string, BookWithRatings[]>();
       const genreDisplayNames = new Map<string, string>(); // Store original case for display
       
-      books.forEach(book => {
+      booksForBookshelf.forEach(book => {
         const genre = book.genre || 'No Genre';
         const genreLower = genre.toLowerCase();
         
@@ -6352,7 +6548,7 @@ export default function App() {
       // Group by decades using first_issue_year (fallback to publish_year)
       const decadeMap = new Map<string, BookWithRatings[]>();
       
-      books.forEach(book => {
+      booksForBookshelf.forEach(book => {
         const year = book.first_issue_year || book.publish_year;
         let decadeLabel: string;
         
@@ -6399,7 +6595,7 @@ export default function App() {
     }
     // Default fallback (should never happen)
     return [];
-  }, [books, bookshelfGrouping]);
+  }, [booksForBookshelf, bookshelfGrouping]);
   
   // When editing, show the first dimension that needs rating, or first dimension if all are rated
   const currentEditingDimension = useMemo((): typeof RATING_DIMENSIONS[number] | null => {
@@ -8206,6 +8402,27 @@ export default function App() {
         >
           {/* BOOKS/BOOKSHELF/NOTES text on left with icon */}
           <div className="flex items-center gap-3">
+            {viewingUserId && (
+              <motion.button
+                initial={{ opacity: 1 }}
+                animate={{ opacity: isFadingOutViewingUser ? 0 : 1 }}
+                onClick={() => {
+                  setIsFadingOutViewingUser(true);
+                  setTimeout(() => {
+                    setViewingUserId(null);
+                    setViewingUserBooks([]);
+                    setViewingUserName('');
+                    setViewingUserFullName(null);
+                    setViewingUserAvatar(null);
+                    setIsFadingOutViewingUser(false);
+                  }, 300);
+                }}
+                className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                style={{ ...standardGlassmorphicStyle, borderRadius: '50%' }}
+              >
+                <ChevronLeft size={18} className="text-slate-950" />
+              </motion.button>
+            )}
             {isShowingNotes && activeBook ? (
               <Pencil size={24} className="text-slate-950" />
             ) : showAccountPage ? (
@@ -8222,17 +8439,19 @@ export default function App() {
               <BookOpen size={24} className="text-slate-950" />
             )}
           <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
-              {showAccountPage
-                ? 'ACCOUNT'
-                : showSortingResults
-                  ? 'SORTED RESULTS'
-              : showNotesView 
-                ? 'NOTES' 
-                    : showBookshelfCovers
-                      ? 'BOOKSHELF'
-                : showBookshelf 
-                  ? 'BOOKSHELF' 
-                  : 'BOOKS'}
+              {viewingUserId
+                ? `${viewingUserFullName || viewingUserName}'s Bookshelf`
+                : showAccountPage
+                  ? 'ACCOUNT'
+                  : showSortingResults
+                    ? 'SORTED RESULTS'
+                    : showNotesView 
+                      ? 'NOTES' 
+                      : showBookshelfCovers
+                        ? 'BOOKSHELF'
+                        : showBookshelf 
+                          ? 'BOOKSHELF' 
+                          : 'BOOKS'}
           </h1>
           </div>
         
@@ -8688,7 +8907,7 @@ export default function App() {
           <motion.main
             key="bookshelf-covers"
             initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            animate={{ opacity: isFadingOutViewingUser ? 0 : 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
@@ -8702,35 +8921,89 @@ export default function App() {
             <div 
               className="w-full flex flex-col items-center px-4"
             >
+              {isLoadingViewingUserBooks ? (
+                <div className="w-full max-w-[1600px] flex flex-col gap-2.5 py-8">
+                  <motion.div
+                    animate={{ opacity: [0.5, 0.8, 0.5] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    className="rounded-2xl p-4 mb-4"
+                    style={glassmorphicStyle}
+                  >
+                    <div className="h-12 flex items-center justify-center">
+                      <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                    </div>
+                  </motion.div>
+                  <motion.div
+                    animate={{ opacity: [0.5, 0.8, 0.5] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
+                    className="rounded-2xl p-4"
+                    style={glassmorphicStyle}
+                  >
+                    <div className="h-12 flex items-center justify-center">
+                      <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                    </div>
+                  </motion.div>
+                </div>
+              ) : (
               <div className="w-full max-w-[1600px] flex flex-col gap-2.5 py-8">
                 {/* Profile Panel */}
-                <div 
-                  className="rounded-2xl p-4 mb-4"
-                  style={glassmorphicStyle}
-                >
-                  <div className="flex items-center gap-4">
-                    {/* Profile Picture - 2x size */}
-                    {userAvatar ? (
-                      <img 
-                        src={userAvatar} 
-                        alt={userName}
-                        className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="w-16 h-16 rounded-full bg-slate-300 flex items-center justify-center border-2 border-white/50">
-                        <span className="text-2xl font-bold text-slate-600">
-                          {userName.charAt(0).toUpperCase()}
-                        </span>
+                {!viewingUserId ? (
+                  <div 
+                    className="rounded-2xl p-4 mb-4"
+                    style={glassmorphicStyle}
+                  >
+                    <div className="flex items-center gap-4">
+                      {/* Profile Picture - 2x size */}
+                      {userAvatar ? (
+                        <img 
+                          src={userAvatar} 
+                          alt={userName}
+                          className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="w-16 h-16 rounded-full bg-slate-300 flex items-center justify-center border-2 border-white/50">
+                          <span className="text-2xl font-bold text-slate-600">
+                            {userName.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      {/* Total Books Count */}
+                      <div className="flex-1">
+                        <p className="text-sm text-slate-600 mb-1">Total Books</p>
+                        <p className="text-2xl font-bold text-slate-950">{books.length}</p>
                       </div>
-                    )}
-                    {/* Total Books Count */}
-                    <div className="flex-1">
-                      <p className="text-sm text-slate-600 mb-1">Total Books</p>
-                      <p className="text-2xl font-bold text-slate-950">{books.length}</p>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div 
+                    className="rounded-2xl p-4 mb-4"
+                    style={glassmorphicStyle}
+                  >
+                    <div className="flex items-center gap-4">
+                      {/* Profile Picture - 2x size */}
+                      {viewingUserAvatar ? (
+                        <img 
+                          src={viewingUserAvatar} 
+                          alt={viewingUserFullName || viewingUserName}
+                          className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="w-16 h-16 rounded-full bg-purple-300 flex items-center justify-center border-2 border-white/50">
+                          <span className="text-2xl font-bold text-purple-700">
+                            {(viewingUserFullName || viewingUserName).charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      {/* Total Books Count */}
+                      <div className="flex-1">
+                        <p className="text-sm text-slate-600 mb-1">Total Books</p>
+                        <p className="text-2xl font-bold text-slate-950">{viewingUserBooks.length}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {/* Grouping Selector - Dropdown and Play Button */}
                 <div className="flex items-center justify-between px-4 mb-1.5">
                   <div className="relative" ref={bookshelfGroupingDropdownRef}>
@@ -8859,8 +9132,11 @@ export default function App() {
                 </div>
                 
                 {groupedBooksForBookshelf.map((group, groupIdx) => (
-                  <div 
+                  <motion.div 
                     key={group.label} 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: groupIdx * 0.1, duration: 0.4 }}
                     className="flex flex-col gap-4 rounded-2xl overflow-hidden"
                     style={{
                       ...glassmorphicStyle,
@@ -8883,7 +9159,7 @@ export default function App() {
                     {/* Covers Grid */}
                     <div className="px-[4vw] grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4">
                       {group.books.map((book, idx) => {
-                                  const bookIndex = books.findIndex(b => b.id === book.id);
+                                  const bookIndex = booksForBookshelf.findIndex(b => b.id === book.id);
                         const avgScore = calculateAvg(book.ratings);
                         
                         return (
@@ -8897,11 +9173,14 @@ export default function App() {
                             }}
                             className="flex flex-col items-center cursor-pointer group"
                             onClick={() => {
-                                  if (bookIndex !== -1) {
+                              if (viewingUserId) {
+                                // When viewing another user's bookshelf, show quick view
+                                setViewingBookFromOtherUser(book);
+                              } else if (bookIndex !== -1) {
                                 setScrollY(0);
-                                    setSelectedIndex(bookIndex);
+                                setSelectedIndex(bookIndex);
                                 setShowBookshelfCovers(false);
-                                    setTimeout(() => {
+                                setTimeout(() => {
                                   const main = document.querySelector('main');
                                   if (main) {
                                     main.scrollTo({ top: 0, behavior: 'smooth' });
@@ -8939,9 +9218,10 @@ export default function App() {
                         );
                       })}
                     </div>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
+              )}
             </div>
           </motion.main>
         ) : showBookshelf ? (
@@ -8962,15 +9242,19 @@ export default function App() {
             <div 
               className="w-full flex flex-col items-center px-4"
             >
-              {books.length === 0 ? (
+              {booksForBookshelf.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 py-20">
                   <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
-                  <button
-                    onClick={() => setIsAdding(true)}
-                    className="px-6 py-3 bg-blue-600 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
-                  >
-                    Add first book
-                  </button>
+                  {viewingUserId ? (
+                    <p className="text-sm text-slate-600">This user hasn't added any books yet.</p>
+                  ) : (
+                    <button
+                      onClick={() => setIsAdding(true)}
+                      className="px-6 py-3 bg-blue-600 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
+                    >
+                      Add first book
+                    </button>
+                  )}
                 </div>
               ) : (
               <div className="w-full max-w-[1600px] flex flex-col gap-2.5 py-8">
@@ -9261,7 +9545,10 @@ export default function App() {
                               color: textColor,
                             } as React.CSSProperties}
                             onClick={() => {
-                              if (bookIndex !== -1) {
+                              if (viewingUserId) {
+                                // When viewing another user's bookshelf, show quick view
+                                setViewingBookFromOtherUser(book);
+                              } else if (bookIndex !== -1) {
                                 setScrollY(0); // Reset scroll when switching views
                                 setSelectedIndex(bookIndex);
                                 setShowBookshelf(false);
@@ -9492,15 +9779,19 @@ export default function App() {
               </>
             )}
           </AnimatePresence>
-        {books.length === 0 ? (
+        {booksForBookshelf.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
             <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
-            <button
-              onClick={() => setIsAdding(true)}
-              className="px-6 py-3 bg-blue-600 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
-            >
-              Add first book
-            </button>
+            {viewingUserId ? (
+              <p className="text-sm text-slate-600">This user hasn't added any books yet.</p>
+            ) : (
+              <button
+                onClick={() => setIsAdding(true)}
+                className="px-6 py-3 bg-blue-600 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
+              >
+                Add first book
+              </button>
+            )}
           </div>
         ) : (
           <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">
@@ -11262,7 +11553,7 @@ export default function App() {
                         <ChevronLeft size={16} className="text-slate-700 rotate-90" />
                       </button>
                     </div>
-                    <div className="bg-blue-50/80 backdrop-blur-md rounded-xl p-4 border border-blue-200/30 mb-4 shadow-sm">
+                    <div className="rounded-xl p-4 mb-4 shadow-sm" style={standardGlassmorphicStyle}>
                       <p className="text-xs font-medium text-slate-700 text-center mb-2">Your Score</p>
                       <p className="text-slate-950 text-center text-2xl font-bold mb-2">{triviaScore} / {triviaQuestions.length}</p>
                       <p className="text-xs text-slate-600 text-center">
@@ -11277,7 +11568,7 @@ export default function App() {
                   </div>
                   
                     {/* Answers Summary */}
-                    <div className="bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 space-y-3 max-h-[50vh] overflow-y-auto shadow-sm">
+                    <div className="rounded-xl p-4 space-y-3 max-h-[50vh] overflow-y-auto shadow-sm" style={standardGlassmorphicStyle}>
                       <h3 className="text-xs font-medium text-slate-700 mb-3">Answers Summary</h3>
                     {triviaQuestions.map((question, qIdx) => {
                       const selectedAnswer = triviaSelectedAnswers.get(qIdx);
@@ -11377,27 +11668,29 @@ export default function App() {
                       return null;
                     })()}
                     
-                      <div className="flex items-center justify-between mb-3">
-                        <h2 className="text-sm font-bold text-slate-950">Trivia Game</h2>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setIsTriviaMuted(!isTriviaMuted)}
-                            className="w-8 h-8 rounded-full bg-white/80 backdrop-blur-md hover:bg-white/85 border border-white/30 active:scale-95 transition-all flex items-center justify-center shadow-sm"
-                            aria-label={isTriviaMuted ? 'Unmute music' : 'Mute music'}
-                          >
-                            {isTriviaMuted ? (
-                              <VolumeX size={14} className="text-slate-700" />
-                            ) : (
-                              <Volume2 size={14} className="text-slate-700" />
-                            )}
-                          </button>
-                          <span className="text-xs text-slate-700">
-                            Question {currentTriviaQuestionIndex + 1} / {triviaQuestions.length}
-                          </span>
+                      <div className="rounded-xl p-3 mb-3 shadow-sm" style={standardGlassmorphicStyle}>
+                        <div className="flex items-center justify-between">
+                          <h2 className="text-sm font-bold text-slate-950">Trivia Game</h2>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => setIsTriviaMuted(!isTriviaMuted)}
+                              className="w-8 h-8 rounded-full bg-white/80 backdrop-blur-md hover:bg-white/85 border border-white/30 active:scale-95 transition-all flex items-center justify-center shadow-sm"
+                              aria-label={isTriviaMuted ? 'Unmute music' : 'Mute music'}
+                            >
+                              {isTriviaMuted ? (
+                                <VolumeX size={14} className="text-slate-700" />
+                              ) : (
+                                <Volume2 size={14} className="text-slate-700" />
+                              )}
+                            </button>
+                            <span className="text-xs text-slate-700">
+                              Question {currentTriviaQuestionIndex + 1} / {triviaQuestions.length}
+                            </span>
+                          </div>
                         </div>
                       </div>
                       
-                      <div className="bg-blue-50/80 backdrop-blur-md rounded-xl p-4 border border-blue-200/30 mb-4 shadow-sm">
+                      <div className="rounded-xl p-4 mb-4 shadow-sm" style={standardGlassmorphicStyle}>
                         <p className="text-xs font-bold text-slate-950 mb-4">
                           {triviaQuestions[currentTriviaQuestionIndex].question}
                         </p>
@@ -11518,8 +11811,143 @@ export default function App() {
                 setShowNotesView(false);
               }
             }}
+            onSelectUser={(userId) => {
+              setViewingUserId(userId);
+              setShowBookshelf(false);
+              setShowBookshelfCovers(true);
+              setShowNotesView(false);
+              setShowAccountPage(false);
+              setIsAdding(false);
+            }}
           />
         )}
+
+        {/* Quick View Modal for Books from Other Users */}
+        <AnimatePresence>
+          {viewingBookFromOtherUser && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="fixed inset-0 z-[100] flex items-center justify-center px-4"
+              onClick={() => setViewingBookFromOtherUser(null)}
+            >
+              {/* Full screen glassmorphic background */}
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                className="fixed inset-0"
+                style={{ ...standardGlassmorphicStyle, borderRadius: 0 }}
+              />
+              
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                transition={{ duration: 0.3, delay: 0.1 }}
+                onClick={(e) => e.stopPropagation()}
+                className="relative w-full max-w-md rounded-2xl shadow-2xl overflow-hidden pointer-events-auto z-10"
+                style={{ maxHeight: '88vh' }}
+              >
+                {/* Book Cover */}
+                <div 
+                  className="relative w-full bg-gradient-to-br from-slate-200 to-slate-300 cursor-pointer"
+                  style={{ aspectRatio: '2/3', height: '66%' }}
+                  onClick={() => setViewingBookFromOtherUser(null)}
+                >
+                  {viewingBookFromOtherUser.cover_url ? (
+                    <img
+                      src={viewingBookFromOtherUser.cover_url}
+                      alt={viewingBookFromOtherUser.title}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <BookOpen size={64} className="text-slate-400" />
+                    </div>
+                  )}
+                  
+                  {/* Rating Display - Bottom Left Corner */}
+                  {(() => {
+                    const avgScore = calculateAvg(viewingBookFromOtherUser.ratings);
+                    if (avgScore) {
+                      return (
+                        <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1">
+                          <Star size={14} className="fill-amber-400 text-amber-400" />
+                          <span className="text-sm font-bold text-white">
+                            {avgScore}
+                          </span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+
+                {/* Book Info */}
+                <div className="p-4 space-y-3">
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-950 mb-1.5">
+                      {viewingBookFromOtherUser.title}
+                    </h2>
+                    {viewingBookFromOtherUser.author && (
+                      <p className="text-base text-slate-950 mb-1.5">
+                        by {viewingBookFromOtherUser.author}
+                      </p>
+                    )}
+                    {viewingBookFromOtherUser.publish_year && (
+                      <p className="text-xs text-slate-950">
+                        Published: {viewingBookFromOtherUser.publish_year}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Add Button */}
+                  <button
+                    onClick={async () => {
+                      if (!user) return;
+                      
+                      // Prepare book metadata (exclude user-specific fields)
+                      const bookMeta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> = {
+                        title: viewingBookFromOtherUser.title || '',
+                        author: viewingBookFromOtherUser.author || 'Unknown Author',
+                        publish_year: viewingBookFromOtherUser.publish_year || null,
+                        cover_url: viewingBookFromOtherUser.cover_url || null,
+                        wikipedia_url: viewingBookFromOtherUser.wikipedia_url || null,
+                        google_books_url: viewingBookFromOtherUser.google_books_url || null,
+                        genre: viewingBookFromOtherUser.genre || null,
+                        first_issue_year: viewingBookFromOtherUser.first_issue_year || null,
+                        summary: (viewingBookFromOtherUser as any).summary || null,
+                        notes: null, // Don't copy notes
+                        reading_status: null, // User will set this
+                      };
+
+                      // Close the modal first
+                      setViewingBookFromOtherUser(null);
+                      
+                      // Close bookshelf views
+                      setViewingUserId(null);
+                      setShowBookshelf(false);
+                      setShowBookshelfCovers(false);
+                      setShowNotesView(false);
+                      setShowAccountPage(false);
+                      
+                      // Add the book - handleAddBook will handle navigation
+                      await handleAddBook(bookMeta);
+                    }}
+                    className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl active:scale-95 transition-all flex items-center justify-center gap-2"
+                  >
+                    <BookOpen size={18} />
+                    Add to My Bookshelf
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </AnimatePresence>
     </div>
   );
