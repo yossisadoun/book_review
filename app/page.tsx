@@ -8097,29 +8097,26 @@ export default function App() {
         minHeight: '-webkit-fill-available', // iOS Safari fallback
       } as React.CSSProperties}
     >
-      {/* Gradient background - fades in when book changes (only for book pages) */}
+      {/* Gradient background - crossfades directly between book gradients (only for book pages) */}
       {!shouldUseLoginGradient && (
-        <AnimatePresence mode="wait">
-      <motion.div
-        key={`gradient-${books[selectedIndex]?.id || 'default'}`}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-        className="fixed inset-0 pointer-events-none z-0"
-        style={{
-          ...gradientStyle,
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          width: '100vw',
-          height: '100dvh', // Use dynamic viewport height for mobile (includes safe areas)
-          minHeight: '-webkit-fill-available', // iOS Safari fallback
-        } as React.CSSProperties}
-        transition={{ duration: 0.4, ease: "easeInOut" }}
-      />
-        </AnimatePresence>
+        <motion.div
+          key={`gradient-${books[selectedIndex]?.id || 'default'}`}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 pointer-events-none z-0"
+          style={{
+            ...gradientStyle,
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100dvh', // Use dynamic viewport height for mobile (includes safe areas)
+            minHeight: '-webkit-fill-available', // iOS Safari fallback
+          } as React.CSSProperties}
+          transition={{ duration: 0.4, ease: "easeInOut" }}
+        />
       )}
       {/* Simple header - fades on scroll and during transitions (hidden on book pages) */}
       {!(!showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults) && (
