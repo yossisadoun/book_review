@@ -5075,6 +5075,8 @@ export default function App() {
   });
   const [isBookshelfGroupingDropdownOpen, setIsBookshelfGroupingDropdownOpen] = useState(false);
   const [backgroundGradient, setBackgroundGradient] = useState<string>('241,245,249,226,232,240'); // Default slate colors as RGB
+  const [previousGradient, setPreviousGradient] = useState<string | null>(null);
+  const [isGradientTransitioning, setIsGradientTransitioning] = useState(false);
   
   // Game state
   const [isPlayingGame, setIsPlayingGame] = useState(false);
@@ -6525,12 +6527,31 @@ export default function App() {
   // Update background gradient when book changes
   useEffect(() => {
     const currentBook = books[selectedIndex];
+    const newGradient = currentBook?.cover_url 
+      ? null // Will be set async
+      : '241,245,249,226,232,240'; // Default slate colors
+    
     if (currentBook?.cover_url) {
+      // Store previous gradient before updating
+      setPreviousGradient(backgroundGradient);
+      setIsGradientTransitioning(true);
+      
       extractColorsFromImage(currentBook.cover_url).then(gradient => {
         setBackgroundGradient(gradient);
+        // After new gradient is set, wait a bit then fade out old one
+        setTimeout(() => {
+          setPreviousGradient(null);
+          setIsGradientTransitioning(false);
+        }, 200); // Half of transition duration (400ms total)
       });
     } else {
+      setPreviousGradient(backgroundGradient);
+      setIsGradientTransitioning(true);
       setBackgroundGradient('241,245,249,226,232,240'); // Default slate colors
+      setTimeout(() => {
+        setPreviousGradient(null);
+        setIsGradientTransitioning(false);
+      }, 200);
     }
   }, [selectedIndex, books]);
 
@@ -8037,6 +8058,14 @@ export default function App() {
     background: `linear-gradient(to bottom right, rgb(${r1}, ${g1}, ${b1}), rgb(${r2}, ${g2}, ${b2}))`,
   };
   
+  // Previous gradient style (for fade out)
+  const previousGradientStyle = previousGradient ? (() => {
+    const [pr1, pg1, pb1, pr2, pg2, pb2] = previousGradient.split(',').map(Number);
+    return {
+      background: `linear-gradient(to bottom right, rgb(${pr1}, ${pg1}, ${pb1}), rgb(${pr2}, ${pg2}, ${pb2}))`,
+    };
+  })() : null;
+  
   // Use login screen gradient for bookshelf, notes, and account pages
   const loginGradient = 'linear-gradient(to bottom, #C6DF8B 0%, #A1D821 30%, #FCCF47 100%)';
   const shouldUseLoginGradient = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage;
@@ -8097,26 +8126,51 @@ export default function App() {
         minHeight: '-webkit-fill-available', // iOS Safari fallback
       } as React.CSSProperties}
     >
-      {/* Gradient background - crossfades directly between book gradients (only for book pages) */}
+      {/* Gradient background - new gradient fades in first, then old fades out (only for book pages) */}
       {!shouldUseLoginGradient && (
-        <motion.div
-          key={`gradient-${books[selectedIndex]?.id || 'default'}`}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="fixed inset-0 pointer-events-none z-0"
-          style={{
-            ...gradientStyle,
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            width: '100vw',
-            height: '100dvh', // Use dynamic viewport height for mobile (includes safe areas)
-            minHeight: '-webkit-fill-available', // iOS Safari fallback
-          } as React.CSSProperties}
-          transition={{ duration: 0.4, ease: "easeInOut" }}
-        />
+        <>
+          {/* Previous gradient - fades out after new one fades in */}
+          {previousGradient && previousGradientStyle && (
+            <motion.div
+              key={`gradient-prev-${previousGradient}`}
+              initial={{ opacity: 1 }}
+              animate={{ opacity: 0 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 pointer-events-none z-0"
+              style={{
+                ...previousGradientStyle,
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                width: '100vw',
+                height: '100dvh',
+                minHeight: '-webkit-fill-available',
+              } as React.CSSProperties}
+              transition={{ duration: 0.4, ease: "easeInOut", delay: 0.2 }}
+            />
+          )}
+          {/* New gradient - fades in first */}
+          <motion.div
+            key={`gradient-${books[selectedIndex]?.id || 'default'}`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="fixed inset-0 pointer-events-none z-0"
+            style={{
+              ...gradientStyle,
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100vw',
+              height: '100dvh', // Use dynamic viewport height for mobile (includes safe areas)
+              minHeight: '-webkit-fill-available', // iOS Safari fallback
+            } as React.CSSProperties}
+            transition={{ duration: 0.4, ease: "easeInOut" }}
+          />
+        </>
       )}
       {/* Simple header - fades on scroll and during transitions (hidden on book pages) */}
       {!(!showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults) && (
