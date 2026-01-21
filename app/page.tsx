@@ -8039,7 +8039,7 @@ export default function App() {
       style={{
         background: shouldUseLoginGradient 
           ? loginGradient 
-          : 'rgb(248, 250, 252)' // Default slate-50
+          : 'transparent' // Transparent when book gradient will be shown
       }}
     >
       {/* Gradient background - fades in when book changes (only for book pages) */}
@@ -8053,7 +8053,11 @@ export default function App() {
         className="fixed inset-0 pointer-events-none z-0"
         style={{
           ...gradientStyle,
-        }}
+          width: '100vw',
+          height: '100vh',
+          minHeight: '100vh',
+          minHeight: '-webkit-fill-available',
+        } as React.CSSProperties}
         transition={{ duration: 0.4, ease: "easeInOut" }}
       />
         </AnimatePresence>
