@@ -8445,7 +8445,7 @@ export default function App() {
             )}
           <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
               {viewingUserId
-                ? `${viewingUserFullName || viewingUserName}'s Bookshelf`
+                ? (viewingUserFullName || viewingUserName).toUpperCase()
                 : showAccountPage
                   ? 'ACCOUNT'
                   : showSortingResults
@@ -8721,7 +8721,7 @@ export default function App() {
                   <div className="space-y-3">
                     {sortedBooks.map((book: BookWithRatings, index: number) => (
                       <motion.div
-                        key={book.id}
+                        key={book.id || `sorted-${index}`}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: index * 0.05 }}
@@ -8813,9 +8813,9 @@ export default function App() {
                   );
                 }
 
-                return booksWithNotes.map((book) => (
+                return booksWithNotes.map((book, index) => (
                   <motion.div
-                    key={book.id}
+                    key={book.id || `note-${index}`}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     className="rounded-2xl p-4 cursor-pointer hover:shadow-xl transition-shadow"
@@ -9137,8 +9137,8 @@ export default function App() {
                 </div>
                 
                 {groupedBooksForBookshelf.map((group, groupIdx) => (
-                  <motion.div 
-                    key={group.label} 
+                  <motion.div
+                    key={group.label || `group-${groupIdx}`}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: groupIdx * 0.1, duration: 0.4 }}
@@ -9169,11 +9169,11 @@ export default function App() {
                         
                         return (
                           <motion.div
-                            key={book.id}
+                            key={book.id || `book-${groupIdx}-${idx}`}
                             initial={{ opacity: 0, scale: 0.8 }}
                             animate={{ opacity: 1, scale: 1 }}
-                            transition={{ 
-                              delay: (groupIdx * 0.05) + (idx * 0.02), 
+                            transition={{
+                              delay: (groupIdx * 0.05) + (idx * 0.02),
                               duration: 0.3,
                             }}
                             className="flex flex-col items-center cursor-pointer group"
@@ -9391,8 +9391,8 @@ export default function App() {
                 </div>
                 
                 {groupedBooksForBookshelf.map((group, groupIdx) => (
-                  <div 
-                    key={group.label} 
+                  <div
+                    key={group.label || `group-${groupIdx}`}
                     className="flex flex-col gap-4 rounded-2xl overflow-hidden"
                     style={{
                       ...glassmorphicStyle,
@@ -9449,7 +9449,7 @@ export default function App() {
                       const avgScore = calculateAvg(book.ratings);
                       
                       // Generate consistent colors and fonts based on book ID
-                      const hash = book.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+                      const hash = (book.id || `${idx}`).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
                       const colorSets = [
                         { main: "#5199fc", accent: "#afd7fb" },
                         { main: "#ff9868", accent: "#d06061" },
@@ -9518,11 +9518,11 @@ export default function App() {
                       
                       return (
                         <motion.div
-                          key={book.id}
+                          key={book.id || `book-${groupIdx}-${idx}`}
                           initial={{ opacity: 0, y: 200 }}
                           animate={{ opacity: 1, y: 0 }}
-                          transition={{ 
-                            delay: (groupIdx * 0.1) + (idx * 0.05), 
+                          transition={{
+                            delay: (groupIdx * 0.1) + (idx * 0.05),
                             duration: 0.6,
                             type: "spring",
                             stiffness: 100,
@@ -9818,7 +9818,7 @@ export default function App() {
                     className="absolute inset-0 w-full h-full"
                   >
                     <AnimatePresence mode='wait'>
-                      <motion.div key={activeBook.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="relative w-full h-full rounded-lg overflow-hidden">
+                      <motion.div key={activeBook.id || 'active-book'} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="relative w-full h-full rounded-lg overflow-hidden">
                         {activeBook.cover_url ? (
                           <>
                           <img src={activeBook.cover_url} alt={activeBook.title} className="w-full h-full object-cover" />
@@ -10379,7 +10379,7 @@ export default function App() {
                                   <div className="absolute top-full left-0 mt-1 bg-white/95 backdrop-blur-md border border-white/30 rounded-lg shadow-xl z-[40] min-w-[120px] overflow-hidden">
                                     {categories.map((cat) => (
                                       <button
-                                        key={cat.id}
+                                        key={cat.id || `cat-${cat.label}`}
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           setSelectedInsightCategory(cat.id);
@@ -11020,7 +11020,7 @@ export default function App() {
                 {/* Book 1 */}
                 <AnimatePresence mode="wait">
                   <motion.button
-                    key={gameBook1.id}
+                    key={gameBook1?.id || 'game-book-1'}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
@@ -11075,7 +11075,7 @@ export default function App() {
                 {/* Book 2 */}
                 <AnimatePresence mode="wait">
                   <motion.button
-                    key={gameBook2.id}
+                    key={gameBook2?.id || 'game-book-2'}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
@@ -11178,10 +11178,10 @@ export default function App() {
                       {sortedBooks.map((book: BookWithRatings, index: number) => {
                         const isDragging = draggedBookId === book.id;
                         const isDragOver = dragOverIndex === index && draggedBookId !== book.id;
-                        
+
                         return (
                           <motion.div
-                            key={book.id}
+                            key={book.id || `drag-${index}`}
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ 
                               opacity: isDragging ? 0.5 : isDragOver ? 0.8 : 1, 
@@ -11801,7 +11801,6 @@ export default function App() {
         </AnimatePresence>
 
       <AnimatePresence>
-        <AnimatePresence>
           {isAdding && (
             <AddBookSheet 
               isOpen={isAdding} 
@@ -11827,10 +11826,10 @@ export default function App() {
               }}
             />
           )}
-        </AnimatePresence>
+      </AnimatePresence>
 
         {/* Quick View Modal for Books from Other Users */}
-        <AnimatePresence>
+      <AnimatePresence>
           {viewingBookFromOtherUser && (
             <motion.div
               initial={{ opacity: 0 }}
@@ -11954,7 +11953,6 @@ export default function App() {
               </motion.div>
             </motion.div>
           )}
-        </AnimatePresence>
       </AnimatePresence>
     </div>
   );
