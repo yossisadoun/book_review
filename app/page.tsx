@@ -8975,7 +8975,7 @@ export default function App() {
                       )}
                       {/* Total Books Count */}
                       <div className="flex-1">
-                        <p className="text-sm text-slate-600 mb-1">Total Books</p>
+                        <p className="text-sm text-slate-600 mb-1">Books</p>
                         <p className="text-2xl font-bold text-slate-950">{books.length}</p>
                       </div>
                     </div>
@@ -9003,7 +9003,7 @@ export default function App() {
                       )}
                       {/* Total Books Count */}
                       <div className="flex-1">
-                        <p className="text-sm text-slate-600 mb-1">Total Books</p>
+                        <p className="text-sm text-slate-600 mb-1">Books</p>
                         <p className="text-2xl font-bold text-slate-950">{viewingUserBooks.length}</p>
                       </div>
                     </div>
@@ -9800,8 +9800,8 @@ export default function App() {
           </div>
         ) : (
           <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">
-            <div 
-              className="relative w-[90%] aspect-[2/3] overflow-hidden group rounded-lg"
+            <div
+              className="relative w-[340px] aspect-[2/3] overflow-hidden group rounded-lg"
               style={{
                 boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04), 0 0 30px 5px rgba(255, 255, 255, 0.3)',
               }}
