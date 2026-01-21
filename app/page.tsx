@@ -8058,7 +8058,6 @@ export default function App() {
           ...gradientStyle,
           width: '100vw',
           height: '100vh',
-          minHeight: '100vh',
           minHeight: '-webkit-fill-available',
         } as React.CSSProperties}
         transition={{ duration: 0.4, ease: "easeInOut" }}
