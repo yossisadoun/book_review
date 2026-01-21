@@ -10032,23 +10032,31 @@ export default function App() {
                         }
                       }}
                     >
-                      {shouldBlurInsights && (
-                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
-                          <div className="text-center px-4">
-                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Insights.</p>
-                            <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                          </div>
-                        </div>
-                      )}
+                      <AnimatePresence>
+                        {shouldBlurInsights && (
+                          <motion.div
+                            key="spoiler-insights"
+                            initial={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
+                          >
+                            <div className="text-center px-4">
+                              <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Insights.</p>
+                              <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                       <div className={shouldBlurInsights ? 'blur-sm pointer-events-none select-none' : ''}>
                         {/* Insights Header with Category Selector */}
                         <div className="flex items-center justify-center mb-2 relative z-[40]">
                         <AnimatePresence mode="wait">
                           <motion.div
                             key={`insights-menu-${activeBook?.id || 'default'}`}
-                            initial={{ opacity: 0, y: -5 }}
+                            initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 5 }}
+                            exit={{ opacity: 0, y: -10 }}
                             transition={{ duration: 0.3, ease: "easeInOut" }}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm relative"
                             style={bookPageGlassmorphicStyle}
@@ -10158,23 +10166,31 @@ export default function App() {
                         }
                       }}
                     >
-                      {shouldBlurPodcasts && (
-                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
-                          <div className="text-center px-4">
-                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Podcasts.</p>
-                            <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                          </div>
-                        </div>
-                      )}
+                      <AnimatePresence>
+                        {shouldBlurPodcasts && (
+                          <motion.div
+                            key="spoiler-podcasts"
+                            initial={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
+                          >
+                            <div className="text-center px-4">
+                              <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Podcasts.</p>
+                              <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                       <div className={shouldBlurPodcasts ? 'blur-sm pointer-events-none select-none' : ''}>
                         {/* Podcast Header */}
                         <div className="flex items-center justify-center mb-2">
                         <AnimatePresence mode="wait">
                           <motion.div
                             key={`podcasts-menu-${activeBook?.id || 'default'}`}
-                            initial={{ opacity: 0, y: -5 }}
+                            initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 5 }}
+                            exit={{ opacity: 0, y: -10 }}
                             transition={{ duration: 0.3, ease: "easeInOut" }}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
                             style={bookPageGlassmorphicStyle}
@@ -10247,23 +10263,31 @@ export default function App() {
                         }
                       }}
                     >
-                      {shouldBlurAnalysis && (
-                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
-                          <div className="text-center px-4">
-                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Analysis.</p>
-                            <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                          </div>
-                        </div>
-                      )}
+                      <AnimatePresence>
+                        {shouldBlurAnalysis && (
+                          <motion.div
+                            key="spoiler-analysis"
+                            initial={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
+                          >
+                            <div className="text-center px-4">
+                              <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Analysis.</p>
+                              <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                       <div className={shouldBlurAnalysis ? 'blur-sm pointer-events-none select-none' : ''}>
                       {/* Analysis Header */}
                       <div className="flex items-center justify-center mb-2">
                         <AnimatePresence mode="wait">
                           <motion.div
                             key={`analysis-menu-${activeBook?.id || 'default'}`}
-                            initial={{ opacity: 0, y: -5 }}
+                            initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 5 }}
+                            exit={{ opacity: 0, y: -10 }}
                             transition={{ duration: 0.3, ease: "easeInOut" }}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
                             style={bookPageGlassmorphicStyle}
@@ -10328,23 +10352,31 @@ export default function App() {
                         }
                       }}
                     >
-                      {shouldBlurVideos && (
-                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
-                          <div className="text-center px-4">
-                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Videos.</p>
-                            <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                          </div>
-                        </div>
-                      )}
+                      <AnimatePresence>
+                        {shouldBlurVideos && (
+                          <motion.div
+                            key="spoiler-videos"
+                            initial={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
+                          >
+                            <div className="text-center px-4">
+                              <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Videos.</p>
+                              <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                       <div className={shouldBlurVideos ? 'blur-sm pointer-events-none select-none' : ''}>
                         {/* Videos Header */}
                         <div className="flex items-center justify-center mb-2">
                         <AnimatePresence mode="wait">
                           <motion.div
                             key={`videos-menu-${activeBook?.id || 'default'}`}
-                            initial={{ opacity: 0, y: -5 }}
+                            initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 5 }}
+                            exit={{ opacity: 0, y: -10 }}
                             transition={{ duration: 0.3, ease: "easeInOut" }}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
                             style={bookPageGlassmorphicStyle}
@@ -10411,23 +10443,31 @@ export default function App() {
                         }
                       }}
                     >
-                      {shouldBlurRelated && (
-                        <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none">
-                          <div className="text-center px-4">
-                            <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Related.</p>
-                            <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                          </div>
-                        </div>
-                      )}
+                      <AnimatePresence>
+                        {shouldBlurRelated && (
+                          <motion.div
+                            key="spoiler-related"
+                            initial={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
+                          >
+                            <div className="text-center px-4">
+                              <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Related.</p>
+                              <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                       <div className={shouldBlurRelated ? 'blur-sm pointer-events-none select-none' : ''}>
                         {/* Related Books Header */}
                         <div className="flex items-center justify-center mb-2">
                         <AnimatePresence mode="wait">
                           <motion.div
                             key={`related-menu-${activeBook?.id || 'default'}`}
-                            initial={{ opacity: 0, y: -5 }}
+                            initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 5 }}
+                            exit={{ opacity: 0, y: -10 }}
                             transition={{ duration: 0.3, ease: "easeInOut" }}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
                             style={bookPageGlassmorphicStyle}
