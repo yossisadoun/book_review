@@ -21,10 +21,13 @@ export function LoginScreen() {
   const { signInWithGoogle, loading } = useAuth();
 
   return (
-    <div 
+    <div
       className="fixed inset-0 flex flex-col items-center justify-center p-4"
       style={{
-        background: 'linear-gradient(to bottom, #C6DF8B 0%, #A1D821 30%, #FCCF47 100%)'
+        backgroundImage: `url(${getAssetPath('/bg.png')})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
       }}
     >
       <motion.div
@@ -50,7 +53,7 @@ export function LoginScreen() {
           onClick={signInWithGoogle}
           disabled={loading}
           whileTap={{ scale: 0.98 }}
-          className="w-full max-w-xs bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 rounded-lg shadow-sm hover:shadow-md transition-shadow py-3 px-4 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-[200px] bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 rounded-lg shadow-sm hover:shadow-md transition-shadow py-3 px-4 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
             <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />

@@ -5270,6 +5270,8 @@ export default function App() {
   const [viewingBookFromOtherUser, setViewingBookFromOtherUser] = useState<BookWithRatings | null>(null);
   const [isLoadingViewingUserBooks, setIsLoadingViewingUserBooks] = useState(false);
   const [isFadingOutViewingUser, setIsFadingOutViewingUser] = useState(false);
+  const [isFollowingViewingUser, setIsFollowingViewingUser] = useState(false);
+  const [isFollowLoading, setIsFollowLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('lastSelectedBookIndex');
@@ -6243,10 +6245,12 @@ export default function App() {
       setViewingUserName('');
       setViewingUserFullName(null);
       setViewingUserAvatar(null);
+      setIsFollowingViewingUser(false);
       return;
     }
 
     const userId = viewingUserId; // Store in local variable after null check
+    const currentUserId = user.id; // Store user.id for async function
 
     async function loadUserBooks() {
       try {
@@ -6268,6 +6272,16 @@ export default function App() {
           setViewingUserFullName(null);
           setViewingUserAvatar(null);
         }
+
+        // Check if current user follows this user
+        const { data: followData } = await supabase
+          .from('follows')
+          .select('id')
+          .eq('follower_id', currentUserId)
+          .eq('following_id', userId)
+          .single();
+
+        setIsFollowingViewingUser(!!followData);
 
         // Then get their books
         const { data, error } = await supabase
@@ -8422,6 +8436,47 @@ export default function App() {
     }
   }
 
+  // Toggle follow/unfollow for the currently viewed user
+  async function handleToggleFollow() {
+    if (!viewingUserId || !user) return;
+
+    setIsFollowLoading(true);
+    try {
+      if (isFollowingViewingUser) {
+        // Unfollow
+        const { error } = await supabase
+          .from('follows')
+          .delete()
+          .eq('follower_id', user.id)
+          .eq('following_id', viewingUserId);
+
+        if (error) {
+          console.error('Error unfollowing:', error);
+          return;
+        }
+        setIsFollowingViewingUser(false);
+      } else {
+        // Follow
+        const { error } = await supabase
+          .from('follows')
+          .insert({
+            follower_id: user.id,
+            following_id: viewingUserId,
+          });
+
+        if (error) {
+          console.error('Error following:', error);
+          return;
+        }
+        setIsFollowingViewingUser(true);
+      }
+    } catch (err) {
+      console.error('Error toggling follow:', err);
+    } finally {
+      setIsFollowLoading(false);
+    }
+  }
+
   // Show book loading animation during initial auth check
   if (authLoading) {
     return <BookLoading />;
@@ -8455,9 +8510,14 @@ export default function App() {
     };
   })() : null;
   
-  // Use login screen gradient for bookshelf, notes, and account pages
-  const loginGradient = 'linear-gradient(to bottom, #C6DF8B 0%, #A1D821 30%, #FCCF47 100%)';
-  const shouldUseLoginGradient = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage;
+  // Use background image for bookshelf, notes, and account pages
+  const shouldUseBackgroundImage = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage;
+  const backgroundImageStyle: React.CSSProperties = {
+    backgroundImage: `url(${getAssetPath('/bg.png')})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    backgroundRepeat: 'no-repeat',
+  };
   
   // Glassmorphic style for cover page buttons (20% less opacity)
   const coverButtonGlassmorphicStyle: React.CSSProperties = {
@@ -8502,9 +8562,7 @@ export default function App() {
   return (
     <div className="fixed inset-0 text-slate-900 font-sans select-none overflow-hidden flex flex-col"
       style={{
-        background: shouldUseLoginGradient 
-          ? loginGradient 
-          : gradientStyle.background, // Use current gradient as fallback to prevent white flicker
+        ...(shouldUseBackgroundImage ? backgroundImageStyle : { background: gradientStyle.background }),
         position: 'fixed',
         top: 0,
         left: 0,
@@ -8516,7 +8574,7 @@ export default function App() {
       } as React.CSSProperties}
     >
       {/* Gradient background - new gradient fades in first, then old fades out (only for book pages) */}
-      {!shouldUseLoginGradient && (
+      {!shouldUseBackgroundImage && (
         <>
           {/* Previous gradient - stays at full opacity until new one is ready, then fades out */}
           {previousGradient && previousGradientStyle && (
@@ -8564,6 +8622,25 @@ export default function App() {
               minHeight: '-webkit-fill-available', // iOS Safari fallback
             } as React.CSSProperties}
             transition={{ duration: 0.4, ease: "easeInOut" }}
+          />
+          {/* Background image overlay at 25% opacity */}
+          <div
+            className="fixed inset-0 pointer-events-none z-0"
+            style={{
+              backgroundImage: `url(${getAssetPath('/bg.png')})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              backgroundRepeat: 'no-repeat',
+              opacity: 0.45,
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: '100vw',
+              height: '100dvh',
+              minHeight: '-webkit-fill-available',
+            } as React.CSSProperties}
           />
         </>
       )}
@@ -9160,15 +9237,15 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                  <div 
+                  <div
                     className="rounded-2xl p-4 mb-4"
                     style={glassmorphicStyle}
                   >
                     <div className="flex items-center gap-4">
                       {/* Profile Picture - 2x size */}
                       {viewingUserAvatar ? (
-                        <img 
-                          src={viewingUserAvatar} 
+                        <img
+                          src={viewingUserAvatar}
                           alt={viewingUserFullName || viewingUserName}
                           className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
                           referrerPolicy="no-referrer"
@@ -9185,6 +9262,43 @@ export default function App() {
                         <p className="text-sm text-slate-600 mb-1">Books</p>
                         <p className="text-2xl font-bold text-slate-950">{viewingUserBooks.length}</p>
                       </div>
+                      {/* Follow Button */}
+                      <motion.button
+                        onClick={handleToggleFollow}
+                        disabled={isFollowLoading}
+                        animate={isFollowLoading ? {
+                          opacity: [1, 0.5, 1],
+                          scale: [1, 0.97, 1],
+                        } : {
+                          opacity: 1,
+                          scale: 1,
+                        }}
+                        transition={isFollowLoading ? {
+                          duration: 0.6,
+                          repeat: Infinity,
+                          ease: "easeInOut",
+                        } : {
+                          duration: 0.2,
+                        }}
+                        className={`w-24 py-2 rounded-xl font-bold text-sm transition-colors active:scale-95 ${
+                          isFollowingViewingUser
+                            ? 'text-blue-700'
+                            : 'text-white'
+                        }`}
+                        style={isFollowingViewingUser ? {
+                          background: 'rgba(219, 234, 254, 0.6)',
+                          backdropFilter: 'blur(9.4px)',
+                          WebkitBackdropFilter: 'blur(9.4px)',
+                          border: '1px solid rgba(59, 130, 246, 0.3)',
+                        } : {
+                          background: 'rgba(59, 130, 246, 0.85)',
+                          backdropFilter: 'blur(9.4px)',
+                          WebkitBackdropFilter: 'blur(9.4px)',
+                          border: '1px solid rgba(59, 130, 246, 0.3)',
+                        }}
+                      >
+                        {isFollowingViewingUser ? 'Following' : 'Follow'}
+                      </motion.button>
                     </div>
                   </div>
                 )}
