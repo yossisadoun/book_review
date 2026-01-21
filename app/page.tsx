@@ -5026,10 +5026,44 @@ export default function App() {
   const bookshelfGroupingDropdownRef = useRef<HTMLDivElement>(null);
   const [scrollY, setScrollY] = useState(0);
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
-  const [showAccountPage, setShowAccountPage] = useState(false);
-  const [showBookshelf, setShowBookshelf] = useState(false);
-  const [showBookshelfCovers, setShowBookshelfCovers] = useState(false);
-  const [showNotesView, setShowNotesView] = useState(false);
+  
+  // Helper function to get last page from localStorage
+  const getLastPageState = (): { showBookshelf: boolean; showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean } => {
+    if (typeof window === 'undefined') {
+      return { showBookshelf: false, showBookshelfCovers: false, showNotesView: false, showAccountPage: false };
+    }
+    try {
+      const saved = localStorage.getItem('lastPageState');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          showBookshelf: parsed.showBookshelf === true,
+          showBookshelfCovers: parsed.showBookshelfCovers === true,
+          showNotesView: parsed.showNotesView === true,
+          showAccountPage: parsed.showAccountPage === true,
+        };
+      }
+    } catch (err) {
+      console.error('[getLastPageState] Error reading from localStorage:', err);
+    }
+    return { showBookshelf: false, showBookshelfCovers: false, showNotesView: false, showAccountPage: false };
+  };
+
+  // Helper function to save current page state to localStorage
+  const savePageState = (state: { showBookshelf: boolean; showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean }) => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem('lastPageState', JSON.stringify(state));
+    } catch (err) {
+      console.error('[savePageState] Error saving to localStorage:', err);
+    }
+  };
+
+  // Initialize page states from localStorage
+  const [showAccountPage, setShowAccountPage] = useState(() => getLastPageState().showAccountPage);
+  const [showBookshelf, setShowBookshelf] = useState(() => getLastPageState().showBookshelf);
+  const [showBookshelfCovers, setShowBookshelfCovers] = useState(() => getLastPageState().showBookshelfCovers);
+  const [showNotesView, setShowNotesView] = useState(() => getLastPageState().showNotesView);
   const [editingNoteBookId, setEditingNoteBookId] = useState<string | null>(null);
   const [bookshelfGrouping, setBookshelfGrouping] = useState<'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year'>(() => {
     if (typeof window !== 'undefined') {
@@ -5881,13 +5915,26 @@ export default function App() {
     loadBooks();
   }, [user, authLoading]);
 
-  // Set default view to bookshelf when user has no books
+  // Set default view to bookshelf covers when user has no books (first-time user)
   useEffect(() => {
     if (isLoaded && books.length === 0 && !showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage) {
-      setShowBookshelf(true);
+      // First-time user: default to bookshelf covers view
+      setShowBookshelfCovers(true);
       setBookshelfGrouping('reading_status'); // Ensure it's grouped by status
     }
   }, [isLoaded, books.length, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage]);
+
+  // Save page state to localStorage whenever it changes
+  useEffect(() => {
+    if (isLoaded) {
+      savePageState({
+        showBookshelf,
+        showBookshelfCovers,
+        showNotesView,
+        showAccountPage,
+      });
+    }
+  }, [isLoaded, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage]);
 
   // Update count of books with trivia questions
   useEffect(() => {
