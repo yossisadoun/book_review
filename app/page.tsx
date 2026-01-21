@@ -9438,7 +9438,7 @@ export default function App() {
             <div 
               className="relative w-[90%] aspect-[2/3] overflow-hidden group rounded-lg"
               style={{
-                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04), 0 0 30px 10px rgba(255, 255, 255, 0.6)',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04), 0 0 30px 5px rgba(255, 255, 255, 0.3)',
               }}
             >
               {/* Front side - Book cover */}
