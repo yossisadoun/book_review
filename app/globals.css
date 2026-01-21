@@ -131,3 +131,19 @@ body {
     -webkit-tap-highlight-color: transparent;
   }
 }
+
+/* Ensure search input stays visible above keyboard on mobile */
+@media (max-width: 768px) {
+  /* Use visual viewport height for better keyboard handling */
+  @supports (height: 100dvh) {
+    .search-sheet-container {
+      max-height: 100dvh;
+    }
+  }
+  
+  /* Bottom-anchored search input (Apple-style) */
+  .safe-area-bottom {
+    /* Account for safe area insets on iOS */
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+}
