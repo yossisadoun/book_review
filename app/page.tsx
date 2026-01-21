@@ -9428,7 +9428,37 @@ export default function App() {
                     );
                   })()}
                 </div>
-                
+
+                {/* Empty state - show when no books */}
+                {booksForBookshelf.length === 0 && !viewingUserId ? (
+                  <div
+                    className="flex flex-col items-center justify-center text-center space-y-6 py-12 rounded-2xl"
+                    style={glassmorphicStyle}
+                  >
+                    <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto" />
+                    <button
+                      onClick={() => setIsAdding(true)}
+                      className="px-6 py-3 rounded-xl font-bold text-white active:scale-95 transition-all"
+                      style={{
+                        background: 'rgba(59, 130, 246, 0.85)',
+                        backdropFilter: 'blur(9.4px)',
+                        WebkitBackdropFilter: 'blur(9.4px)',
+                        border: '1px solid rgba(59, 130, 246, 0.3)',
+                      }}
+                    >
+                      Add first book
+                    </button>
+                  </div>
+                ) : booksForBookshelf.length === 0 && viewingUserId ? (
+                  <div
+                    className="flex flex-col items-center justify-center text-center space-y-6 py-12 rounded-2xl"
+                    style={glassmorphicStyle}
+                  >
+                    <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto" />
+                    <p className="text-sm text-slate-600">This user hasn't added any books yet.</p>
+                  </div>
+                ) : null}
+
                 {groupedBooksForBookshelf.map((group, groupIdx) => (
                   <motion.div
                     key={group.label || `group-${groupIdx}`}
@@ -12155,13 +12185,15 @@ export default function App() {
                 exit={{ scale: 0.9, opacity: 0 }}
                 transition={{ duration: 0.3, delay: 0.1 }}
                 onClick={(e) => e.stopPropagation()}
-                className="relative w-full max-w-md rounded-2xl shadow-2xl overflow-hidden pointer-events-auto z-10"
-                style={{ maxHeight: '88vh' }}
+                className="relative flex flex-col items-center pointer-events-auto z-10 p-4"
+                style={{ maxHeight: '80vh' }}
               >
-                {/* Book Cover */}
-                <div 
-                  className="relative w-full bg-gradient-to-br from-slate-200 to-slate-300 cursor-pointer"
-                  style={{ aspectRatio: '2/3', height: '66%' }}
+                {/* Book Cover - matching book page style */}
+                <div
+                  className="relative w-[272px] aspect-[2/3] overflow-hidden rounded-lg cursor-pointer"
+                  style={{
+                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04), 0 0 30px 5px rgba(255, 255, 255, 0.3)',
+                  }}
                   onClick={() => setViewingBookFromOtherUser(null)}
                 >
                   {viewingBookFromOtherUser.cover_url ? (
@@ -12171,11 +12203,11 @@ export default function App() {
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <BookOpen size={64} className="text-slate-400" />
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-200 to-slate-300">
+                      <BookOpen size={48} className="text-slate-400" />
                     </div>
                   )}
-                  
+
                   {/* Rating Display - Bottom Left Corner */}
                   {(() => {
                     const avgScore = calculateAvg(viewingBookFromOtherUser.ratings);
@@ -12194,62 +12226,65 @@ export default function App() {
                 </div>
 
                 {/* Book Info */}
-                <div className="p-4 space-y-3">
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-950 mb-1.5">
-                      {viewingBookFromOtherUser.title}
-                    </h2>
-                    {viewingBookFromOtherUser.author && (
-                      <p className="text-base text-slate-950 mb-1.5">
-                        by {viewingBookFromOtherUser.author}
-                      </p>
-                    )}
-                    {viewingBookFromOtherUser.publish_year && (
-                      <p className="text-xs text-slate-950">
-                        Published: {viewingBookFromOtherUser.publish_year}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Add Button */}
-                  <button
-                    onClick={async () => {
-                      if (!user) return;
-                      
-                      // Prepare book metadata (exclude user-specific fields)
-                      const bookMeta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> = {
-                        title: viewingBookFromOtherUser.title || '',
-                        author: viewingBookFromOtherUser.author || 'Unknown Author',
-                        publish_year: viewingBookFromOtherUser.publish_year || null,
-                        cover_url: viewingBookFromOtherUser.cover_url || null,
-                        wikipedia_url: viewingBookFromOtherUser.wikipedia_url || null,
-                        google_books_url: viewingBookFromOtherUser.google_books_url || null,
-                        genre: viewingBookFromOtherUser.genre || null,
-                        first_issue_year: viewingBookFromOtherUser.first_issue_year || null,
-                        summary: (viewingBookFromOtherUser as any).summary || null,
-                        notes: null, // Don't copy notes
-                        reading_status: null, // User will set this
-                      };
-
-                      // Close the modal first
-                      setViewingBookFromOtherUser(null);
-                      
-                      // Close bookshelf views
-                      setViewingUserId(null);
-                      setShowBookshelf(false);
-                      setShowBookshelfCovers(false);
-                      setShowNotesView(false);
-                      setShowAccountPage(false);
-                      
-                      // Add the book - handleAddBook will handle navigation
-                      await handleAddBook(bookMeta);
-                    }}
-                    className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl active:scale-95 transition-all flex items-center justify-center gap-2"
-                  >
-                    <BookOpen size={18} />
-                    Add to My Bookshelf
-                  </button>
+                <div className="mt-4 text-center space-y-2 max-w-[272px]">
+                  <h2 className="text-lg font-bold text-slate-950">
+                    {viewingBookFromOtherUser.title}
+                  </h2>
+                  {viewingBookFromOtherUser.author && (
+                    <p className="text-sm text-slate-800">
+                      {viewingBookFromOtherUser.author}
+                    </p>
+                  )}
+                  {viewingBookFromOtherUser.publish_year && (
+                    <p className="text-xs text-slate-600">
+                      {viewingBookFromOtherUser.publish_year}
+                    </p>
+                  )}
                 </div>
+
+                {/* Add Button */}
+                <button
+                  onClick={async () => {
+                    if (!user) return;
+
+                    // Prepare book metadata (exclude user-specific fields)
+                    const bookMeta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> = {
+                      title: viewingBookFromOtherUser.title || '',
+                      author: viewingBookFromOtherUser.author || 'Unknown Author',
+                      publish_year: viewingBookFromOtherUser.publish_year || null,
+                      cover_url: viewingBookFromOtherUser.cover_url || null,
+                      wikipedia_url: viewingBookFromOtherUser.wikipedia_url || null,
+                      google_books_url: viewingBookFromOtherUser.google_books_url || null,
+                      genre: viewingBookFromOtherUser.genre || null,
+                      first_issue_year: viewingBookFromOtherUser.first_issue_year || null,
+                      summary: (viewingBookFromOtherUser as any).summary || null,
+                      notes: null, // Don't copy notes
+                      reading_status: null, // User will set this
+                    };
+
+                    // Close the modal first
+                    setViewingBookFromOtherUser(null);
+
+                    // Close bookshelf views
+                    setViewingUserId(null);
+                    setShowBookshelf(false);
+                    setShowBookshelfCovers(false);
+                    setShowNotesView(false);
+                    setShowAccountPage(false);
+
+                    // Add the book - handleAddBook will handle navigation
+                    await handleAddBook(bookMeta);
+                  }}
+                  className="mt-4 py-2.5 px-8 text-white font-bold rounded-xl active:scale-95 transition-all"
+                  style={{
+                    background: 'rgba(59, 130, 246, 0.85)',
+                    backdropFilter: 'blur(9.4px)',
+                    WebkitBackdropFilter: 'blur(9.4px)',
+                    border: '1px solid rgba(59, 130, 246, 0.3)',
+                  }}
+                >
+                  Add book
+                </button>
               </motion.div>
             </motion.div>
           )}

@@ -2,6 +2,18 @@
 
 import React from 'react';
 
+// Helper function to get the correct path for static assets (handles basePath)
+function getAssetPath(path: string): string {
+  if (typeof window === 'undefined') return path;
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (isLocalhost) return path;
+  const pathname = window.location.pathname;
+  if (pathname.startsWith('/book_review')) {
+    return `/book_review${path}`;
+  }
+  return path;
+}
+
 export function BookLoading() {
   return (
     <>
@@ -241,10 +253,13 @@ export function BookLoading() {
           }
         }
       `}</style>
-      <div 
+      <div
         className="fixed inset-0 flex items-center justify-center z-50"
         style={{
-          background: 'linear-gradient(to bottom, #C6DF8B 0%, #A1D821 30%, #FCCF47 100%)'
+          backgroundImage: `url(${getAssetPath('/bg.png')})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
         }}
       >
         <div className="book-loading">
