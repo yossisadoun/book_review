@@ -9850,12 +9850,16 @@ export default function App() {
             
             {/* Info box - always open, below cover and above facts */}
             {!showRatingOverlay && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="w-full mt-2"
-              >
-                <div className="rounded-2xl px-4 py-3 mx-auto" style={bookPageGlassmorphicStyle}>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={`info-${activeBook?.id || 'default'}`}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.3, ease: "easeInOut" }}
+                  className="w-full mt-2"
+                >
+                  <div className="rounded-2xl px-4 py-3 mx-auto" style={bookPageGlassmorphicStyle}>
                   {/* Line 1: Title */}
                   <h2 className="text-sm font-black text-slate-950 leading-tight line-clamp-2 mb-2">{activeBook.title}</h2>
                   {/* Line 2: Summary/Synopsis */}
@@ -9927,6 +9931,7 @@ export default function App() {
                   </div>
                 </div>
               </motion.div>
+              </AnimatePresence>
             )}
             
             {/* Insights Section - Show below cover with spacing */}
@@ -10038,8 +10043,17 @@ export default function App() {
                       <div className={shouldBlurInsights ? 'blur-sm pointer-events-none select-none' : ''}>
                         {/* Insights Header with Category Selector */}
                         <div className="flex items-center justify-center mb-2 relative z-[40]">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm relative" style={bookPageGlassmorphicStyle}>
-                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">INSIGHTS:</span>
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            key={`insights-menu-${activeBook?.id || 'default'}`}
+                            initial={{ opacity: 0, y: -5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 5 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm relative"
+                            style={bookPageGlassmorphicStyle}
+                          >
+                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">INSIGHTS:</span>
                           {categories.length > 1 && (
                             <>
                               <span className="text-[10px] font-bold text-slate-400">/</span>
@@ -10087,7 +10101,8 @@ export default function App() {
                               <span className="text-[10px] font-bold text-blue-700">{currentCategory?.label || 'Trivia'}</span>
                             </>
                           )}
-                        </div>
+                        </motion.div>
+                        </AnimatePresence>
                       </div>
                       {isLoading ? (
                         // Show loading placeholder
@@ -10154,11 +10169,21 @@ export default function App() {
                       <div className={shouldBlurPodcasts ? 'blur-sm pointer-events-none select-none' : ''}>
                         {/* Podcast Header */}
                         <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">PODCASTS:</span>
-                          <span className="text-[10px] font-bold text-slate-400">/</span>
-                          <span className="text-[10px] font-bold text-blue-700">Curated + Apple</span>
-                        </div>
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            key={`podcasts-menu-${activeBook?.id || 'default'}`}
+                            initial={{ opacity: 0, y: -5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 5 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
+                            style={bookPageGlassmorphicStyle}
+                          >
+                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">PODCASTS:</span>
+                            <span className="text-[10px] font-bold text-slate-400">/</span>
+                            <span className="text-[10px] font-bold text-blue-700">Curated + Apple</span>
+                          </motion.div>
+                        </AnimatePresence>
                       </div>
                       {isLoading ? (
                         // Show loading placeholder
@@ -10233,11 +10258,21 @@ export default function App() {
                       <div className={shouldBlurAnalysis ? 'blur-sm pointer-events-none select-none' : ''}>
                       {/* Analysis Header */}
                       <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">ANALYSIS:</span>
-                          <span className="text-[10px] font-bold text-slate-400">/</span>
-                          <span className="text-[10px] font-bold text-blue-700">Google Scholar</span>
-                        </div>
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            key={`analysis-menu-${activeBook?.id || 'default'}`}
+                            initial={{ opacity: 0, y: -5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 5 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
+                            style={bookPageGlassmorphicStyle}
+                          >
+                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">ANALYSIS:</span>
+                            <span className="text-[10px] font-bold text-slate-400">/</span>
+                            <span className="text-[10px] font-bold text-blue-700">Google Scholar</span>
+                          </motion.div>
+                        </AnimatePresence>
                       </div>
                       {isLoading ? (
                         // Show loading placeholder
@@ -10304,11 +10339,21 @@ export default function App() {
                       <div className={shouldBlurVideos ? 'blur-sm pointer-events-none select-none' : ''}>
                         {/* Videos Header */}
                         <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">VIDEOS:</span>
-                          <span className="text-[10px] font-bold text-slate-400">/</span>
-                          <span className="text-[10px] font-bold text-blue-700">YouTube</span>
-                        </div>
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            key={`videos-menu-${activeBook?.id || 'default'}`}
+                            initial={{ opacity: 0, y: -5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 5 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
+                            style={bookPageGlassmorphicStyle}
+                          >
+                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">VIDEOS:</span>
+                            <span className="text-[10px] font-bold text-slate-400">/</span>
+                            <span className="text-[10px] font-bold text-blue-700">YouTube</span>
+                          </motion.div>
+                        </AnimatePresence>
                       </div>
                       {isLoading ? (
                         // Show loading placeholder
@@ -10377,11 +10422,21 @@ export default function App() {
                       <div className={shouldBlurRelated ? 'blur-sm pointer-events-none select-none' : ''}>
                         {/* Related Books Header */}
                         <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">RELATED:</span>
-                          <span className="text-[10px] font-bold text-slate-400">/</span>
-                          <span className="text-[10px] font-bold text-blue-700">Grok</span>
-                        </div>
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            key={`related-menu-${activeBook?.id || 'default'}`}
+                            initial={{ opacity: 0, y: -5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 5 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
+                            style={bookPageGlassmorphicStyle}
+                          >
+                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">RELATED:</span>
+                            <span className="text-[10px] font-bold text-slate-400">/</span>
+                            <span className="text-[10px] font-bold text-blue-700">Grok</span>
+                          </motion.div>
+                        </AnimatePresence>
                       </div>
                       {isLoading ? (
                         // Show loading placeholder
