@@ -9,6 +9,19 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   trailingSlash: true,
+  // Exclude mobile_app and packages directories from Next.js build
+  pageExtensions: ['ts', 'tsx', 'js', 'jsx'],
+  webpack: (config, { isServer }) => {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+    };
+    // Exclude mobile_app and packages from webpack compilation
+    config.watchOptions = {
+      ...config.watchOptions,
+      ignored: ['**/node_modules/**', '**/mobile_app/**', '**/packages/**'],
+    };
+    return config;
+  },
 };
 
 export default nextConfig;
