@@ -4466,10 +4466,13 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
                   className={`w-full h-11 bg-white/20 border border-white/30 rounded-full focus:outline-none focus:bg-white/30 text-sm transition-all text-slate-950 placeholder:text-slate-600 ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
                   dir={isQueryHebrew ? "rtl" : "ltr"}
                 />
-                <Search 
-                  size={18} 
-                  className={`absolute top-1/2 -translate-y-1/2 text-slate-600 pointer-events-none ${isQueryHebrew ? 'right-4' : 'left-4'}`}
-                />
+                <button
+                  type="submit"
+                  className={`absolute top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-800 active:scale-95 transition-all cursor-pointer ${isQueryHebrew ? 'right-4' : 'left-4'}`}
+                  aria-label="Search"
+                >
+                  <Search size={18} />
+                </button>
               </div>
             </form>
           </div>
