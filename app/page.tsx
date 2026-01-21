@@ -8040,9 +8040,14 @@ export default function App() {
         background: shouldUseLoginGradient 
           ? loginGradient 
           : 'transparent', // Transparent when book gradient will be shown
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         width: '100vw',
-        height: '100vh',
-        minHeight: '-webkit-fill-available',
+        height: '100dvh', // Use dynamic viewport height for mobile (includes safe areas)
+        minHeight: '-webkit-fill-available', // iOS Safari fallback
       } as React.CSSProperties}
     >
       {/* Gradient background - fades in when book changes (only for book pages) */}
@@ -8056,9 +8061,14 @@ export default function App() {
         className="fixed inset-0 pointer-events-none z-0"
         style={{
           ...gradientStyle,
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
           width: '100vw',
-          height: '100vh',
-          minHeight: '-webkit-fill-available',
+          height: '100dvh', // Use dynamic viewport height for mobile (includes safe areas)
+          minHeight: '-webkit-fill-available', // iOS Safari fallback
         } as React.CSSProperties}
         transition={{ duration: 0.4, ease: "easeInOut" }}
       />

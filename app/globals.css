@@ -7,10 +7,30 @@
 /* Prevent zooming on mobile browsers (pinch zoom) */
 html {
   touch-action: manipulation;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh; /* Use dynamic viewport height for mobile */
+  min-height: 100vh;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+  overflow: hidden;
+  background: transparent;
 }
 
 body {
   touch-action: manipulation;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh; /* Use dynamic viewport height for mobile */
+  min-height: 100vh;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+  overflow: hidden;
+  background: transparent;
 }
 
 /* Hide scrollbar for author facts tooltips */
