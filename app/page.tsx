@@ -4285,12 +4285,15 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
           <div className="w-12 h-1 bg-slate-400 rounded-full" />
         </div>
 
-        {/* Results area - scrollable, above search box, starts at top */}
+        {/* Results area - scrollable, behind search box, starts at top */}
         <div 
           ref={resultsContainerRef}
           className="flex-1 overflow-y-auto px-4 ios-scroll"
           style={{
-            paddingBottom: '8px'
+            paddingBottom: '120px', // Space for search box at bottom
+            maxHeight: isKeyboardVisible && window.visualViewport
+              ? `${window.visualViewport.height - (window.visualViewport.offsetTop || 0) - 200}px` // Account for keyboard and search box
+              : 'calc(100vh - 250px)' // Default: account for header, handle bar, and search box
           }}
         >
           <div className="space-y-4">
@@ -4444,13 +4447,14 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
           </div>
         </div>
 
-        {/* Search input - sticky at bottom, right above keyboard */}
+        {/* Search input - sticky at bottom, right above keyboard, overlays results */}
         <div 
-          className="sticky bottom-0 left-0 right-0 z-20 px-3 pb-3 pt-2"
+          className="sticky bottom-0 left-0 right-0 z-30 px-3 pb-3 pt-2"
           style={{
             paddingBottom: isKeyboardVisible 
               ? `${Math.max(12, keyboardHeight > 0 ? 16 : 12)}px` 
-              : 'calc(12px + env(safe-area-inset-bottom, 0px))'
+              : 'calc(12px + env(safe-area-inset-bottom, 0px))',
+            marginTop: '-120px' // Overlap with results area
           }}
         >
           <div className="bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-full px-1.5 py-1.5 shadow-2xl border border-white/30">
@@ -7911,26 +7915,23 @@ export default function App() {
   const gradientStyle = {
     background: `linear-gradient(to bottom right, rgb(${r1}, ${g1}, ${b1}), rgb(${r2}, ${g2}, ${b2}))`,
   };
-  
-  // Calculate gradient opacity based on scroll (fade in when header fades out)
-  // More responsive: starts fading at 20px, fully visible at 60px
-  const gradientOpacity = Math.min(1, Math.max(0, (scrollY - 20) / 40));
 
   return (
     <div className="fixed inset-0 bg-slate-50 text-slate-900 font-sans select-none overflow-hidden flex flex-col">
-      {/* Gradient background that fades in on scroll */}
-      <motion.div
-        key={`gradient-${books[selectedIndex]?.id || 'default'}`}
-        className="fixed inset-0 pointer-events-none z-0"
-        style={{
-          ...gradientStyle,
-          opacity: gradientOpacity,
-        }}
-        animate={{
-          opacity: gradientOpacity,
-        }}
-        transition={{ duration: 0.4, ease: "easeInOut" }}
-      />
+      {/* Gradient background - fades in when book changes */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={`gradient-${books[selectedIndex]?.id || 'default'}`}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 pointer-events-none z-0"
+          style={{
+            ...gradientStyle,
+          }}
+          transition={{ duration: 0.4, ease: "easeInOut" }}
+        />
+      </AnimatePresence>
       {/* Simple header - fades on scroll and during transitions */}
       <AnimatePresence mode="wait">
         <motion.div 
@@ -7944,13 +7945,7 @@ export default function App() {
           transition={{ duration: 0.3, ease: "easeInOut" }}
           className="w-full z-40 fixed top-[50px] left-0 right-0 px-4 py-3 flex items-center justify-between"
           style={{
-            background: showNotesView || showBookshelf
-              ? scrollY > 20
-                ? `linear-gradient(to bottom, rgba(245, 245, 241, ${Math.max(0, 1 - (scrollY - 20) / 40)}), rgba(245, 245, 241, ${Math.max(0, 1 - (scrollY - 20) / 40)}))`
-                : 'linear-gradient(to bottom, rgba(245, 245, 241, 1), rgba(245, 245, 241, 0))'
-              : scrollY > 20
-                ? `linear-gradient(to bottom, rgba(248, 250, 252, ${Math.max(0, 1 - (scrollY - 20) / 40)}), rgba(248, 250, 252, ${Math.max(0, 1 - (scrollY - 20) / 40)}))`
-                : 'linear-gradient(to bottom, rgba(248, 250, 252, 1), rgba(248, 250, 252, 0))'
+            background: 'transparent'
           }}
         >
           {/* BOOKS/BOOKSHELF/NOTES text on left with icon */}
