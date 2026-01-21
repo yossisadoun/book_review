@@ -4203,82 +4203,31 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
     handleSearch(bookTitle);
   }
 
-  // Track keyboard visibility and keep input visible
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-
-  // Monitor viewport changes to detect keyboard
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleViewportChange = () => {
-      if (window.visualViewport) {
-        const viewportHeight = window.visualViewport.height;
-        const windowHeight = window.innerHeight;
-        const heightDiff = windowHeight - viewportHeight;
-        
-        if (heightDiff > 150) {
-          // Keyboard is visible (viewport shrunk significantly)
-          setIsKeyboardVisible(true);
-          setKeyboardHeight(heightDiff);
-        } else {
-          setIsKeyboardVisible(false);
-          setKeyboardHeight(0);
-        }
-      }
-    };
-
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', handleViewportChange);
-      window.visualViewport.addEventListener('scroll', handleViewportChange);
-      handleViewportChange(); // Initial check
-    }
-
-    return () => {
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', handleViewportChange);
-        window.visualViewport.removeEventListener('scroll', handleViewportChange);
-      }
-    };
-  }, [isOpen]);
-
-  // Focus input and ensure it's visible when sheet opens
+  // Focus input and scroll into view when sheet opens
   useEffect(() => {
     if (isOpen && inputRef.current) {
       // Small delay to ensure the sheet animation has started
-      const focusTimer = setTimeout(() => {
+      setTimeout(() => {
         if (inputRef.current) {
           inputRef.current.focus();
-          // Ensure input is visible above keyboard
+          // For mobile: scroll input into view so it's visible above keyboard
+          // Use 'start' to position input at top of visible area
           setTimeout(() => {
-            if (inputRef.current) {
-              // Use scrollIntoView with better options for mobile
-              inputRef.current.scrollIntoView({ 
-                behavior: 'smooth', 
-                block: 'center',
-                inline: 'nearest'
+            inputRef.current?.scrollIntoView({ 
+              behavior: 'smooth', 
+              block: 'start',
+              inline: 'nearest'
+            });
+            // Additional scroll adjustment for mobile keyboards
+            if (window.visualViewport) {
+              window.scrollTo({
+                top: window.scrollY + 100,
+                behavior: 'smooth'
               });
-              
-              // Additional adjustment using visualViewport
-              if (window.visualViewport) {
-                const inputRect = inputRef.current.getBoundingClientRect();
-                const viewportTop = window.visualViewport.offsetTop;
-                const viewportHeight = window.visualViewport.height;
-                
-                // If input is below visible area, scroll it into view
-                if (inputRect.bottom > viewportTop + viewportHeight - 100) {
-                  window.scrollTo({
-                    top: window.scrollY + (inputRect.bottom - (viewportTop + viewportHeight - 100)),
-                    behavior: 'smooth'
-                  });
-                }
-              }
             }
-          }, 200);
+          }, 150);
         }
-      }, 300);
-
-      return () => clearTimeout(focusTimer);
+      }, 350);
     }
   }, [isOpen]);
 
@@ -4289,25 +4238,41 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
   return (
     <motion.div 
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex flex-col items-center justify-end bg-black/40 backdrop-blur-sm px-4 pb-4"
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/40 backdrop-blur-sm px-4"
       onClick={onClose}
-      style={{
-        paddingBottom: isKeyboardVisible && window.visualViewport
-          ? `${Math.max(16, keyboardHeight > 0 ? keyboardHeight + 20 : 16)}px`
-          : 'calc(16px + env(safe-area-inset-bottom, 0px))'
-      }}
     >
-      {/* Results area - scrollable, above search box */}
-      <div 
-        className="w-full max-w-md flex-1 overflow-y-auto px-4 ios-scroll mb-3"
+      <motion.div 
+        initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        className="w-full max-w-md bg-white/80 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30"
         onClick={e => e.stopPropagation()}
-        style={{
-          maxHeight: isKeyboardVisible && window.visualViewport 
-            ? `${window.visualViewport.height - 200}px` 
-            : '60vh'
-        }}
       >
-        <div className="space-y-4">
+        {/* Handle bar */}
+        <div className="w-full flex justify-center pt-3 pb-2">
+          <div className="w-12 h-1 bg-slate-400 rounded-full" />
+        </div>
+
+        <div className="px-4 pb-6">
+          <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }} className="space-y-4">
+            {/* Search input - matching the bottom search box style */}
+            <div className="relative">
+              <input 
+                ref={inputRef}
+                type="text" 
+                inputMode="search"
+                placeholder={isQueryHebrew ? "חפש ספר..." : "Search for a book..."}
+                value={query} 
+                onChange={e => setQuery(e.target.value)}
+                className={`w-full h-12 bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 rounded-full focus:outline-none text-sm transition-all ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
+                dir={isQueryHebrew ? "rtl" : "ltr"}
+              />
+              <Search 
+                size={16} 
+                className={`absolute top-1/2 -translate-y-1/2 text-slate-600 ${isQueryHebrew ? 'left-4' : 'right-4'}`}
+              />
+            </div>
+
+
             {/* Bookshelf Results - Show first as user types */}
             <AnimatePresence>
               {bookshelfResults.length > 0 && (
@@ -4455,41 +4420,8 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
             {error && (
               <p className="text-red-500 text-sm text-center font-medium">{error}</p>
             )}
-          </div>
+          </form>
         </div>
-
-      {/* Floating search input - glassmorphic effect, no background around it */}
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0, y: 20 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        exit={{ scale: 0.9, opacity: 0, y: 20 }}
-        transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-        className="w-full max-w-md relative z-20"
-        onClick={e => e.stopPropagation()}
-      >
-        <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }}>
-          <div className="relative">
-            <input 
-              ref={inputRef}
-              type="text" 
-              inputMode="search"
-              enterKeyHint="search"
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck="false"
-              placeholder={isQueryHebrew ? "חפש ספר..." : "Search for a book..."}
-              value={query} 
-              onChange={e => setQuery(e.target.value)}
-              className={`w-full h-12 bg-white/80 backdrop-blur-md border border-white/30 rounded-full focus:outline-none text-sm transition-all hide-input-accessory shadow-lg ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
-              dir={isQueryHebrew ? "rtl" : "ltr"}
-            />
-            <Search 
-              size={16} 
-              className={`absolute top-1/2 -translate-y-1/2 text-slate-600 ${isQueryHebrew ? 'left-4' : 'right-4'}`}
-            />
-          </div>
-        </form>
       </motion.div>
     </motion.div>
   );
