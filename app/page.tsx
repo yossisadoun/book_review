@@ -4192,6 +4192,22 @@ interface UserSearchResult {
   book_count?: number;
 }
 
+interface DBBookSearchResult {
+  id: string;
+  title: string;
+  author: string;
+  cover_url?: string | null;
+  publish_year?: number | null;
+  wikipedia_url?: string | null;
+  google_books_url?: string | null;
+  genre?: string | null;
+  first_issue_year?: number | null;
+  summary?: string | null;
+  user_id: string;
+  user_name?: string | null;
+  user_avatar?: string | null;
+}
+
 function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUser }: AddBookSheetProps) {
   const { user } = useAuth();
   const [query, setQuery] = useState('');
@@ -4200,6 +4216,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [searchResults, setSearchResults] = useState<(Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> & { source?: 'apple_books' | 'wikipedia' })[]>([]);
   const [userResults, setUserResults] = useState<UserSearchResult[]>([]);
+  const [dbBookResults, setDbBookResults] = useState<DBBookSearchResult[]>([]);
   const [bookshelfResults, setBookshelfResults] = useState<BookWithRatings[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -4207,8 +4224,8 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
   useEffect(() => {
     if (query.trim()) {
       const lowerQuery = query.toLowerCase().trim();
-      const filtered = books.filter(book => 
-        book.title.toLowerCase().includes(lowerQuery) || 
+      const filtered = books.filter(book =>
+        book.title.toLowerCase().includes(lowerQuery) ||
         book.author.toLowerCase().includes(lowerQuery)
       );
       setBookshelfResults(filtered);
@@ -4216,6 +4233,36 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
       setBookshelfResults([]);
     }
   }, [query, books]);
+
+  // Debounced user search as user types
+  useEffect(() => {
+    if (query.trim().length <= 2) {
+      setUserResults([]);
+      return;
+    }
+
+    const timeoutId = setTimeout(async () => {
+      const users = await searchUsers(query);
+      setUserResults(users);
+    }, 200);
+
+    return () => clearTimeout(timeoutId);
+  }, [query, user]);
+
+  // Debounced book search from database as user types
+  useEffect(() => {
+    if (query.trim().length <= 2) {
+      setDbBookResults([]);
+      return;
+    }
+
+    const timeoutId = setTimeout(async () => {
+      const dbBooks = await searchBooksFromDB(query);
+      setDbBookResults(dbBooks);
+    }, 200);
+
+    return () => clearTimeout(timeoutId);
+  }, [query, user]);
 
   // Search for users by querying users table
   async function searchUsers(searchQuery: string) {
@@ -4267,9 +4314,67 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
     }
   }
 
+  // Search for books in database using trigram indexes
+  async function searchBooksFromDB(searchQuery: string): Promise<DBBookSearchResult[]> {
+    if (!searchQuery.trim() || !user) return [];
+
+    try {
+      const lowerQuery = searchQuery.toLowerCase();
+
+      // Query books table - search by title or author using trigram-indexed ilike
+      const { data: booksData, error } = await supabase
+        .from('books')
+        .select('id, title, author, cover_url, publish_year, wikipedia_url, google_books_url, genre, first_issue_year, summary, user_id')
+        .neq('user_id', user.id) // Exclude current user's books
+        .or(`title.ilike.%${lowerQuery}%,author.ilike.%${lowerQuery}%`)
+        .limit(10);
+
+      if (error) {
+        console.error('Error searching books:', error);
+        return [];
+      }
+
+      if (!booksData || booksData.length === 0) {
+        return [];
+      }
+
+      // Get unique user IDs to fetch user info
+      const userIds = [...new Set(booksData.map(b => b.user_id))];
+
+      // Fetch user info for all book owners
+      const { data: usersData } = await supabase
+        .from('users')
+        .select('id, full_name, avatar_url')
+        .in('id', userIds);
+
+      const userMap = new Map(usersData?.map(u => [u.id, u]) || []);
+
+      // Map books with user info
+      return booksData.map(book => ({
+        id: book.id,
+        title: book.title,
+        author: book.author,
+        cover_url: book.cover_url,
+        publish_year: book.publish_year,
+        wikipedia_url: book.wikipedia_url,
+        google_books_url: book.google_books_url,
+        genre: book.genre,
+        first_issue_year: book.first_issue_year,
+        summary: book.summary,
+        user_id: book.user_id,
+        user_name: userMap.get(book.user_id)?.full_name || null,
+        user_avatar: userMap.get(book.user_id)?.avatar_url || null,
+      }));
+    } catch (err) {
+      console.error('Error searching books:', err);
+      return [];
+    }
+  }
+
   async function handleSearch(titleToSearch = query) {
     if (!titleToSearch.trim()) {
       setUserResults([]);
+      setDbBookResults([]);
       setSearchResults([]);
       return;
     }
@@ -4277,27 +4382,17 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
     setLoading(true);
     setError('');
     setSearchResults([]);
-    setUserResults([]);
     setSuggestions([]); // Clear suggestions first
 
     try {
-      // Search for users first (if query looks like it could be a user search)
-      const userSearchPromise = searchUsers(titleToSearch);
-      
       // Start both book searches simultaneously
-      const applePromise = lookupBooksOnAppleBooks(titleToSearch).then(results => 
+      const applePromise = lookupBooksOnAppleBooks(titleToSearch).then(results =>
         results.slice(0, 7).map(book => ({ ...book, source: 'apple_books' as const }))
       ).catch(() => []);
-      
-      const wikiPromise = lookupBooksOnWikipedia(titleToSearch).then(results => 
+
+      const wikiPromise = lookupBooksOnWikipedia(titleToSearch).then(results =>
         results.slice(0, 7).map(book => ({ ...book, source: 'wikipedia' as const }))
       ).catch(() => []);
-
-      // Wait for user search
-      const users = await userSearchPromise;
-      if (users.length > 0) {
-        setUserResults(users);
-      }
 
       // Show Apple Books results as soon as they return
       const appleResults = await applePromise;
@@ -4315,7 +4410,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
 
       // Check if we have any results after both complete
       const combinedResults = [...appleResults, ...wikiResults];
-      if (combinedResults.length === 0 && users.length === 0) {
+      if (combinedResults.length === 0 && userResults.length === 0 && dbBookResults.length === 0) {
         setError(`No results found.`);
         
         // Fetch AI suggestions only when no results
@@ -4557,17 +4652,101 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
               )}
             </AnimatePresence>
 
-            {/* Search Results */}
+            {/* Database Book Results - Books from other users */}
             <AnimatePresence>
-              {searchResults.length > 0 && (
-                <motion.div 
+              {dbBookResults.length > 0 && (
+                <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0 }}
-                  className="space-y-2 max-h-[400px] overflow-y-auto ios-scroll"
+                  className="space-y-2 mb-4"
                 >
                   <div className="text-xs font-medium text-slate-700 mb-2">
-                    {bookshelfResults.length > 0 || userResults.length > 0 ? 'Books:' : 'Select a book to add:'}
+                    From Community:
+                  </div>
+                  {dbBookResults.map((book, i) => (
+                    <motion.button
+                      key={`db-book-${book.id}`}
+                      type="button"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      onClick={() => {
+                        // Add book to user's bookshelf
+                        onAdd({
+                          title: book.title,
+                          author: book.author,
+                          publish_year: book.publish_year || null,
+                          cover_url: book.cover_url || null,
+                          wikipedia_url: book.wikipedia_url || null,
+                          google_books_url: book.google_books_url || null,
+                          genre: book.genre || null,
+                          first_issue_year: book.first_issue_year || null,
+                          summary: book.summary || null,
+                          notes: null,
+                          reading_status: null,
+                        });
+                        onClose();
+                      }}
+                      className="w-full flex items-center gap-3 p-3 bg-emerald-50/80 backdrop-blur-md hover:bg-emerald-100/85 rounded-xl border border-emerald-200/30 shadow-sm transition-all text-left"
+                    >
+                      {book.cover_url ? (
+                        <img
+                          src={book.cover_url}
+                          alt={book.title}
+                          className="w-12 h-16 object-cover rounded flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="w-12 h-16 bg-emerald-100 rounded flex-shrink-0 flex items-center justify-center">
+                          <BookOpen size={20} className="text-emerald-600" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-bold text-slate-950 truncate">{book.title}</h3>
+                        <p className="text-xs text-slate-800 truncate">{book.author}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          {book.publish_year && (
+                            <p className="text-[10px] text-slate-600">{book.publish_year}</p>
+                          )}
+                          {book.user_name && (
+                            <>
+                              {book.publish_year && <span className="text-slate-400">•</span>}
+                              <div className="flex items-center gap-1">
+                                {book.user_avatar ? (
+                                  <img
+                                    src={book.user_avatar}
+                                    alt={book.user_name}
+                                    className="w-4 h-4 rounded-full object-cover"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <div className="w-4 h-4 rounded-full bg-emerald-200 flex items-center justify-center">
+                                    <User size={8} className="text-emerald-700" />
+                                  </div>
+                                )}
+                                <span className="text-[10px] text-emerald-700 truncate max-w-[80px]">{book.user_name}</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </motion.button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Search Results */}
+            <AnimatePresence>
+              {searchResults.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="space-y-2"
+                >
+                  <div className="text-xs font-medium text-slate-700 mb-2">
+                    {bookshelfResults.length > 0 || userResults.length > 0 || dbBookResults.length > 0 ? 'Books:' : 'Select a book to add:'}
                   </div>
                   {searchResults.map((book, i) => (
                     <motion.button
@@ -4668,7 +4847,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   ref={inputRef}
                   type="text" 
                   inputMode="search"
-                  placeholder={isQueryHebrew ? "חפש ספר..." : "Search for book, user..."}
+                  placeholder={isQueryHebrew ? "חפש ספר..." : "Search for book, author, user..."}
                   value={query} 
                   onChange={e => setQuery(e.target.value)}
                   className={`w-full h-11 bg-white/20 border border-white/30 rounded-full focus:outline-none focus:bg-white/30 text-sm transition-all text-slate-950 placeholder:text-slate-600 ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
@@ -9692,7 +9871,14 @@ export default function App() {
             }}
           >
           {/* Back button to bookshelf */}
-          <div className="fixed top-[62px] left-4 z-50">
+          <motion.div
+            className="fixed top-[62px] left-4 z-50"
+            animate={{
+              opacity: scrollY > 20 ? Math.max(0, 1 - (scrollY - 20) / 40) : 1,
+              pointerEvents: scrollY > 60 ? 'none' : 'auto'
+            }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+          >
             <button
               onClick={() => {
                 setScrollY(0); // Reset scroll when switching views
@@ -9707,7 +9893,7 @@ export default function App() {
             >
               <ChevronLeft size={18} className="text-slate-950" />
             </button>
-          </div>
+          </motion.div>
           {/* User avatar in top right corner */}
           <div className="fixed top-[62px] right-4 z-50">
             {userAvatar ? (
