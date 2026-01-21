@@ -8042,7 +8042,6 @@ export default function App() {
           : 'transparent', // Transparent when book gradient will be shown
         width: '100vw',
         height: '100vh',
-        minHeight: '100vh',
         minHeight: '-webkit-fill-available',
       } as React.CSSProperties}
     >
