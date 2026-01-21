@@ -4453,7 +4453,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
               : 'calc(12px + env(safe-area-inset-bottom, 0px))'
           }}
         >
-          <div className="bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-2xl px-3 py-2.5 shadow-2xl border border-white/30">
+          <div className="bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-full px-1.5 py-1.5 shadow-2xl border border-white/30">
             <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }}>
               <div className="relative flex items-center">
                 <input 
@@ -4463,7 +4463,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook }: AddBookSh
                   placeholder={isQueryHebrew ? "חפש ספר..." : "Search for a book..."}
                   value={query} 
                   onChange={e => setQuery(e.target.value)}
-                  className={`w-full h-11 bg-white/20 border border-white/30 rounded-xl focus:outline-none focus:bg-white/30 text-sm transition-all text-slate-950 placeholder:text-slate-600 ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
+                  className={`w-full h-11 bg-white/20 border border-white/30 rounded-full focus:outline-none focus:bg-white/30 text-sm transition-all text-slate-950 placeholder:text-slate-600 ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
                   dir={isQueryHebrew ? "rtl" : "ltr"}
                 />
                 <Search 
