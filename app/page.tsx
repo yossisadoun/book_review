@@ -6529,36 +6529,38 @@ export default function App() {
     const currentBook = books[selectedIndex];
     
     if (currentBook?.cover_url) {
-      // Store previous gradient before updating - keep it visible until new one is ready
-      setPreviousGradient(backgroundGradient);
+      // Store previous gradient BEFORE any state changes
+      const prevGradient = backgroundGradient;
+      setPreviousGradient(prevGradient);
       setIsGradientTransitioning(true);
       
       // Extract new gradient asynchronously
       extractColorsFromImage(currentBook.cover_url).then(gradient => {
         // Set new gradient - this will trigger the fade in
         setBackgroundGradient(gradient);
-        // After new gradient fades in, fade out the old one
+        // After new gradient fully fades in, fade out the old one
         setTimeout(() => {
           setPreviousGradient(null);
           setIsGradientTransitioning(false);
-        }, 400); // Wait for new gradient to fully fade in (400ms) before fading out old one
+        }, 450); // Wait for new gradient to fully fade in (400ms) + small buffer
       }).catch(() => {
         // Fallback if extraction fails
         setBackgroundGradient('241,245,249,226,232,240');
         setTimeout(() => {
           setPreviousGradient(null);
           setIsGradientTransitioning(false);
-        }, 400);
+        }, 450);
       });
     } else {
       // No cover - use default gradient
-      setPreviousGradient(backgroundGradient);
+      const prevGradient = backgroundGradient;
+      setPreviousGradient(prevGradient);
       setIsGradientTransitioning(true);
       setBackgroundGradient('241,245,249,226,232,240'); // Default slate colors
       setTimeout(() => {
         setPreviousGradient(null);
         setIsGradientTransitioning(false);
-      }, 400);
+      }, 450);
     }
   }, [selectedIndex, books]);
 
@@ -8122,7 +8124,7 @@ export default function App() {
       style={{
         background: shouldUseLoginGradient 
           ? loginGradient 
-          : 'transparent', // Transparent when book gradient will be shown
+          : gradientStyle.background, // Use current gradient as fallback to prevent white flicker
         position: 'fixed',
         top: 0,
         left: 0,
@@ -8141,7 +8143,7 @@ export default function App() {
             <motion.div
               key={`gradient-prev-${previousGradient}`}
               initial={{ opacity: 1 }}
-              animate={{ opacity: isGradientTransitioning ? 1 : 0 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="fixed inset-0 pointer-events-none z-0"
               style={{
@@ -8156,12 +8158,18 @@ export default function App() {
                 minHeight: '-webkit-fill-available',
               } as React.CSSProperties}
               transition={{ duration: 0.4, ease: "easeInOut", delay: 0.4 }}
+              onAnimationComplete={() => {
+                // Only clear previous gradient after fade out animation completes
+                if (!isGradientTransitioning) {
+                  setPreviousGradient(null);
+                }
+              }}
             />
           )}
-          {/* New gradient - only fades in once it's ready (after extraction completes) */}
+          {/* Current gradient - always visible, fades in when updated */}
           <motion.div
             key={`gradient-${books[selectedIndex]?.id || 'default'}-${backgroundGradient}`}
-            initial={{ opacity: 0 }}
+            initial={{ opacity: previousGradient ? 0 : 1 }}
             animate={{ opacity: 1 }}
             className="fixed inset-0 pointer-events-none z-0"
             style={{
