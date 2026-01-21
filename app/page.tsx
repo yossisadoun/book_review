@@ -9439,9 +9439,9 @@ export default function App() {
         ) : (
           <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">
             <div 
-              className="relative w-full aspect-[2/3] overflow-hidden group rounded-lg"
+              className="relative w-[90%] aspect-[2/3] overflow-hidden group rounded-lg"
               style={{
-                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04)',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04), 0 0 30px 10px rgba(255, 255, 255, 0.6)',
               }}
             >
               {/* Front side - Book cover */}
