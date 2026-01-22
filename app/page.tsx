@@ -268,7 +268,7 @@ interface GrokUsageLog {
 const GROK_INPUT_PRICE_PER_M = 0.20;  // $0.20 per million input tokens
 const GROK_OUTPUT_PRICE_PER_M = 0.50;  // $0.50 per million output tokens
 
-function logGrokUsage(functionName: string, usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined): void {
+async function logGrokUsage(functionName: string, usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined): Promise<void> {
   if (!usage || typeof usage.prompt_tokens !== 'number' || typeof usage.completion_tokens !== 'number') {
     return;
   }
@@ -276,44 +276,64 @@ function logGrokUsage(functionName: string, usage: { prompt_tokens?: number; com
   const promptTokens = usage.prompt_tokens || 0;
   const completionTokens = usage.completion_tokens || 0;
   const totalTokens = usage.total_tokens || (promptTokens + completionTokens);
-  
+
   // Calculate cost
   const inputCost = (promptTokens / 1_000_000) * GROK_INPUT_PRICE_PER_M;
   const outputCost = (completionTokens / 1_000_000) * GROK_OUTPUT_PRICE_PER_M;
   const estimatedCost = inputCost + outputCost;
 
-  const logEntry: GrokUsageLog = {
-    timestamp: new Date().toISOString(),
-    function: functionName,
-    promptTokens,
-    completionTokens,
-    totalTokens,
-    estimatedCost,
-  };
+  // Get current user
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    console.warn('[logGrokUsage] No user logged in, skipping log');
+    return;
+  }
 
-  // Load existing logs from localStorage
+  // Save to Supabase
   try {
-    const existingLogs = localStorage.getItem('grokUsageLogs');
-    const logs: GrokUsageLog[] = existingLogs ? JSON.parse(existingLogs) : [];
-    
-    // Add new log entry at the beginning
-    logs.unshift(logEntry);
-    
-    // Keep only last 100 entries to avoid localStorage size issues
-    const trimmedLogs = logs.slice(0, 100);
-    
-    localStorage.setItem('grokUsageLogs', JSON.stringify(trimmedLogs));
+    const { error } = await supabase
+      .from('grok_usage_logs')
+      .insert({
+        user_id: user.id,
+        function_name: functionName,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        total_tokens: totalTokens,
+        estimated_cost: estimatedCost,
+      });
+
+    if (error) {
+      console.error('[logGrokUsage] Error saving to Supabase:', error);
+    }
   } catch (err) {
-    console.error('[logGrokUsage] Error saving to localStorage:', err);
+    console.error('[logGrokUsage] Error saving to Supabase:', err);
   }
 }
 
-function getGrokUsageLogs(): GrokUsageLog[] {
+async function getGrokUsageLogs(userId: string): Promise<GrokUsageLog[]> {
   try {
-    const logs = localStorage.getItem('grokUsageLogs');
-    return logs ? JSON.parse(logs) : [];
+    const { data, error } = await supabase
+      .from('grok_usage_logs')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      console.error('[getGrokUsageLogs] Error fetching from Supabase:', error);
+      return [];
+    }
+
+    return (data || []).map(row => ({
+      timestamp: row.created_at,
+      function: row.function_name,
+      promptTokens: row.prompt_tokens,
+      completionTokens: row.completion_tokens,
+      totalTokens: row.total_tokens,
+      estimatedCost: parseFloat(row.estimated_cost),
+    }));
   } catch (err) {
-    console.error('[getGrokUsageLogs] Error reading from localStorage:', err);
+    console.error('[getGrokUsageLogs] Error fetching from Supabase:', err);
     return [];
   }
 }
@@ -5388,6 +5408,8 @@ export default function App() {
 
   // Initialize page states from localStorage
   const [showAccountPage, setShowAccountPage] = useState(() => getLastPageState().showAccountPage);
+  const [grokUsageLogs, setGrokUsageLogs] = useState<GrokUsageLog[]>([]);
+  const [isLoadingGrokLogs, setIsLoadingGrokLogs] = useState(false);
   const [showBookshelf, setShowBookshelf] = useState(() => getLastPageState().showBookshelf);
   const [showBookshelfCovers, setShowBookshelfCovers] = useState(() => getLastPageState().showBookshelfCovers);
   const [showNotesView, setShowNotesView] = useState(() => getLastPageState().showNotesView);
@@ -6356,6 +6378,26 @@ export default function App() {
       });
     }
   }, [isLoaded, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage, showFollowingPage]);
+
+  // Load Grok usage logs when account page is shown
+  useEffect(() => {
+    if (!showAccountPage || !user) return;
+
+    const loadGrokLogs = async () => {
+      setIsLoadingGrokLogs(true);
+      try {
+        const logs = await getGrokUsageLogs(user.id);
+        setGrokUsageLogs(logs);
+      } catch (err) {
+        console.error('[Account] Error loading Grok usage logs:', err);
+        setGrokUsageLogs([]);
+      } finally {
+        setIsLoadingGrokLogs(false);
+      }
+    };
+
+    loadGrokLogs();
+  }, [showAccountPage, user]);
 
   // Load followed users when following page is shown
   useEffect(() => {
@@ -8805,47 +8847,64 @@ export default function App() {
               {/* Grok API Usage Logs */}
               <div className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
                 <h3 className="text-sm font-bold text-slate-950 mb-3">Grok API Usage</h3>
-                {(() => {
-                  const logs = getGrokUsageLogs();
-                  const totalCost = logs.reduce((sum, log) => sum + log.estimatedCost, 0);
-                  
-                  if (logs.length === 0) {
-                    return (
-                      <p className="text-xs text-slate-600">No API requests yet</p>
-                    );
-                  }
-                  
-                  return (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs mb-3 pb-2 border-b border-slate-200">
-                        <span className="text-slate-600">Total Cost:</span>
-                        <span className="font-bold text-slate-950">${totalCost.toFixed(4)}</span>
-                      </div>
-                      <div className="max-h-[300px] overflow-y-auto ios-scroll space-y-1">
-                        {logs.map((log, idx) => {
-                          const date = new Date(log.timestamp);
-                          const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                          return (
-                            <div key={idx} className="text-xs text-slate-700 py-1 border-b border-slate-100 last:border-0">
-                              <div className="flex items-center justify-between">
-                                <span className="font-medium">{log.function}</span>
-                                <span className="text-slate-500">{timeStr}</span>
-                              </div>
-                              <div className="flex items-center justify-between mt-0.5">
-                                <span className="text-slate-600">
-                                  {log.totalTokens.toLocaleString()} tokens
-                                </span>
-                                <span className="font-medium text-slate-950">
-                                  ${log.estimatedCost.toFixed(4)}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                {isLoadingGrokLogs ? (
+                  <motion.div
+                    animate={{ opacity: [0.5, 0.8, 0.5] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    className="space-y-2"
+                  >
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                      <div className="w-16 h-4 bg-slate-300/50 rounded animate-pulse" />
+                      <div className="w-12 h-4 bg-slate-300/50 rounded animate-pulse" />
                     </div>
-                  );
-                })()}
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="py-1 border-b border-slate-100 last:border-0">
+                        <div className="flex items-center justify-between">
+                          <div className="w-28 h-3 bg-slate-300/50 rounded animate-pulse" />
+                          <div className="w-20 h-3 bg-slate-300/50 rounded animate-pulse" />
+                        </div>
+                        <div className="flex items-center justify-between mt-1">
+                          <div className="w-16 h-3 bg-slate-300/50 rounded animate-pulse" />
+                          <div className="w-12 h-3 bg-slate-300/50 rounded animate-pulse" />
+                        </div>
+                      </div>
+                    ))}
+                  </motion.div>
+                ) : grokUsageLogs.length === 0 ? (
+                  <p className="text-xs text-slate-600">No API requests yet</p>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs mb-3 pb-2 border-b border-slate-200">
+                      <span className="text-slate-600">Total Cost:</span>
+                      <span className="font-bold text-slate-950">
+                        ${grokUsageLogs.reduce((sum, log) => sum + log.estimatedCost, 0).toFixed(4)}
+                      </span>
+                    </div>
+                    <div className="max-h-[300px] overflow-y-auto ios-scroll space-y-1">
+                      {grokUsageLogs.map((log, idx) => {
+                        const date = new Date(log.timestamp);
+                        const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                        return (
+                          <div key={idx} className="text-xs text-slate-700 py-1 border-b border-slate-100 last:border-0">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium">{log.function}</span>
+                              <span className="text-slate-500">{dateStr} {timeStr}</span>
+                            </div>
+                            <div className="flex items-center justify-between mt-0.5">
+                              <span className="text-slate-600">
+                                {log.totalTokens.toLocaleString()} tokens
+                              </span>
+                              <span className="font-medium text-slate-950">
+                                ${log.estimatedCost.toFixed(4)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Actions */}
