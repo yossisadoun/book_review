@@ -1,12 +1,12 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { 
-  Search, 
-  Star, 
-  ChevronLeft, 
-  ChevronRight, 
-  BookOpen, 
+import {
+  Search,
+  Star,
+  ChevronLeft,
+  ChevronRight,
+  BookOpen,
   Trash2,
   CheckCircle2,
   ExternalLink,
@@ -23,6 +23,7 @@ import {
   BookMarked,
   ChevronDown,
   User,
+  Users,
   GripVertical,
   Trophy,
   Volume2,
@@ -5352,9 +5353,9 @@ export default function App() {
   const [showLogoutMenu, setShowLogoutMenu] = useState(false);
   
   // Helper function to get last page from localStorage
-  const getLastPageState = (): { showBookshelf: boolean; showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean } => {
+  const getLastPageState = (): { showBookshelf: boolean; showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean; showFollowingPage: boolean } => {
     if (typeof window === 'undefined') {
-      return { showBookshelf: false, showBookshelfCovers: false, showNotesView: false, showAccountPage: false };
+      return { showBookshelf: false, showBookshelfCovers: false, showNotesView: false, showAccountPage: false, showFollowingPage: false };
     }
     try {
       const saved = localStorage.getItem('lastPageState');
@@ -5365,16 +5366,17 @@ export default function App() {
           showBookshelfCovers: parsed.showBookshelfCovers === true,
           showNotesView: parsed.showNotesView === true,
           showAccountPage: parsed.showAccountPage === true,
+          showFollowingPage: parsed.showFollowingPage === true,
         };
       }
     } catch (err) {
       console.error('[getLastPageState] Error reading from localStorage:', err);
     }
-    return { showBookshelf: false, showBookshelfCovers: false, showNotesView: false, showAccountPage: false };
+    return { showBookshelf: false, showBookshelfCovers: false, showNotesView: false, showAccountPage: false, showFollowingPage: false };
   };
 
   // Helper function to save current page state to localStorage
-  const savePageState = (state: { showBookshelf: boolean; showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean }) => {
+  const savePageState = (state: { showBookshelf: boolean; showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean; showFollowingPage: boolean }) => {
     if (typeof window === 'undefined') return;
     try {
       localStorage.setItem('lastPageState', JSON.stringify(state));
@@ -5388,6 +5390,10 @@ export default function App() {
   const [showBookshelf, setShowBookshelf] = useState(() => getLastPageState().showBookshelf);
   const [showBookshelfCovers, setShowBookshelfCovers] = useState(() => getLastPageState().showBookshelfCovers);
   const [showNotesView, setShowNotesView] = useState(() => getLastPageState().showNotesView);
+  const [showFollowingPage, setShowFollowingPage] = useState(() => getLastPageState().showFollowingPage);
+  const [followingUsers, setFollowingUsers] = useState<Array<{ id: string; full_name: string | null; avatar_url: string | null; email: string; followed_at: string }>>([]);
+  const [isLoadingFollowing, setIsLoadingFollowing] = useState(false);
+  const [followingSortOrder, setFollowingSortOrder] = useState<'recent_desc' | 'recent_asc' | 'name_desc' | 'name_asc'>('recent_desc');
   const [editingNoteBookId, setEditingNoteBookId] = useState<string | null>(null);
   const [bookshelfGrouping, setBookshelfGrouping] = useState<'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year'>(() => {
     if (typeof window !== 'undefined') {
@@ -6263,6 +6269,8 @@ export default function App() {
     const userId = viewingUserId; // Store in local variable after null check
     const currentUserId = user.id; // Store user.id for async function
 
+    setIsLoadingViewingUserBooks(true);
+
     async function loadUserBooks() {
       try {
         // First, get user info from users table
@@ -6328,7 +6336,7 @@ export default function App() {
 
   // Set default view to bookshelf covers when user has no books (first-time user)
   useEffect(() => {
-    if (isLoaded && books.length === 0 && !showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage) {
+    if (isLoaded && books.length === 0 && !showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showFollowingPage) {
       // First-time user: default to bookshelf covers view
       setShowBookshelfCovers(true);
       setBookshelfGrouping('reading_status'); // Ensure it's grouped by status
@@ -6343,9 +6351,68 @@ export default function App() {
         showBookshelfCovers,
         showNotesView,
         showAccountPage,
+        showFollowingPage,
       });
     }
-  }, [isLoaded, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage]);
+  }, [isLoaded, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage, showFollowingPage]);
+
+  // Load followed users when following page is shown
+  useEffect(() => {
+    if (!showFollowingPage || !user) return;
+
+    const loadFollowingUsers = async () => {
+      setIsLoadingFollowing(true);
+      try {
+        // Get list of users the current user is following with timestamps
+        const { data: followsData, error: followsError } = await supabase
+          .from('follows')
+          .select('following_id, created_at')
+          .eq('follower_id', user.id);
+
+        if (followsError) {
+          console.error('[Following] Error fetching follows:', followsError);
+          setFollowingUsers([]);
+          return;
+        }
+
+        if (!followsData || followsData.length === 0) {
+          setFollowingUsers([]);
+          return;
+        }
+
+        // Create a map of following_id to created_at
+        const followedAtMap = new Map(followsData.map(f => [f.following_id, f.created_at]));
+
+        // Get user details for each followed user
+        const followingIds = followsData.map(f => f.following_id);
+        const { data: usersData, error: usersError } = await supabase
+          .from('users')
+          .select('id, full_name, avatar_url, email')
+          .in('id', followingIds);
+
+        if (usersError) {
+          console.error('[Following] Error fetching user details:', usersError);
+          setFollowingUsers([]);
+          return;
+        }
+
+        // Merge user data with followed_at timestamp
+        const usersWithFollowedAt = (usersData || []).map(u => ({
+          ...u,
+          followed_at: followedAtMap.get(u.id) || new Date().toISOString(),
+        }));
+
+        setFollowingUsers(usersWithFollowedAt);
+      } catch (err) {
+        console.error('[Following] Error loading following users:', err);
+        setFollowingUsers([]);
+      } finally {
+        setIsLoadingFollowing(false);
+      }
+    };
+
+    loadFollowingUsers();
+  }, [showFollowingPage, user]);
 
   // Update count of books with trivia questions
   useEffect(() => {
@@ -8530,8 +8597,8 @@ export default function App() {
     };
   })() : null;
   
-  // Use background image for bookshelf, notes, and account pages
-  const shouldUseBackgroundImage = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage;
+  // Use background image for bookshelf, notes, account, and following pages
+  const shouldUseBackgroundImage = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage || showFollowingPage;
   const backgroundImageStyle: React.CSSProperties = {
     backgroundImage: `url(${getAssetPath('/bg.png')})`,
     backgroundSize: 'cover',
@@ -8665,7 +8732,7 @@ export default function App() {
         </>
       )}
       {/* Simple header - fades on scroll and during transitions (hidden on book pages) */}
-      {!(!showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults) && (
+      {!(!showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults && !showFollowingPage) && (
       <AnimatePresence mode="wait">
         <motion.div 
           key={showSortingResults ? 'sorting-results-header' : showNotesView ? 'notes-header' : showBookshelf ? 'bookshelf-header' : 'books-header'}
@@ -8708,6 +8775,8 @@ export default function App() {
               <Pencil size={24} className="text-slate-950" />
             ) : showAccountPage ? (
               <User size={24} className="text-slate-950" />
+            ) : showFollowingPage ? (
+              <Users size={24} className="text-slate-950" />
             ) : showSortingResults ? (
               <Star size={24} className="text-slate-950" />
             ) : showNotesView ? (
@@ -8724,25 +8793,28 @@ export default function App() {
                 ? (viewingUserFullName || viewingUserName).toUpperCase()
                 : showAccountPage
                   ? 'ACCOUNT'
-                  : showSortingResults
-                    ? 'SORTED RESULTS'
-                    : showNotesView 
-                      ? 'NOTES' 
-                      : showBookshelfCovers
-                        ? 'BOOKSHELF'
-                        : showBookshelf 
-                          ? 'BOOKSHELF' 
-                          : 'BOOKS'}
+                  : showFollowingPage
+                    ? 'FOLLOWING'
+                    : showSortingResults
+                      ? 'SORTED RESULTS'
+                      : showNotesView
+                        ? 'NOTES'
+                        : showBookshelfCovers
+                          ? 'BOOKSHELF'
+                          : showBookshelf
+                            ? 'BOOKSHELF'
+                            : 'BOOKS'}
           </h1>
           </div>
         
-        {/* User avatar on right - or back button when on account page or sorting results */}
+        {/* User avatar on right - or back button when on account page, sorting results, or following page */}
         <div className="relative">
-          {showAccountPage || showSortingResults ? (
+          {showAccountPage || showSortingResults || showFollowingPage ? (
             <button
               onClick={() => {
                 setShowAccountPage(false);
                 setShowSortingResults(false);
+                setShowFollowingPage(false);
               }}
               className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
               style={{ ...glassmorphicStyle, borderRadius: '50%' }}
@@ -8943,6 +9015,119 @@ export default function App() {
                 <LogOut size={14} />
                 <span>Sign Out</span>
               </button>
+            </div>
+          </motion.main>
+        ) : showFollowingPage ? (
+          <motion.main
+            key="following"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            onScroll={(e) => {
+              const target = e.currentTarget;
+              setScrollY(target.scrollTop);
+            }}
+          >
+            {/* Following Page */}
+            <div className="w-full max-w-[600px] flex flex-col gap-4 px-4 py-8">
+              {isLoadingFollowing ? (
+                <motion.div
+                  animate={{ opacity: [0.5, 0.8, 0.5] }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                  className="w-full rounded-2xl p-4 flex items-center gap-4"
+                  style={standardGlassmorphicStyle}
+                >
+                  {/* Avatar skeleton */}
+                  <div className="w-12 h-12 rounded-full bg-slate-300/50 animate-pulse" />
+                  {/* Name/email skeleton */}
+                  <div className="flex-1 min-w-0">
+                    <div className="w-32 h-5 bg-slate-300/50 rounded animate-pulse mb-2" />
+                    <div className="w-24 h-4 bg-slate-300/50 rounded animate-pulse" />
+                  </div>
+                  {/* Chevron skeleton */}
+                  <div className="w-5 h-5 bg-slate-300/50 rounded animate-pulse" />
+                </motion.div>
+              ) : followingUsers.length === 0 ? (
+                <div className="rounded-2xl p-6 text-center" style={standardGlassmorphicStyle}>
+                  <Users size={48} className="mx-auto mb-4 text-slate-400" />
+                  <p className="text-slate-600">You're not following anyone yet.</p>
+                  <p className="text-sm text-slate-500 mt-2">
+                    Find readers in the community and follow them to see their books here.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Sort Button */}
+                  <div className="flex justify-start mb-2">
+                    <button
+                      onClick={() => {
+                        const order: Array<'recent_desc' | 'recent_asc' | 'name_desc' | 'name_asc'> = ['recent_desc', 'recent_asc', 'name_asc', 'name_desc'];
+                        const currentIndex = order.indexOf(followingSortOrder);
+                        const nextIndex = (currentIndex + 1) % order.length;
+                        setFollowingSortOrder(order[nextIndex]);
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 hover:opacity-80 active:scale-95"
+                      style={standardGlassmorphicStyle}
+                    >
+                      <span>
+                        {followingSortOrder === 'recent_desc' ? 'Recent ↓' :
+                         followingSortOrder === 'recent_asc' ? 'Recent ↑' :
+                         followingSortOrder === 'name_asc' ? 'Name A-Z' : 'Name Z-A'}
+                      </span>
+                    </button>
+                  </div>
+                  {[...followingUsers].sort((a, b) => {
+                    const nameA = (a.full_name || a.email).toLowerCase();
+                    const nameB = (b.full_name || b.email).toLowerCase();
+                    if (followingSortOrder === 'recent_desc') {
+                      return new Date(b.followed_at).getTime() - new Date(a.followed_at).getTime();
+                    } else if (followingSortOrder === 'recent_asc') {
+                      return new Date(a.followed_at).getTime() - new Date(b.followed_at).getTime();
+                    } else if (followingSortOrder === 'name_asc') {
+                      return nameA.localeCompare(nameB);
+                    } else {
+                      return nameB.localeCompare(nameA);
+                    }
+                  }).map((followedUser) => (
+                    <button
+                      key={followedUser.id}
+                      onClick={() => {
+                        setViewingUserId(followedUser.id);
+                        setShowFollowingPage(false);
+                      }}
+                      className="w-full rounded-2xl p-4 flex items-center gap-4 hover:opacity-90 active:scale-[0.98] transition-all text-left"
+                      style={standardGlassmorphicStyle}
+                    >
+                      {followedUser.avatar_url ? (
+                        <img
+                          src={followedUser.avatar_url}
+                          alt={followedUser.full_name || followedUser.email}
+                          className="w-12 h-12 rounded-full object-cover border-2 border-white/50"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-purple-300 flex items-center justify-center border-2 border-white/50">
+                          <span className="text-lg font-bold text-purple-700">
+                            {(followedUser.full_name || followedUser.email).charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-slate-950 truncate">
+                          {followedUser.full_name || followedUser.email.split('@')[0]}
+                        </p>
+                        {followedUser.full_name && (
+                          <p className="text-sm text-slate-600 truncate">{followedUser.email}</p>
+                        )}
+                      </div>
+                      <ChevronRight size={20} className="text-slate-400 flex-shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </motion.main>
         ) : showSortingResults ? (
@@ -9204,24 +9389,73 @@ export default function App() {
             >
               {isLoadingViewingUserBooks ? (
                 <div className="w-full max-w-[1600px] flex flex-col gap-2.5 py-8">
+                  {/* Profile Skeleton */}
                   <motion.div
                     animate={{ opacity: [0.5, 0.8, 0.5] }}
                     transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                     className="rounded-2xl p-4 mb-4"
                     style={glassmorphicStyle}
                   >
-                    <div className="h-12 flex items-center justify-center">
-                      <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                    <div className="flex items-center gap-4">
+                      {/* Avatar skeleton */}
+                      <div className="w-16 h-16 rounded-full bg-slate-300/50 animate-pulse" />
+                      {/* Stats skeleton */}
+                      <div className="flex-1 flex gap-6">
+                        <div className="text-center">
+                          <div className="w-8 h-7 bg-slate-300/50 rounded animate-pulse mx-auto mb-1" />
+                          <div className="w-10 h-4 bg-slate-300/50 rounded animate-pulse mx-auto" />
+                        </div>
+                        <div className="text-center">
+                          <div className="w-8 h-7 bg-slate-300/50 rounded animate-pulse mx-auto mb-1" />
+                          <div className="w-14 h-4 bg-slate-300/50 rounded animate-pulse mx-auto" />
+                        </div>
+                      </div>
+                      {/* Follow button skeleton */}
+                      <div className="w-24 h-10 bg-slate-300/50 rounded-xl animate-pulse" />
                     </div>
                   </motion.div>
+                  {/* Grouping selector skeleton */}
+                  <div className="flex items-center justify-between px-4 mb-1.5">
+                    <motion.div
+                      animate={{ opacity: [0.5, 0.8, 0.5] }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.1 }}
+                      className="w-20 h-10 bg-slate-300/30 rounded-lg animate-pulse"
+                    />
+                  </div>
+                  {/* Bookshelf group skeleton */}
                   <motion.div
                     animate={{ opacity: [0.5, 0.8, 0.5] }}
                     transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
                     className="rounded-2xl p-4"
                     style={glassmorphicStyle}
                   >
-                    <div className="h-12 flex items-center justify-center">
-                      <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                    <div className="w-24 h-5 bg-slate-300/50 rounded animate-pulse mb-4" />
+                    <div className="flex gap-3 overflow-hidden">
+                      {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className="flex-shrink-0 w-[100px]">
+                          <div className="w-full aspect-[2/3] bg-slate-300/50 rounded-lg animate-pulse mb-2" />
+                          <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse mb-1" />
+                          <div className="w-2/3 h-3 bg-slate-300/50 rounded animate-pulse" />
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                  {/* Second group skeleton */}
+                  <motion.div
+                    animate={{ opacity: [0.5, 0.8, 0.5] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
+                    className="rounded-2xl p-4"
+                    style={glassmorphicStyle}
+                  >
+                    <div className="w-32 h-5 bg-slate-300/50 rounded animate-pulse mb-4" />
+                    <div className="flex gap-3 overflow-hidden">
+                      {[1, 2, 3, 4].map((i) => (
+                        <div key={i} className="flex-shrink-0 w-[100px]">
+                          <div className="w-full aspect-[2/3] bg-slate-300/50 rounded-lg animate-pulse mb-2" />
+                          <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse mb-1" />
+                          <div className="w-2/3 h-3 bg-slate-300/50 rounded animate-pulse" />
+                        </div>
+                      ))}
                     </div>
                   </motion.div>
                 </div>
@@ -9255,10 +9489,13 @@ export default function App() {
                           <p className="text-2xl font-bold text-slate-950">{books.length}</p>
                           <p className="text-sm text-slate-600">Books</p>
                         </div>
-                        <div className="text-center">
+                        <button
+                          onClick={() => setShowFollowingPage(true)}
+                          className="text-center hover:opacity-70 active:scale-95 transition-all"
+                        >
                           <p className="text-2xl font-bold text-slate-950">{myFollowingCount}</p>
                           <p className="text-sm text-slate-600">Following</p>
-                        </div>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -10237,37 +10474,145 @@ export default function App() {
                     <h3 className="text-sm font-bold text-slate-950">
                       {activeBook ? `${activeBook.title} notes` : 'Notes'}
                     </h3>
-                    <button
-                      onClick={() => setIsShowingNotes(false)}
-                      className="p-1.5 text-slate-600 hover:text-slate-800 active:scale-95 transition-all"
-                    >
-                      <ChevronLeft size={18} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          // Add a new note with current timestamp
+                          const newTimestamp = formatNoteTimestamp();
+                          const existingNotes = activeBook?.notes || '';
+                          const newNote = existingNotes
+                            ? `${existingNotes}\n\n{${newTimestamp}}\n`
+                            : `{${newTimestamp}}\n`;
+
+                          // Save immediately
+                          if (activeBook && user) {
+                            supabase
+                              .from('books')
+                              .update({ notes: newNote, updated_at: new Date().toISOString() })
+                              .eq('id', activeBook.id)
+                              .eq('user_id', user.id)
+                              .then(({ error }) => {
+                                if (!error) {
+                                  setBooks(prev => prev.map(book =>
+                                    book.id === activeBook.id ? { ...book, notes: newNote } : book
+                                  ));
+                                }
+                              });
+                          }
+                        }}
+                        className="p-1.5 text-slate-600 hover:text-slate-800 active:scale-95 transition-all bg-slate-100 rounded-lg"
+                      >
+                        <span className="text-sm font-bold">+</span>
+                      </button>
+                      <button
+                        onClick={() => setIsShowingNotes(false)}
+                        className="p-1.5 text-slate-600 hover:text-slate-800 active:scale-95 transition-all"
+                      >
+                        <ChevronLeft size={18} />
+                      </button>
+                    </div>
                   </div>
-                  <textarea
-                    ref={noteTextareaRef}
-                    value={noteText}
-                    onFocus={() => {
-                      // Track text when user starts editing
-                      noteTextOnFocusRef.current = noteText;
-                    }}
-                    onChange={(e) => {
-                      const newText = e.target.value;
-                      setNoteText(newText);
-                      // Clear existing timeout
-                      if (noteSaveTimeoutRef.current) {
-                        clearTimeout(noteSaveTimeoutRef.current);
+                  <div className="flex-1 overflow-y-auto ios-scroll space-y-3">
+                    {(() => {
+                      const sections = parseNotes(activeBook?.notes || null);
+                      if (sections.length === 0) {
+                        return (
+                          <div className="flex flex-col items-center justify-center h-full text-slate-400">
+                            <Pencil size={32} className="mb-2 opacity-50" />
+                            <p className="text-sm">No notes yet</p>
+                            <p className="text-xs mt-1">Tap + to add a note</p>
+                          </div>
+                        );
                       }
-                      // Debounced auto-save after 1 second of no typing (without checking for timestamps)
-                      noteSaveTimeoutRef.current = setTimeout(() => {
-                        handleSaveNote(newText, undefined, false);
-                      }, 1000);
-                    }}
-                    onBlur={() => handleSaveNote(undefined, undefined, true)}
-                    placeholder="Write your notes here..."
-                    className="flex-1 w-full resize-none border-none outline-none text-sm text-slate-800 placeholder:text-slate-400 bg-transparent"
-                    style={{ minHeight: 0 }}
-                  />
+                      return sections.map((section, idx) => (
+                        <div
+                          key={`${section.timestamp}-${idx}`}
+                          className="bg-slate-50 rounded-xl p-3 border border-slate-100"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-[10px] text-slate-400 font-medium">
+                              {section.timestamp}
+                            </p>
+                            <button
+                              onClick={() => {
+                                // Delete this note
+                                const updatedSections = sections.filter((_, i) => i !== idx);
+                                const newNotesText = updatedSections.length > 0
+                                  ? updatedSections.map(s => `{${s.timestamp}}\n${s.content}`).join('\n\n')
+                                  : null;
+
+                                if (activeBook && user) {
+                                  supabase
+                                    .from('books')
+                                    .update({ notes: newNotesText, updated_at: new Date().toISOString() })
+                                    .eq('id', activeBook.id)
+                                    .eq('user_id', user.id)
+                                    .then(({ error }) => {
+                                      if (!error) {
+                                        setBooks(prev => prev.map(book =>
+                                          book.id === activeBook.id ? { ...book, notes: newNotesText } : book
+                                        ));
+                                      }
+                                    });
+                                }
+                              }}
+                              className="p-1 text-slate-400 hover:text-red-500 active:scale-95 transition-all"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                          <textarea
+                            defaultValue={section.content}
+                            onChange={(e) => {
+                              const textarea = e.target;
+                              const newContent = textarea.value;
+                              // Auto-resize height
+                              textarea.style.height = 'auto';
+                              textarea.style.height = textarea.scrollHeight + 'px';
+                              // Clear existing timeout
+                              if (noteSaveTimeoutRef.current) {
+                                clearTimeout(noteSaveTimeoutRef.current);
+                              }
+                              // Debounced auto-save
+                              noteSaveTimeoutRef.current = setTimeout(() => {
+                                // Rebuild the notes string with updated content for this section
+                                const updatedSections = [...sections];
+                                updatedSections[idx] = { ...section, content: newContent };
+                                const newNotesText = updatedSections
+                                  .map(s => `{${s.timestamp}}\n${s.content}`)
+                                  .join('\n\n');
+
+                                if (activeBook && user) {
+                                  supabase
+                                    .from('books')
+                                    .update({ notes: newNotesText, updated_at: new Date().toISOString() })
+                                    .eq('id', activeBook.id)
+                                    .eq('user_id', user.id)
+                                    .then(({ error }) => {
+                                      if (!error) {
+                                        setBooks(prev => prev.map(book =>
+                                          book.id === activeBook.id ? { ...book, notes: newNotesText } : book
+                                        ));
+                                      }
+                                    });
+                                }
+                              }, 1000);
+                            }}
+                            ref={(el) => {
+                              // Auto-resize on mount
+                              if (el) {
+                                el.style.height = 'auto';
+                                el.style.height = el.scrollHeight + 'px';
+                              }
+                            }}
+                            placeholder="Write your note..."
+                            className="w-full resize-none border-none outline-none text-sm text-slate-800 placeholder:text-slate-400 bg-transparent"
+                            style={{ minHeight: '24px', overflow: 'hidden' }}
+                          />
+                        </div>
+                      ));
+                    })()}
+                  </div>
                   </motion.div>
                 )}
               </AnimatePresence>
