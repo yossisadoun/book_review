@@ -32,6 +32,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginScreen } from '@/components/LoginScreen';
 import { BookLoading } from '@/components/BookLoading';
+import { CachedImage } from '@/components/CachedImage';
 import { supabase } from '@/lib/supabase';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 
@@ -5272,6 +5273,8 @@ export default function App() {
   const [isFadingOutViewingUser, setIsFadingOutViewingUser] = useState(false);
   const [isFollowingViewingUser, setIsFollowingViewingUser] = useState(false);
   const [isFollowLoading, setIsFollowLoading] = useState(false);
+  const [myFollowingCount, setMyFollowingCount] = useState(0);
+  const [viewingUserFollowingCount, setViewingUserFollowingCount] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('lastSelectedBookIndex');
@@ -6206,7 +6209,14 @@ export default function App() {
 
         const appBooks = (data || []).map(convertBookToApp);
         setBooks(appBooks);
-        
+
+        // Fetch my following count
+        const { count: followingCount } = await supabase
+          .from('follows')
+          .select('*', { count: 'exact', head: true })
+          .eq('follower_id', user.id);
+        setMyFollowingCount(followingCount || 0);
+
         // Restore saved selectedIndex if valid, otherwise reset to 0
         if (appBooks.length > 0) {
           if (typeof window !== 'undefined') {
@@ -6246,6 +6256,7 @@ export default function App() {
       setViewingUserFullName(null);
       setViewingUserAvatar(null);
       setIsFollowingViewingUser(false);
+      setViewingUserFollowingCount(0);
       return;
     }
 
@@ -6282,6 +6293,13 @@ export default function App() {
           .single();
 
         setIsFollowingViewingUser(!!followData);
+
+        // Get viewed user's following count
+        const { count: viewedUserFollowingCount } = await supabase
+          .from('follows')
+          .select('*', { count: 'exact', head: true })
+          .eq('follower_id', userId);
+        setViewingUserFollowingCount(viewedUserFollowingCount || 0);
 
         // Then get their books
         const { data, error } = await supabase
@@ -8455,6 +8473,7 @@ export default function App() {
           return;
         }
         setIsFollowingViewingUser(false);
+        setMyFollowingCount(prev => Math.max(0, prev - 1));
       } else {
         // Follow
         const { error } = await supabase
@@ -8469,6 +8488,7 @@ export default function App() {
           return;
         }
         setIsFollowingViewingUser(true);
+        setMyFollowingCount(prev => prev + 1);
       }
     } catch (err) {
       console.error('Error toggling follow:', err);
@@ -9229,10 +9249,16 @@ export default function App() {
                           </span>
                         </div>
                       )}
-                      {/* Total Books Count */}
-                      <div className="flex-1">
-                        <p className="text-sm text-slate-600 mb-1">Books</p>
-                        <p className="text-2xl font-bold text-slate-950">{books.length}</p>
+                      {/* Stats */}
+                      <div className="flex-1 flex gap-6">
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-slate-950">{books.length}</p>
+                          <p className="text-sm text-slate-600">Books</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-slate-950">{myFollowingCount}</p>
+                          <p className="text-sm text-slate-600">Following</p>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -9257,10 +9283,16 @@ export default function App() {
                           </span>
                         </div>
                       )}
-                      {/* Total Books Count */}
-                      <div className="flex-1">
-                        <p className="text-sm text-slate-600 mb-1">Books</p>
-                        <p className="text-2xl font-bold text-slate-950">{viewingUserBooks.length}</p>
+                      {/* Stats */}
+                      <div className="flex-1 flex gap-6">
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-slate-950">{viewingUserBooks.length}</p>
+                          <p className="text-sm text-slate-600">Books</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-slate-950">{viewingUserFollowingCount}</p>
+                          <p className="text-sm text-slate-600">Following</p>
+                        </div>
                       </div>
                       {/* Follow Button */}
                       <motion.button
@@ -9520,15 +9552,20 @@ export default function App() {
                             {/* Book Cover */}
                             <div className="relative w-full aspect-[2/3] rounded-lg overflow-hidden shadow-lg mb-2 group-hover:scale-105 transition-transform">
                               {book.cover_url ? (
-                                <img 
-                                  src={book.cover_url} 
+                                <CachedImage
+                                  src={book.cover_url}
                                   alt={book.title}
                                   className="w-full h-full object-cover"
+                                  fallback={
+                                    <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${getGradient(book.id)}`}>
+                                      <BookOpen size={32} className="text-white opacity-30" />
+                                    </div>
+                                  }
                                 />
                               ) : (
                                 <div className={`w-full h-full flex items-center justify-center bg-gradient-to-br ${getGradient(book.id)}`}>
                                   <BookOpen size={32} className="text-white opacity-30" />
-                            </div>
+                                </div>
                               )}
                               {/* Rating Badge */}
                               {avgScore && (
