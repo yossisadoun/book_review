@@ -8486,7 +8486,7 @@ export default function App() {
   // Use background image for bookshelf, notes, account, and following pages
   const shouldUseBackgroundImage = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage || showFollowingPage;
   const backgroundImageStyle: React.CSSProperties = {
-    backgroundImage: `url(${getAssetPath('/bg.png')})`,
+    backgroundImage: `url(${getAssetPath('/bg.webp')})`,
     backgroundSize: 'cover',
     backgroundPosition: 'center',
     backgroundRepeat: 'no-repeat',
@@ -8600,7 +8600,7 @@ export default function App() {
           <div
             className="fixed inset-0 pointer-events-none z-0"
             style={{
-              backgroundImage: `url(${getAssetPath('/bg.png')})`,
+              backgroundImage: `url(${getAssetPath('/bg.webp')})`,
               backgroundSize: 'cover',
               backgroundPosition: 'center',
               backgroundRepeat: 'no-repeat',

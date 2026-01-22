@@ -16,6 +16,7 @@ export const metadata: Metadata = {
     initialScale: 1,
     maximumScale: 1,
     userScalable: false,
+    viewportFit: 'cover',
   },
   icons: {
     icon: [
@@ -48,14 +49,20 @@ export default function RootLayout({
         <Script id="set-viewport" strategy="beforeInteractive">
           {`
             (function() {
-              // Prevent zooming on mobile by setting viewport meta tag
+              // Prevent zooming on mobile and enable full-bleed safe areas
               let viewport = document.querySelector('meta[name="viewport"]');
               if (viewport) {
-                viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+                viewport.setAttribute(
+                  'content',
+                  'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover'
+                );
               } else {
                 viewport = document.createElement('meta');
                 viewport.setAttribute('name', 'viewport');
-                viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+                viewport.setAttribute(
+                  'content',
+                  'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover'
+                );
                 document.head.appendChild(viewport);
               }
             })();

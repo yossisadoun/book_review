@@ -24,7 +24,7 @@ export function LoginScreen() {
     <div
       className="fixed inset-0 flex flex-col items-center justify-center p-4"
       style={{
-        backgroundImage: `url(${getAssetPath('/bg.png')})`,
+        backgroundImage: `url(${getAssetPath('/bg.webp')})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
