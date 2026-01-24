@@ -72,7 +72,8 @@ export default function RootLayout({
           {`
             (function() {
               const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-              const basePath = isLocalhost ? '' : '/book_review';
+              const isCapacitor = window.location.protocol === 'capacitor:' || window.location.protocol === 'ionic:';
+              const basePath = isLocalhost || isCapacitor ? '' : '/book_review';
               
               // Update favicon links
               const updateLink = (rel, href) => {

@@ -8,7 +8,8 @@ import HelloAnimation from './HelloAnimation';
 function getAssetPath(path: string): string {
   if (typeof window === 'undefined') return path;
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  if (isLocalhost) return path;
+  const isCapacitor = window.location.protocol === 'capacitor:' || window.location.protocol === 'ionic:';
+  if (isLocalhost || isCapacitor) return path;
   // Check if pathname starts with /book_review (GitHub Pages basePath)
   const pathname = window.location.pathname;
   if (pathname.startsWith('/book_review')) {

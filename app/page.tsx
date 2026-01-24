@@ -28,6 +28,7 @@ import {
   Trophy,
   Volume2,
   VolumeX,
+  Rss,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -41,7 +42,8 @@ import { loadPrompts, formatPrompt } from '@/lib/prompts';
 function getAssetPath(path: string): string {
   if (typeof window === 'undefined') return path;
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-  if (isLocalhost) return path;
+  const isCapacitor = window.location.protocol === 'capacitor:' || window.location.protocol === 'ionic:';
+  if (isLocalhost || isCapacitor) return path;
   // Check if pathname starts with /book_review (GitHub Pages basePath)
   const pathname = window.location.pathname;
   if (pathname.startsWith('/book_review')) {
@@ -129,6 +131,19 @@ interface BookResearch {
 interface DomainInsights {
   label: string;
   facts: string[];
+}
+
+// Feed item interface for community/following feed
+interface FeedItem {
+  id: string;
+  book_title: string;
+  book_author: string;
+  book_cover_url: string | null;
+  user_id: string;
+  user_name: string | null;
+  user_avatar: string | null;
+  ratings: { writing: number | null; insights: number | null; flow: number | null; world: number | null; characters: number | null };
+  updated_at: string;
 }
 
 // Supabase database schema interface
@@ -5371,12 +5386,12 @@ export default function App() {
   const [isInsightCategoryDropdownOpen, setIsInsightCategoryDropdownOpen] = useState(false);
   const bookshelfGroupingDropdownRef = useRef<HTMLDivElement>(null);
   const [scrollY, setScrollY] = useState(0);
-  const [showLogoutMenu, setShowLogoutMenu] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
   
   // Helper function to get last page from localStorage
-  const getLastPageState = (): { showBookshelf: boolean; showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean; showFollowingPage: boolean } => {
+  const getLastPageState = (): { showBookshelf: boolean; showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean; showFollowingPage: boolean; showFeedPage: boolean } => {
     if (typeof window === 'undefined') {
-      return { showBookshelf: false, showBookshelfCovers: false, showNotesView: false, showAccountPage: false, showFollowingPage: false };
+      return { showBookshelf: false, showBookshelfCovers: false, showNotesView: false, showAccountPage: false, showFollowingPage: false, showFeedPage: false };
     }
     try {
       const saved = localStorage.getItem('lastPageState');
@@ -5388,16 +5403,17 @@ export default function App() {
           showNotesView: parsed.showNotesView === true,
           showAccountPage: parsed.showAccountPage === true,
           showFollowingPage: parsed.showFollowingPage === true,
+          showFeedPage: parsed.showFeedPage === true,
         };
       }
     } catch (err) {
       console.error('[getLastPageState] Error reading from localStorage:', err);
     }
-    return { showBookshelf: false, showBookshelfCovers: false, showNotesView: false, showAccountPage: false, showFollowingPage: false };
+    return { showBookshelf: false, showBookshelfCovers: false, showNotesView: false, showAccountPage: false, showFollowingPage: false, showFeedPage: false };
   };
 
   // Helper function to save current page state to localStorage
-  const savePageState = (state: { showBookshelf: boolean; showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean; showFollowingPage: boolean }) => {
+  const savePageState = (state: { showBookshelf: boolean; showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean; showFollowingPage: boolean; showFeedPage: boolean }) => {
     if (typeof window === 'undefined') return;
     try {
       localStorage.setItem('lastPageState', JSON.stringify(state));
@@ -5414,6 +5430,10 @@ export default function App() {
   const [showBookshelfCovers, setShowBookshelfCovers] = useState(() => getLastPageState().showBookshelfCovers);
   const [showNotesView, setShowNotesView] = useState(() => getLastPageState().showNotesView);
   const [showFollowingPage, setShowFollowingPage] = useState(() => getLastPageState().showFollowingPage);
+  const [showFeedPage, setShowFeedPage] = useState(() => getLastPageState().showFeedPage);
+  const [feedView, setFeedView] = useState<'following' | 'community'>('following');
+  const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
+  const [isLoadingFeed, setIsLoadingFeed] = useState(false);
   const [followingUsers, setFollowingUsers] = useState<Array<{ id: string; full_name: string | null; avatar_url: string | null; email: string; followed_at: string }>>([]);
   const [isLoadingFollowing, setIsLoadingFollowing] = useState(false);
   const [followingSortOrder, setFollowingSortOrder] = useState<'recent_desc' | 'recent_asc' | 'name_desc' | 'name_asc'>('recent_desc');
@@ -6375,9 +6395,10 @@ export default function App() {
         showNotesView,
         showAccountPage,
         showFollowingPage,
+        showFeedPage,
       });
     }
-  }, [isLoaded, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage, showFollowingPage]);
+  }, [isLoaded, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage, showFollowingPage, showFeedPage]);
 
   // Load Grok usage logs when account page is shown
   useEffect(() => {
@@ -8484,7 +8505,7 @@ export default function App() {
   })() : null;
   
   // Use background image for bookshelf, notes, account, and following pages
-  const shouldUseBackgroundImage = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage || showFollowingPage;
+  const shouldUseBackgroundImage = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage || showFollowingPage || showFeedPage;
   const backgroundImageStyle: React.CSSProperties = {
     backgroundImage: `url(${getAssetPath('/bg.webp')})`,
     backgroundSize: 'cover',
@@ -8618,7 +8639,7 @@ export default function App() {
         </>
       )}
       {/* Simple header - fades on scroll and during transitions (hidden on book pages) */}
-      {!(!showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults && !showFollowingPage) && (
+      {!(!showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults && !showFollowingPage && !showFeedPage) && (
       <AnimatePresence mode="wait">
         <motion.div 
           key={showSortingResults ? 'sorting-results-header' : showNotesView ? 'notes-header' : showBookshelf ? 'bookshelf-header' : 'books-header'}
@@ -8663,6 +8684,8 @@ export default function App() {
               <User size={24} className="text-slate-950" />
             ) : showFollowingPage ? (
               <Users size={24} className="text-slate-950" />
+            ) : showFeedPage ? (
+              <Rss size={24} className="text-slate-950" />
             ) : showSortingResults ? (
               <Star size={24} className="text-slate-950" />
             ) : showNotesView ? (
@@ -8681,107 +8704,39 @@ export default function App() {
                   ? 'ACCOUNT'
                   : showFollowingPage
                     ? 'FOLLOWING'
-                    : showSortingResults
-                      ? 'SORTED RESULTS'
-                      : showNotesView
-                        ? 'NOTES'
-                        : showBookshelfCovers
-                          ? 'BOOKSHELF'
-                          : showBookshelf
+                    : showFeedPage
+                      ? 'FEED'
+                      : showSortingResults
+                        ? 'SORTED RESULTS'
+                        : showNotesView
+                          ? 'NOTES'
+                          : showBookshelfCovers
                             ? 'BOOKSHELF'
-                            : 'BOOKS'}
+                            : showBookshelf
+                              ? 'BOOKSHELF'
+                              : 'BOOKS'}
           </h1>
           </div>
         
-        {/* User avatar on right - or back button when on account page, sorting results, or following page */}
-        <div className="relative">
-          {showAccountPage || showSortingResults || showFollowingPage ? (
-            <button
-              onClick={() => {
-                setShowAccountPage(false);
-                setShowSortingResults(false);
-                setShowFollowingPage(false);
-              }}
-              className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
-              style={{ ...glassmorphicStyle, borderRadius: '50%' }}
-            >
-              <ChevronLeft size={18} className="text-slate-950" />
-            </button>
-          ) : userAvatar ? (
-            <button
-              onClick={() => setShowLogoutMenu(!showLogoutMenu)}
-              className="w-8 h-8 rounded-full overflow-hidden bg-slate-200 cursor-pointer active:scale-95 transition-transform"
-            >
-              <img 
-                src={userAvatar} 
-                alt={userName}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  // Fallback if image fails to load
-                  const target = e.target as HTMLImageElement;
-                  target.style.display = 'none';
-                  const parent = target.parentElement;
-                  if (parent) {
-                    parent.innerHTML = `<div class="w-full h-full flex items-center justify-center bg-slate-300"><span class="text-xs font-bold text-slate-600">${userName.charAt(0).toUpperCase()}</span></div>`;
-                  }
-                }}
-                referrerPolicy="no-referrer"
-              />
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowLogoutMenu(!showLogoutMenu)}
-              className="w-8 h-8 rounded-full bg-slate-300 flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
-            >
-              <span className="text-xs font-bold text-slate-600">
-                {userName.charAt(0).toUpperCase()}
-              </span>
-            </button>
-          )}
-          
-          {/* Logout menu */}
-          <AnimatePresence>
-            {showLogoutMenu && (
-              <>
-                {/* Backdrop to close menu */}
-                <div
-                  className="fixed inset-0 z-30"
-                  onClick={() => setShowLogoutMenu(false)}
-                />
-                {/* Menu */}
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                  transition={{ duration: 0.2 }}
-                  className="absolute top-10 right-0 z-40 rounded-lg min-w-[140px] overflow-hidden"
-                  style={glassmorphicStyle}
-                >
-                  <button
-                    onClick={() => {
-                      setShowAccountPage(true);
-                      setShowLogoutMenu(false);
-                    }}
-                    className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 hover:bg-white/20 active:bg-white/30 transition-colors border-b border-white/20"
-                  >
-                    <User size={16} className="text-slate-600" />
-                    <span>Account</span>
-                  </button>
-                  <button
-                    onClick={async () => {
-                      await signOut();
-                      setShowLogoutMenu(false);
-                    }}
-                    className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 hover:bg-white/20 active:bg-white/30 transition-colors"
-                  >
-                    <LogOut size={16} className="text-slate-600" />
-                    <span>Logout</span>
-                  </button>
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>
-        </div>
+        {/* Back button when on account page, sorting results, following page, or notes view */}
+        {(showAccountPage || showSortingResults || showFollowingPage || showNotesView) && (
+          <button
+            onClick={() => {
+              setShowAccountPage(false);
+              setShowSortingResults(false);
+              setShowFollowingPage(false);
+              if (showNotesView) {
+                setScrollY(0);
+                setShowBookshelfCovers(true);
+                setShowNotesView(false);
+              }
+            }}
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
+            style={{ ...glassmorphicStyle, borderRadius: '50%' }}
+          >
+            <ChevronLeft size={18} className="text-slate-950" />
+          </button>
+        )}
         </motion.div>
       </AnimatePresence>
       )}
@@ -9033,6 +8988,604 @@ export default function App() {
               )}
             </div>
           </motion.main>
+        ) : showFeedPage ? (
+          <motion.main
+            key="feed"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            onScroll={(e) => {
+              const target = e.currentTarget;
+              setScrollY(target.scrollTop);
+            }}
+          >
+            {/* Feed Page */}
+            <div className="w-full flex flex-col gap-4 px-3 pt-8">
+              {/* Mock Feed Item 1 - User added a book */}
+              <div
+                className="w-full rounded-2xl overflow-hidden"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.45)',
+                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                  backdropFilter: 'blur(9.4px)',
+                  WebkitBackdropFilter: 'blur(9.4px)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                }}
+              >
+                {/* Header - User info */}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center">
+                    <span className="text-white font-bold text-sm">JD</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900 text-sm">John Doe</p>
+                    <p className="text-xs text-slate-500">added a book</p>
+                  </div>
+                  <p className="text-xs text-slate-400">2h ago</p>
+                </div>
+
+                {/* Book Cover - Full width */}
+                <div className="w-full aspect-[3/4]">
+                  <img
+                    src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
+                    alt="The Great Gatsby"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+
+                {/* Book Info */}
+                <div className="px-4 py-3">
+                  <p className="font-bold text-slate-900">The Great Gatsby</p>
+                  <p className="text-sm text-slate-600">F. Scott Fitzgerald</p>
+                </div>
+              </div>
+
+              {/* Mock Feed Item - Facts about a book (AI-generated) */}
+              <div
+                className="w-full rounded-2xl overflow-hidden"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.45)',
+                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                  backdropFilter: 'blur(9.4px)',
+                  WebkitBackdropFilter: 'blur(9.4px)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                }}
+              >
+                {/* Header */}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-400 flex items-center justify-center">
+                    <Sparkles size={20} className="text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900 text-sm">Did You Know?</p>
+                    <p className="text-xs text-slate-500">Facts from your reading</p>
+                  </div>
+                </div>
+
+                {/* Book + Facts Content */}
+                <div className="px-4 pb-4">
+                  {/* Book Info Row */}
+                  <div className="flex gap-3 mb-3">
+                    <img
+                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
+                      alt="The Great Gatsby"
+                      className="w-16 h-24 object-cover rounded-lg flex-shrink-0"
+                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-slate-900 text-sm">The Great Gatsby</p>
+                      <p className="text-xs text-slate-600 mb-2">F. Scott Fitzgerald</p>
+                      <div className="flex items-center gap-1">
+                        <Sparkles size={12} className="text-amber-500" />
+                        <span className="text-xs font-medium text-amber-600">3 Facts</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Facts List */}
+                  <div className="flex flex-col gap-2">
+                    <div className="bg-white/40 rounded-xl px-3 py-2">
+                      <p className="text-sm text-slate-700">Fitzgerald wrote the novel while living in France during the 1920s expatriate movement.</p>
+                    </div>
+                    <div className="bg-white/40 rounded-xl px-3 py-2">
+                      <p className="text-sm text-slate-700">The original cover art was created before the novel was finished, and Fitzgerald loved it so much he wrote it into the story.</p>
+                    </div>
+                    <div className="bg-white/40 rounded-xl px-3 py-2">
+                      <p className="text-sm text-slate-700">The book sold poorly during Fitzgerald's lifetime but became a classic after being distributed to soldiers in WWII.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mock Feed Item - YouTube video about a book (AI-discovered) */}
+              <div
+                className="w-full rounded-2xl overflow-hidden"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.45)',
+                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                  backdropFilter: 'blur(9.4px)',
+                  WebkitBackdropFilter: 'blur(9.4px)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                }}
+              >
+                {/* Header */}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center">
+                    <Play size={20} className="text-white ml-0.5" fill="white" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900 text-sm">Watch</p>
+                    <p className="text-xs text-slate-500">Video about your book</p>
+                  </div>
+                </div>
+
+                {/* YouTube Thumbnail with Play Button */}
+                <div className="relative w-full aspect-video bg-slate-900">
+                  <img
+                    src="https://img.youtube.com/vi/dQw4w9WgXcQ/maxresdefault.jpg"
+                    alt="Video thumbnail"
+                    className="w-full h-full object-cover"
+                  />
+                  {/* Play Button Overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-lg">
+                      <Play size={28} className="text-white ml-1" fill="white" />
+                    </div>
+                  </div>
+                  {/* Duration Badge */}
+                  <div className="absolute bottom-2 right-2 bg-black/80 px-2 py-0.5 rounded text-xs text-white font-medium">
+                    12:34
+                  </div>
+                </div>
+
+                {/* Video Title + Book Reference */}
+                <div className="px-4 py-3">
+                  <p className="font-bold text-slate-900 text-sm mb-3">Why "The Great Gatsby" Is The Great American Novel</p>
+                  <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                    <img
+                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
+                      alt="The Great Gatsby"
+                      className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
+                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-slate-500">About</p>
+                      <p className="text-sm font-medium text-slate-800">The Great Gatsby</p>
+                      <p className="text-xs text-slate-500">F. Scott Fitzgerald</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mock Feed Item - Podcast episode about a book (AI-discovered) */}
+              <div
+                className="w-full rounded-2xl overflow-hidden"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.45)',
+                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                  backdropFilter: 'blur(9.4px)',
+                  WebkitBackdropFilter: 'blur(9.4px)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                }}
+              >
+                {/* Header */}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-400 to-purple-500 flex items-center justify-center">
+                    <Headphones size={20} className="text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900 text-sm">Listen</p>
+                    <p className="text-xs text-slate-500">Podcast about your book</p>
+                  </div>
+                </div>
+
+                {/* Podcast Content */}
+                <div className="px-4 pb-4">
+                  <div className="flex gap-3">
+                    {/* Podcast Artwork */}
+                    <div className="relative w-24 h-24 flex-shrink-0">
+                      <div
+                        className="w-full h-full rounded-xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center"
+                        style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                      >
+                        <Headphones size={32} className="text-white" />
+                      </div>
+                    </div>
+
+                    {/* Podcast Info */}
+                    <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                      <div>
+                        <p className="font-bold text-slate-900 text-sm line-clamp-2">The Hidden Meaning Behind The Great Gatsby's Green Light</p>
+                        <p className="text-xs text-slate-500 mt-1">The Literary Podcast • Ep. 42</p>
+                      </div>
+                      <div className="flex items-center gap-3 mt-2">
+                        <button className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center shadow-md active:scale-95 transition-transform">
+                          <Play size={14} className="text-white ml-0.5" fill="white" />
+                        </button>
+                        <span className="text-xs text-slate-500">45 min</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Book Reference */}
+                  <div className="flex items-center gap-3 mt-3 bg-white/30 rounded-xl p-2">
+                    <img
+                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
+                      alt="The Great Gatsby"
+                      className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
+                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-slate-500">About</p>
+                      <p className="text-sm font-medium text-slate-800">The Great Gatsby</p>
+                      <p className="text-xs text-slate-500">F. Scott Fitzgerald</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mock Feed Item - Recommended book */}
+              <div
+                className="w-full rounded-2xl overflow-hidden"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.45)',
+                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                  backdropFilter: 'blur(9.4px)',
+                  WebkitBackdropFilter: 'blur(9.4px)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                }}
+              >
+                {/* Header - Recommendation badge */}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-yellow-500 flex items-center justify-center">
+                    <Sparkles size={20} className="text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900 text-sm">Recommended for you</p>
+                    <p className="text-xs text-slate-500">Based on The Great Gatsby</p>
+                  </div>
+                </div>
+
+                {/* Recommended Book Cover */}
+                <div className="w-full aspect-[3/4]">
+                  <img
+                    src="https://covers.openlibrary.org/b/isbn/9780684801223-L.jpg"
+                    alt="Tender Is the Night"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+
+                {/* Book Info + Add Button */}
+                <div className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-slate-900">Tender Is the Night</p>
+                      <p className="text-sm text-slate-600">F. Scott Fitzgerald</p>
+                      <p className="text-xs text-slate-500 mt-1 line-clamp-2">A tale of love, ambition, and the American Dream on the French Riviera.</p>
+                    </div>
+                    <button
+                      className="flex-shrink-0 px-4 py-2 rounded-xl text-white text-sm font-semibold active:scale-95 transition-transform"
+                      style={{
+                        background: 'rgba(59, 130, 246, 0.85)',
+                        backdropFilter: 'blur(9.4px)',
+                        WebkitBackdropFilter: 'blur(9.4px)',
+                        border: '1px solid rgba(59, 130, 246, 0.3)',
+                      }}
+                    >
+                      Add
+                    </button>
+                  </div>
+
+                  {/* Based on book reference */}
+                  <div className="flex items-center gap-3 mt-3 bg-white/30 rounded-xl p-2">
+                    <img
+                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
+                      alt="The Great Gatsby"
+                      className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
+                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-slate-500">Because you read</p>
+                      <p className="text-sm font-medium text-slate-800">The Great Gatsby</p>
+                      <p className="text-xs text-slate-500">F. Scott Fitzgerald</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mock Feed Item - Influences (AI-generated) */}
+              <div
+                className="w-full rounded-2xl overflow-hidden"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.45)',
+                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                  backdropFilter: 'blur(9.4px)',
+                  WebkitBackdropFilter: 'blur(9.4px)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                }}
+              >
+                {/* Header */}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-blue-500 flex items-center justify-center">
+                    <BookMarked size={20} className="text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900 text-sm">Influences</p>
+                    <p className="text-xs text-slate-500">Books that shaped your read</p>
+                  </div>
+                </div>
+
+                {/* Influences Content */}
+                <div className="px-4 pb-4">
+                  {/* Influenced Books Grid */}
+                  <div className="flex gap-2 mb-3 overflow-x-auto pb-2">
+                    <div className="flex-shrink-0 w-20">
+                      <img
+                        src="https://covers.openlibrary.org/b/isbn/9780141439518-L.jpg"
+                        alt="Pride and Prejudice"
+                        className="w-20 h-28 object-cover rounded-lg"
+                        style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                      />
+                      <p className="text-xs font-medium text-slate-700 mt-1 line-clamp-1">Pride & Prejudice</p>
+                      <p className="text-xs text-slate-500 line-clamp-1">Austen</p>
+                    </div>
+                    <div className="flex-shrink-0 w-20">
+                      <img
+                        src="https://covers.openlibrary.org/b/isbn/9780141439600-L.jpg"
+                        alt="Heart of Darkness"
+                        className="w-20 h-28 object-cover rounded-lg"
+                        style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                      />
+                      <p className="text-xs font-medium text-slate-700 mt-1 line-clamp-1">Heart of Darkness</p>
+                      <p className="text-xs text-slate-500 line-clamp-1">Conrad</p>
+                    </div>
+                    <div className="flex-shrink-0 w-20">
+                      <img
+                        src="https://covers.openlibrary.org/b/isbn/9780486415871-L.jpg"
+                        alt="The Waste Land"
+                        className="w-20 h-28 object-cover rounded-lg"
+                        style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                      />
+                      <p className="text-xs font-medium text-slate-700 mt-1 line-clamp-1">The Waste Land</p>
+                      <p className="text-xs text-slate-500 line-clamp-1">T.S. Eliot</p>
+                    </div>
+                  </div>
+
+                  {/* Source Book Reference */}
+                  <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                    <img
+                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
+                      alt="The Great Gatsby"
+                      className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
+                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-slate-500">Influences on</p>
+                      <p className="text-sm font-medium text-slate-800">The Great Gatsby</p>
+                      <p className="text-xs text-slate-500">F. Scott Fitzgerald</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mock Feed Item - Context (AI-generated) */}
+              <div
+                className="w-full rounded-2xl overflow-hidden"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.45)',
+                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                  backdropFilter: 'blur(9.4px)',
+                  WebkitBackdropFilter: 'blur(9.4px)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                }}
+              >
+                {/* Header */}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-400 to-emerald-500 flex items-center justify-center">
+                    <Info size={20} className="text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900 text-sm">Context</p>
+                    <p className="text-xs text-slate-500">The world behind your book</p>
+                  </div>
+                </div>
+
+                {/* Context Content */}
+                <div className="px-4 pb-4">
+                  <div className="bg-white/40 rounded-xl p-3 mb-3">
+                    <p className="text-sm font-semibold text-slate-800 mb-2">The Roaring Twenties</p>
+                    <p className="text-sm text-slate-700 leading-relaxed">
+                      Set in 1922, during the Jazz Age—a period of unprecedented economic prosperity, cultural dynamism, and social change in America. Prohibition was in effect, yet speakeasies thrived, and the stock market seemed destined to rise forever.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    <span className="px-2 py-1 bg-white/50 rounded-full text-xs font-medium text-slate-600">Jazz Age</span>
+                    <span className="px-2 py-1 bg-white/50 rounded-full text-xs font-medium text-slate-600">Prohibition</span>
+                    <span className="px-2 py-1 bg-white/50 rounded-full text-xs font-medium text-slate-600">1920s America</span>
+                    <span className="px-2 py-1 bg-white/50 rounded-full text-xs font-medium text-slate-600">American Dream</span>
+                  </div>
+
+                  {/* Source Book Reference */}
+                  <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                    <img
+                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
+                      alt="The Great Gatsby"
+                      className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
+                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-slate-500">Context for</p>
+                      <p className="text-sm font-medium text-slate-800">The Great Gatsby</p>
+                      <p className="text-xs text-slate-500">F. Scott Fitzgerald</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mock Feed Item - Drilldown Subject (AI-generated) */}
+              <div
+                className="w-full rounded-2xl overflow-hidden"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.45)',
+                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                  backdropFilter: 'blur(9.4px)',
+                  WebkitBackdropFilter: 'blur(9.4px)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                }}
+              >
+                {/* Header */}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center">
+                    <Search size={20} className="text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900 text-sm">Deep Dive</p>
+                    <p className="text-xs text-slate-500">A theme from your reading</p>
+                  </div>
+                </div>
+
+                {/* Drilldown Content */}
+                <div className="px-4 pb-4">
+                  <div className="bg-gradient-to-br from-rose-50 to-pink-50 rounded-xl p-4 mb-3 border border-rose-100">
+                    <p className="text-lg font-bold text-slate-900 mb-2">The Green Light</p>
+                    <p className="text-sm text-slate-700 leading-relaxed mb-3">
+                      One of literature's most iconic symbols, the green light at the end of Daisy's dock represents Gatsby's hopes and dreams for the future—particularly his desire to recapture his past with Daisy.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50"></div>
+                      <p className="text-xs text-slate-500 italic">"Gatsby believed in the green light, the orgastic future..."</p>
+                    </div>
+                  </div>
+
+                  <button
+                    className="w-full py-2.5 rounded-xl text-sm font-semibold text-rose-600 bg-white/50 border border-rose-200 active:scale-[0.98] transition-transform mb-3"
+                  >
+                    Explore more about symbolism →
+                  </button>
+
+                  {/* Source Book Reference */}
+                  <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                    <img
+                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
+                      alt="The Great Gatsby"
+                      className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
+                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-slate-500">From</p>
+                      <p className="text-sm font-medium text-slate-800">The Great Gatsby</p>
+                      <p className="text-xs text-slate-500">F. Scott Fitzgerald</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mock Feed Item 2 - Added a book */}
+              <div
+                className="w-full rounded-2xl overflow-hidden"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.45)',
+                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                  backdropFilter: 'blur(9.4px)',
+                  WebkitBackdropFilter: 'blur(9.4px)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                }}
+              >
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-cyan-400 flex items-center justify-center">
+                    <span className="text-white font-bold text-sm">AS</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900 text-sm">Alice Smith</p>
+                    <p className="text-xs text-slate-500">added a book</p>
+                  </div>
+                  <p className="text-xs text-slate-400">5h ago</p>
+                </div>
+                <div className="w-full aspect-[3/4]">
+                  <img
+                    src="https://covers.openlibrary.org/b/isbn/9780061120084-L.jpg"
+                    alt="To Kill a Mockingbird"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="px-4 py-3">
+                  <p className="font-bold text-slate-900">To Kill a Mockingbird</p>
+                  <p className="text-sm text-slate-600">Harper Lee</p>
+                </div>
+              </div>
+
+              {/* Mock Feed Item 3 */}
+              <div
+                className="w-full rounded-2xl overflow-hidden"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.45)',
+                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                  backdropFilter: 'blur(9.4px)',
+                  WebkitBackdropFilter: 'blur(9.4px)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                }}
+              >
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-red-400 flex items-center justify-center">
+                    <span className="text-white font-bold text-sm">BW</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900 text-sm">Bob Wilson</p>
+                    <p className="text-xs text-slate-500">added a book</p>
+                  </div>
+                  <p className="text-xs text-slate-400">1d ago</p>
+                </div>
+                <div className="w-full aspect-[3/4]">
+                  <img
+                    src="https://covers.openlibrary.org/b/isbn/9780451524935-L.jpg"
+                    alt="1984"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="px-4 py-3">
+                  <p className="font-bold text-slate-900">1984</p>
+                  <p className="text-sm text-slate-600">George Orwell</p>
+                </div>
+              </div>
+
+              {/* Mock Feed Item 4 */}
+              <div
+                className="w-full rounded-2xl overflow-hidden"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.45)',
+                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                  backdropFilter: 'blur(9.4px)',
+                  WebkitBackdropFilter: 'blur(9.4px)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                }}
+              >
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-400 flex items-center justify-center">
+                    <span className="text-white font-bold text-sm">EJ</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-900 text-sm">Emma Johnson</p>
+                    <p className="text-xs text-slate-500">added a book</p>
+                  </div>
+                  <p className="text-xs text-slate-400">2d ago</p>
+                </div>
+                <div className="w-full aspect-[3/4]">
+                  <img
+                    src="https://covers.openlibrary.org/b/isbn/9780141439518-L.jpg"
+                    alt="Pride and Prejudice"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="px-4 py-3">
+                  <p className="font-bold text-slate-900">Pride and Prejudice</p>
+                  <p className="text-sm text-slate-600">Jane Austen</p>
+                </div>
+              </div>
+            </div>
+          </motion.main>
         ) : showSortingResults ? (
           <motion.main
             key="sorting-results"
@@ -9160,7 +9713,6 @@ export default function App() {
           >
             {/* Notes View */}
             <div className="w-full max-w-[600px] flex flex-col gap-4 px-4 py-8">
-              <h1 className="text-2xl font-bold text-slate-950 mb-2">My Notes</h1>
               {(() => {
                 // Filter books with notes and sort by title
                 const booksWithNotes = books
@@ -9372,26 +9924,40 @@ export default function App() {
                   >
                     <div className="flex items-center gap-4">
                       {/* Profile Picture - 2x size */}
-                      {userAvatar ? (
-                        <img 
-                          src={userAvatar} 
-                          alt={userName}
-                          className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <div className="w-16 h-16 rounded-full bg-slate-300 flex items-center justify-center border-2 border-white/50">
-                          <span className="text-2xl font-bold text-slate-600">
-                            {userName.charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                      )}
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowProfileMenu(!showProfileMenu)}
+                          className="active:scale-95 transition-transform"
+                        >
+                          {userAvatar ? (
+                            <img
+                              src={userAvatar}
+                              alt={userName}
+                              className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 rounded-full bg-slate-300 flex items-center justify-center border-2 border-white/50">
+                              <span className="text-2xl font-bold text-slate-600">
+                                {userName.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                          )}
+                        </button>
+                      </div>
                       {/* Stats */}
                       <div className="flex-1 flex gap-6">
                         <div className="text-center">
                           <p className="text-2xl font-bold text-slate-950">{books.length}</p>
                           <p className="text-sm text-slate-600">Books</p>
                         </div>
+                        <button
+                          onClick={() => setShowNotesView(true)}
+                          className="text-center hover:opacity-70 active:scale-95 transition-all"
+                        >
+                          <p className="text-2xl font-bold text-slate-950">{books.filter(b => b.notes && b.notes.trim()).length}</p>
+                          <p className="text-sm text-slate-600">Notes</p>
+                        </button>
                         <button
                           onClick={() => setShowFollowingPage(true)}
                           className="text-center hover:opacity-70 active:scale-95 transition-all"
@@ -10193,7 +10759,7 @@ export default function App() {
           >
           {/* Back button to bookshelf */}
           <motion.div
-            className="fixed top-[62px] left-4 z-50"
+            className="fixed top-[62px] right-4 z-50"
             animate={{
               opacity: scrollY > 20 ? Math.max(0, 1 - (scrollY - 20) / 40) : 1,
               pointerEvents: scrollY > 60 ? 'none' : 'auto'
@@ -10215,82 +10781,6 @@ export default function App() {
               <ChevronLeft size={18} className="text-slate-950" />
             </button>
           </motion.div>
-          {/* User avatar in top right corner */}
-          <div className="fixed top-[62px] right-4 z-50">
-            {userAvatar ? (
-              <button
-                onClick={() => setShowLogoutMenu(!showLogoutMenu)}
-                className="w-8 h-8 rounded-full overflow-hidden bg-slate-200 cursor-pointer active:scale-95 transition-transform"
-              >
-                <img 
-                  src={userAvatar} 
-                  alt={userName}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    // Fallback if image fails to load
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
-                    const parent = target.parentElement;
-                    if (parent) {
-                      parent.innerHTML = `<div class="w-full h-full flex items-center justify-center bg-slate-300"><span class="text-xs font-bold text-slate-600">${userName.charAt(0).toUpperCase()}</span></div>`;
-                    }
-                  }}
-                  referrerPolicy="no-referrer"
-                />
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowLogoutMenu(!showLogoutMenu)}
-                className="w-8 h-8 rounded-full bg-slate-300 flex items-center justify-center cursor-pointer active:scale-95 transition-transform"
-              >
-                <span className="text-xs font-bold text-slate-600">
-                  {userName.charAt(0).toUpperCase()}
-                </span>
-              </button>
-            )}
-          </div>
-          {/* Logout menu for book page */}
-          <AnimatePresence>
-            {showLogoutMenu && !showAccountPage && !showSortingResults && !showBookshelf && !showBookshelfCovers && !showNotesView && (
-              <>
-                {/* Backdrop to close menu */}
-                <div
-                  className="fixed inset-0 z-30"
-                  onClick={() => setShowLogoutMenu(false)}
-                />
-                {/* Menu */}
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                  transition={{ duration: 0.2 }}
-                  className="fixed top-[70px] right-4 z-40 rounded-lg min-w-[140px] overflow-hidden"
-                  style={glassmorphicStyle}
-                >
-                  <button
-                    onClick={() => {
-                      setShowAccountPage(true);
-                      setShowLogoutMenu(false);
-                    }}
-                    className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 hover:bg-white/20 active:bg-white/30 transition-colors border-b border-white/20"
-                  >
-                    <User size={16} className="text-slate-600" />
-                    <span>Account</span>
-                  </button>
-                  <button
-                    onClick={async () => {
-                      await signOut();
-                      setShowLogoutMenu(false);
-                    }}
-                    className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 hover:bg-white/20 active:bg-white/30 transition-colors"
-                  >
-                    <LogOut size={16} className="text-slate-600" />
-                    <span>Logout</span>
-                  </button>
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>
         {booksForBookshelf.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
             <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
@@ -10311,6 +10801,7 @@ export default function App() {
               className="relative w-[340px] aspect-[2/3] overflow-hidden group rounded-lg"
               style={{
                 boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04), 0 0 30px 5px rgba(255, 255, 255, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
               }}
             >
               {/* Front side - Book cover */}
@@ -11456,12 +11947,14 @@ export default function App() {
           {/* Bookshelf button - left (circular, grid view) */}
           <button
             onClick={() => {
+              if (showBookshelfCovers) return; // Already on bookshelf, do nothing
               setScrollY(0); // Reset scroll when switching views
-              setShowBookshelfCovers(!showBookshelfCovers);
+              setShowBookshelfCovers(true);
               setShowBookshelf(false);
               setShowNotesView(false);
               setShowAccountPage(false);
               setShowSortingResults(false);
+              setShowFeedPage(false);
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
               showBookshelfCovers 
@@ -11472,23 +11965,25 @@ export default function App() {
             <Library size={18} className="text-slate-950" />
           </button>
 
-          {/* Notes button - between bookshelf covers and search */}
+          {/* Feed button */}
           <button
             onClick={() => {
-              setScrollY(0); // Reset scroll when switching views
-              setShowNotesView(!showNotesView);
+              if (showFeedPage) return; // Already on feed, do nothing
+              setScrollY(0);
+              setShowFeedPage(true);
               setShowBookshelf(false);
               setShowBookshelfCovers(false);
+              setShowNotesView(false);
               setShowAccountPage(false);
               setShowSortingResults(false);
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
-              showNotesView 
-                ? 'bg-white/40 hover:bg-white/50' 
+              showFeedPage
+                ? 'bg-white/40 hover:bg-white/50'
                 : 'bg-white/20 hover:bg-white/30'
             }`}
           >
-            <Pencil size={18} className="text-slate-950" />
+            <Rss size={18} className="text-slate-950" />
           </button>
 
           {/* Game button - trivia game */}
@@ -12598,6 +13093,49 @@ export default function App() {
               </motion.div>
             </motion.div>
           )}
+      </AnimatePresence>
+
+      {/* Profile panel menu - rendered at root level for topmost z-index */}
+      <AnimatePresence>
+        {showProfileMenu && (
+          <>
+            {/* Backdrop to close menu */}
+            <div
+              className="fixed inset-0 z-[9998]"
+              onClick={() => setShowProfileMenu(false)}
+            />
+            {/* Menu */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -10 }}
+              transition={{ duration: 0.2 }}
+              className="fixed top-[200px] left-[26px] z-[9999] rounded-lg min-w-[140px] overflow-hidden"
+              style={glassmorphicStyle}
+            >
+              <button
+                onClick={() => {
+                  setShowAccountPage(true);
+                  setShowProfileMenu(false);
+                }}
+                className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 hover:bg-white/20 active:bg-white/30 transition-colors border-b border-white/20"
+              >
+                <User size={16} className="text-slate-600" />
+                <span>Account</span>
+              </button>
+              <button
+                onClick={async () => {
+                  await signOut();
+                  setShowProfileMenu(false);
+                }}
+                className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 hover:bg-white/20 active:bg-white/30 transition-colors"
+              >
+                <LogOut size={16} className="text-slate-600" />
+                <span>Logout</span>
+              </button>
+            </motion.div>
+          </>
+        )}
       </AnimatePresence>
     </div>
   );

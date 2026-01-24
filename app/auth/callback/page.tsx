@@ -23,7 +23,8 @@ export default function AuthCallback() {
       if (session) {
         // Detect if we're on localhost
         const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        const basePath = isLocalhost ? '' : (window.location.pathname.split('/auth/callback')[0] || '');
+        const isCapacitor = window.location.protocol === 'capacitor:' || window.location.protocol === 'ionic:';
+        const basePath = isLocalhost || isCapacitor ? '' : (window.location.pathname.split('/auth/callback')[0] || '');
         
         // Redirect to the root of the current origin (stay on same domain)
         const redirectUrl = `${window.location.origin}${basePath}/`;

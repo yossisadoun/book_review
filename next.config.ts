@@ -1,10 +1,13 @@
 import type { NextConfig } from "next";
 
+const isCapacitor = process.env.CAPACITOR === '1';
+const isProduction = process.env.NODE_ENV === 'production';
+
 const nextConfig: NextConfig = {
-  // Only use static export for production builds (GitHub Pages)
-  // In development, Next.js needs to run as a server
-  ...(process.env.NODE_ENV === 'production' && { output: 'export' }),
-  basePath: process.env.NODE_ENV === 'production' ? '/book_review' : '',
+  // Only use static export for production builds (GitHub Pages) or Capacitor.
+  // In development, Next.js needs to run as a server.
+  ...(isProduction || isCapacitor ? { output: 'export' } : {}),
+  basePath: isProduction && !isCapacitor ? '/book_review' : '',
   images: {
     unoptimized: true,
   },
