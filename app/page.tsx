@@ -9,6 +9,7 @@ import {
   BookOpen,
   Trash2,
   CheckCircle2,
+  Circle,
   ExternalLink,
   AlertCircle,
   Library,
@@ -29,6 +30,7 @@ import {
   Volume2,
   VolumeX,
   Rss,
+  X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -51,6 +53,24 @@ function getAssetPath(path: string): string {
   }
   return path;
 }
+
+// Helper function for relative time display
+function timeAgo(date: string): string {
+  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+// Feed card glassmorphism style
+const feedCardStyle = {
+  background: 'rgba(255, 255, 255, 0.45)',
+  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+  backdropFilter: 'blur(9.4px)',
+  WebkitBackdropFilter: 'blur(9.4px)',
+  border: '1px solid rgba(255, 255, 255, 0.2)',
+};
 
 // --- Types & Constants ---
 const RATING_DIMENSIONS = ['writing', 'insights', 'flow', 'world', 'characters'] as const;
@@ -144,6 +164,27 @@ interface FeedItem {
   user_avatar: string | null;
   ratings: { writing: number | null; insights: number | null; flow: number | null; world: number | null; characters: number | null };
   updated_at: string;
+}
+
+// Personalized feed item from feed_items table
+interface PersonalizedFeedItem {
+  id: string;
+  user_id: string;
+  source_book_id: string;
+  source_book_title: string;
+  source_book_author: string;
+  source_book_cover_url: string | null;
+  type: 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book';
+  content: Record<string, any>;
+  content_hash: string | null;
+  reading_status: string | null;
+  base_score: number;
+  times_shown: number;
+  last_shown_at: string | null;
+  created_at: string;
+  read: boolean;
+  source_book_created_at: string | null;
+  computed_score?: number;
 }
 
 // Supabase database schema interface
@@ -1092,6 +1133,347 @@ async function saveAuthorFactsToCache(bookTitle: string, bookAuthor: string, fac
   } catch (err: any) {
     console.error('[saveAuthorFactsToCache] ❌ Error:', err);
   }
+}
+
+// ============================================
+// FEED ITEM GENERATION
+// ============================================
+
+type FeedItemType = 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book';
+
+interface FeedItemContent {
+  [key: string]: any;
+}
+
+// Generate a hash for content deduplication (browser-compatible djb2)
+function generateFeedContentHash(type: string, content: any): string {
+  const str = JSON.stringify({ type, content });
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 33) ^ str.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(16);
+}
+
+// Create a friend_book feed item when user adds a book
+async function createFriendBookFeedItem(
+  userId: string,
+  bookId: string,
+  bookTitle: string,
+  bookAuthor: string,
+  bookCoverUrl: string | null,
+  readingStatus: string | null
+): Promise<void> {
+  const content = {
+    action: 'added',
+    book_title: bookTitle,
+    book_author: bookAuthor,
+    book_cover_url: bookCoverUrl,
+  };
+
+  const feedItem = {
+    user_id: userId,
+    source_book_id: bookId,
+    source_book_title: bookTitle,
+    source_book_author: bookAuthor || '',
+    source_book_cover_url: bookCoverUrl,
+    type: 'friend_book' as FeedItemType,
+    content,
+    content_hash: generateFeedContentHash('friend_book', content),
+    reading_status: readingStatus,
+    base_score: 1.0,
+    times_shown: 0,
+    last_shown_at: null,
+  };
+
+  const { error } = await supabase.from('feed_items').upsert(feedItem, {
+    onConflict: 'user_id,type,content_hash',
+    ignoreDuplicates: true,
+  });
+
+  if (error) {
+    console.error('[createFriendBookFeedItem] ❌ Error:', error.message);
+  } else {
+    console.log('[createFriendBookFeedItem] ✅ Created friend_book feed item');
+  }
+}
+
+// Generate feed items from cached content for a book
+async function generateFeedItemsForBook(
+  userId: string,
+  bookId: string,
+  bookTitle: string,
+  bookAuthor: string,
+  bookCoverUrl: string | null,
+  readingStatus: string | null,
+  bookCreatedAt: string
+): Promise<{ created: number; errors: string[] }> {
+  const errors: string[] = [];
+  let created = 0;
+
+  const normalizedTitle = bookTitle.toLowerCase().trim();
+  const normalizedAuthor = (bookAuthor || '').toLowerCase().trim();
+
+  // Helper to create and insert feed item
+  async function insertFeedItem(type: FeedItemType, content: FeedItemContent): Promise<boolean> {
+    const feedItem = {
+      user_id: userId,
+      source_book_id: bookId,
+      source_book_title: bookTitle,
+      source_book_author: bookAuthor || '',
+      source_book_cover_url: bookCoverUrl,
+      type,
+      content,
+      content_hash: generateFeedContentHash(type, content),
+      reading_status: readingStatus,
+      base_score: 1.0,
+      times_shown: 0,
+      last_shown_at: null,
+      source_book_created_at: bookCreatedAt,
+    };
+
+    const { error } = await supabase.from('feed_items').upsert(feedItem, {
+      onConflict: 'user_id,type,content_hash',
+      ignoreDuplicates: true,
+    });
+
+    if (error) {
+      errors.push(`${type}: ${error.message}`);
+      return false;
+    }
+    return true;
+  }
+
+  // Fetch all cached content in parallel
+  const [
+    authorFactsData,
+    bookContextData,
+    bookDomainData,
+    bookInfluencesData,
+    podcastsData,
+    articlesData,
+    relatedBooksData,
+    youtubeVideosData,
+  ] = await Promise.all([
+    supabase.from('author_facts_cache').select('author_facts').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
+    supabase.from('book_context_cache').select('context_insights').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
+    supabase.from('book_domain_cache').select('domain_insights, domain_label').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
+    supabase.from('book_influences_cache').select('influences').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
+    supabase.from('podcast_episodes_cache').select('podcast_episodes_curated, podcast_episodes_apple').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
+    supabase.from('google_scholar_articles').select('articles').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
+    supabase.from('related_books').select('related_books').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
+    supabase.from('youtube_videos').select('videos').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
+  ]);
+
+  // Process author facts
+  const authorFacts = authorFactsData.data?.author_facts;
+  if (authorFacts && Array.isArray(authorFacts)) {
+    for (const fact of authorFacts) {
+      if (await insertFeedItem('fact', { fact })) created++;
+    }
+  }
+
+  // Process context insights
+  const contextInsights = bookContextData.data?.context_insights;
+  if (contextInsights && Array.isArray(contextInsights)) {
+    for (const insight of contextInsights) {
+      if (await insertFeedItem('context', { insight })) created++;
+    }
+  }
+
+  // Process domain/drilldown insights
+  const domainInsights = bookDomainData.data?.domain_insights;
+  const domainLabel = bookDomainData.data?.domain_label || 'Domain';
+  if (domainInsights && Array.isArray(domainInsights)) {
+    for (const insight of domainInsights) {
+      if (await insertFeedItem('drilldown', { insight, domain_label: domainLabel })) created++;
+    }
+  }
+
+  // Process influences
+  const influences = bookInfluencesData.data?.influences;
+  if (influences && Array.isArray(influences)) {
+    for (const influence of influences) {
+      if (await insertFeedItem('influence', { influence })) created++;
+    }
+  }
+
+  // Process podcasts
+  const curatedPodcasts = podcastsData.data?.podcast_episodes_curated || [];
+  const applePodcasts = podcastsData.data?.podcast_episodes_apple || [];
+  for (const episode of [...curatedPodcasts, ...applePodcasts]) {
+    if (await insertFeedItem('podcast', { episode })) created++;
+  }
+
+  // Process articles
+  const articles = articlesData.data?.articles;
+  if (articles && Array.isArray(articles)) {
+    for (const article of articles) {
+      if (await insertFeedItem('article', { article })) created++;
+    }
+  }
+
+  // Process related books
+  const relatedBooks = relatedBooksData.data?.related_books;
+  if (relatedBooks && Array.isArray(relatedBooks)) {
+    for (const relatedBook of relatedBooks) {
+      if (await insertFeedItem('related_book', { related_book: relatedBook })) created++;
+    }
+  }
+
+  // Process YouTube videos
+  const videos = youtubeVideosData.data?.videos;
+  if (videos && Array.isArray(videos)) {
+    for (const video of videos) {
+      if (await insertFeedItem('video', { video })) created++;
+    }
+  }
+
+  console.log(`[generateFeedItemsForBook] ✅ Created ${created} feed items for "${bookTitle}" (${errors.length} errors)`);
+  return { created, errors };
+}
+
+// Get personalized feed with scoring and type diversity
+async function getPersonalizedFeed(userId: string): Promise<any[]> {
+  const POOL_SIZE = 60;
+
+  // Fetch a large candidate pool from each type
+  const typeQueries = [
+    supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'fact').order('created_at', { ascending: false }).limit(POOL_SIZE),
+    supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'context').order('created_at', { ascending: false }).limit(POOL_SIZE),
+    supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'drilldown').order('created_at', { ascending: false }).limit(POOL_SIZE),
+    supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'influence').order('created_at', { ascending: false }).limit(POOL_SIZE),
+    supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'podcast').order('created_at', { ascending: false }).limit(POOL_SIZE),
+    supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'article').order('created_at', { ascending: false }).limit(POOL_SIZE),
+    supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'related_book').order('created_at', { ascending: false }).limit(POOL_SIZE),
+    supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'video').order('created_at', { ascending: false }).limit(POOL_SIZE),
+  ];
+
+  // Also fetch friend_book items from followed users
+  const { data: follows } = await supabase.from('follows').select('following_id').eq('follower_id', userId);
+  if (follows && follows.length > 0) {
+    const followingIds = follows.map(f => f.following_id);
+    typeQueries.push(
+      supabase.from('feed_items').select('*').in('user_id', followingIds).eq('type', 'friend_book').order('created_at', { ascending: false }).limit(POOL_SIZE)
+    );
+  }
+
+  const results = await Promise.all(typeQueries);
+  const allCandidates = results.flatMap(r => r.data || []);
+
+  if (allCandidates.length === 0) {
+    return [];
+  }
+
+  // Greedy selection with diversity scoring — process all candidates
+  const feed: any[] = [];
+  const recentTypes: string[] = [];
+  const recentBooks: string[] = [];
+  const remainingCandidates = [...allCandidates];
+
+  while (remainingCandidates.length > 0) {
+    for (const item of remainingCandidates) {
+      item.computed_score = calculateFeedScore(item, recentTypes, recentBooks);
+    }
+
+    remainingCandidates.sort((a, b) => (b.computed_score || 0) - (a.computed_score || 0));
+
+    const selected = remainingCandidates.shift()!;
+    feed.push(selected);
+
+    recentTypes.unshift(selected.type);
+    recentBooks.unshift(selected.source_book_id);
+
+    if (recentTypes.length > 5) recentTypes.pop();
+    if (recentBooks.length > 5) recentBooks.pop();
+  }
+
+  return feed;
+}
+
+// Calculate feed score with freshness and diversity factors
+function calculateFeedScore(item: any, recentTypes: string[], recentBooks: string[]): number {
+  let score = item.base_score || 1.0;
+
+  // 1. FRESHNESS - Decay over 14 days
+  const createdAt = new Date(item.created_at).getTime();
+  const daysSinceCreated = (Date.now() - createdAt) / (1000 * 60 * 60 * 24);
+  const freshnessFactor = Math.max(0.2, 1 - daysSinceCreated / 14);
+  score *= freshnessFactor;
+
+  // 2. READING STATUS - Prioritize "reading" books, then recently added "read_it"
+  if (item.reading_status === 'reading') {
+    score *= 2.0;
+  } else if (item.reading_status === 'read_it') {
+    if (item.source_book_created_at) {
+      const bookAddedAt = new Date(item.source_book_created_at).getTime();
+      const daysSinceBookAdded = (Date.now() - bookAddedAt) / (1000 * 60 * 60 * 24);
+      score *= Math.max(1.0, 1.8 - (daysSinceBookAdded / 60) * 0.8);
+    } else {
+      score *= 1.3;
+    }
+  } else if (item.reading_status === 'want_to_read') {
+    score *= 0.7;
+  } else {
+    score *= 0.5;
+  }
+
+  // 3. STALENESS BOOST - Items not shown recently get priority
+  if (item.last_shown_at) {
+    const lastShown = new Date(item.last_shown_at).getTime();
+    const daysSinceShown = (Date.now() - lastShown) / (1000 * 60 * 60 * 24);
+    score += daysSinceShown * 0.5;
+  } else {
+    score += 5; // Never shown = big boost
+  }
+
+  // 4. DIMINISHING RETURNS - Penalize frequently shown items
+  score *= 1 / (1 + (item.times_shown || 0) * 0.15);
+
+  // 5. TYPE DIVERSITY - Penalize if same type was recent
+  const typeRecency = recentTypes.indexOf(item.type);
+  if (typeRecency !== -1) {
+    score *= Math.max(0.3, 1 - 0.2 * (5 - typeRecency));
+  }
+
+  // 6. BOOK DIVERSITY - Penalize if same book was recent
+  const bookRecency = recentBooks.indexOf(item.source_book_id);
+  if (bookRecency !== -1) {
+    score *= Math.max(0.4, 1 - 0.15 * (5 - bookRecency));
+  }
+
+  return score;
+}
+
+// Mark feed items as shown (for staleness tracking)
+async function markFeedItemsAsShown(itemIds: string[]): Promise<void> {
+  if (itemIds.length === 0) return;
+
+  for (const id of itemIds) {
+    const { data: item } = await supabase
+      .from('feed_items')
+      .select('times_shown')
+      .eq('id', id)
+      .single();
+
+    const currentCount = item?.times_shown || 0;
+
+    await supabase
+      .from('feed_items')
+      .update({
+        times_shown: currentCount + 1,
+        last_shown_at: new Date().toISOString(),
+      })
+      .eq('id', id);
+  }
+}
+
+// Mark a feed item as read/unread
+async function markFeedItemRead(itemId: string, read: boolean): Promise<void> {
+  await supabase
+    .from('feed_items')
+    .update({ read })
+    .eq('id', itemId);
 }
 
 // Get podcast episodes from Grok
@@ -5357,6 +5739,7 @@ export default function App() {
   };
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isShowingNotes, setIsShowingNotes] = useState(false);
+  const openNotesAfterNavRef = useRef(false); // Track when to open notes after navigating from notes list
   const [newlyAddedNoteTimestamp, setNewlyAddedNoteTimestamp] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
   const lastSavedNoteTextRef = useRef<string>('');
@@ -5434,6 +5817,14 @@ export default function App() {
   const [feedView, setFeedView] = useState<'following' | 'community'>('following');
   const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
   const [isLoadingFeed, setIsLoadingFeed] = useState(false);
+  const [personalizedFeedItems, setPersonalizedFeedItems] = useState<PersonalizedFeedItem[]>([]);
+  const [isLoadingPersonalizedFeed, setIsLoadingPersonalizedFeed] = useState(false);
+  const [feedDisplayCount, setFeedDisplayCount] = useState(8);
+  const [feedFilter, setFeedFilter] = useState<'all' | 'unread' | 'read'>('all');
+  const [isLoadingMoreFeed, setIsLoadingMoreFeed] = useState(false);
+  const [feedPlayingAudioUrl, setFeedPlayingAudioUrl] = useState<string | null>(null);
+  const feedAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [feedPlayingVideoId, setFeedPlayingVideoId] = useState<string | null>(null);
   const [followingUsers, setFollowingUsers] = useState<Array<{ id: string; full_name: string | null; avatar_url: string | null; email: string; followed_at: string }>>([]);
   const [isLoadingFollowing, setIsLoadingFollowing] = useState(false);
   const [followingSortOrder, setFollowingSortOrder] = useState<'recent_desc' | 'recent_asc' | 'name_desc' | 'name_asc'>('recent_desc');
@@ -6625,6 +7016,16 @@ export default function App() {
   const activeBook = books[selectedIndex] || null;
   const [editingDimension, setEditingDimension] = useState<typeof RATING_DIMENSIONS[number] | null>(null);
 
+  // Memoize filtered feed items for pagination
+  const filteredFeedItems = useMemo(() => {
+    if (feedFilter === 'all') return personalizedFeedItems;
+    if (feedFilter === 'unread') return personalizedFeedItems.filter(item => !item.read);
+    return personalizedFeedItems.filter(item => item.read);
+  }, [personalizedFeedItems, feedFilter]);
+
+  const displayedFeedItems = filteredFeedItems.slice(0, feedDisplayCount);
+  const hasMoreFeedItems = feedDisplayCount < filteredFeedItems.length;
+
   // Memoize combined podcast episodes to prevent recalculation on every render
   const combinedPodcastEpisodes = useMemo(() => {
     if (!activeBook) return [];
@@ -6669,6 +7070,35 @@ export default function App() {
       localStorage.setItem('lastSelectedBookIndex', selectedIndex.toString());
     }
   }, [selectedIndex, books.length]);
+
+  // Expose one-time feed backfill on window (run window.backfillFeed() in console)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !user || books.length === 0) return;
+    (window as any).backfillFeed = async () => {
+      console.log(`[backfillFeed] Starting backfill for ${books.length} books...`);
+      let totalCreated = 0;
+      let totalErrors: string[] = [];
+      for (let i = 0; i < books.length; i++) {
+        const book = books[i];
+        console.log(`[backfillFeed] (${i + 1}/${books.length}) ${book.title}...`);
+        const result = await generateFeedItemsForBook(
+          user.id,
+          book.id,
+          book.title,
+          book.author || '',
+          book.cover_url || null,
+          book.reading_status || null,
+          book.created_at
+        );
+        totalCreated += result.created;
+        totalErrors.push(...result.errors);
+      }
+      console.log(`[backfillFeed] ✅ Done! Created ${totalCreated} feed items across ${books.length} books (${totalErrors.length} errors)`);
+      if (totalErrors.length > 0) console.warn('[backfillFeed] Errors:', totalErrors);
+      return { totalCreated, totalErrors };
+    };
+    return () => { delete (window as any).backfillFeed; };
+  }, [user, books]);
 
   // Helper function to get alphabetical range for a letter
   const getAlphabeticalRange = (letter: string): string => {
@@ -6958,7 +7388,13 @@ export default function App() {
   useEffect(() => {
     setIsEditing(false);
     setIsConfirmingDelete(false);
-    setIsShowingNotes(false);
+    // Check if we should open notes after navigating from notes list
+    if (openNotesAfterNavRef.current) {
+      openNotesAfterNavRef.current = false;
+      setIsShowingNotes(true);
+    } else {
+      setIsShowingNotes(false);
+    }
     setNewlyAddedNoteTimestamp(null);
     setEditingDimension(null);
     setSelectedInsightCategory('trivia'); // Reset to trivia when book changes
@@ -6969,7 +7405,7 @@ export default function App() {
     const timer = setTimeout(() => {
       setIsMetaExpanded(false);
     }, 2000);
-    
+
     return () => clearTimeout(timer);
   }, [selectedIndex]);
 
@@ -7906,6 +8342,149 @@ export default function App() {
     */
   }, [selectedIndex, books, researchData]); // Depend on selectedIndex, books, and researchData
 
+  // Track which books we've generated feed items for to avoid duplicate generation
+  const generatedFeedForBooksRef = useRef<Set<string>>(new Set());
+
+  // Generate feed items when content is cached for a book
+  useEffect(() => {
+    if (!user) return;
+
+    const currentBook = books[selectedIndex];
+    if (!currentBook || !currentBook.title) return;
+
+    const bookId = currentBook.id;
+
+    // Skip if we've already generated feed items for this book
+    if (generatedFeedForBooksRef.current.has(bookId)) return;
+
+    // Check if this book has any cached content (indicating content has been fetched)
+    // We'll trigger feed generation after a delay to allow content fetching to complete
+    const timer = setTimeout(async () => {
+      // Double-check we haven't already generated
+      if (generatedFeedForBooksRef.current.has(bookId)) return;
+
+      // Check if the book has some cached content
+      const hasInfluences = bookInfluences.has(bookId) && (bookInfluences.get(bookId)?.length || 0) > 0;
+      const hasContext = bookContext.has(bookId) && (bookContext.get(bookId)?.length || 0) > 0;
+      const hasDomain = bookDomain.has(bookId) && (bookDomain.get(bookId)?.facts?.length || 0) > 0;
+      const hasFacts = currentBook.author_facts && currentBook.author_facts.length > 0;
+      const hasVideos = youtubeVideos.has(bookId) && (youtubeVideos.get(bookId)?.length || 0) > 0;
+
+      // Only generate if we have at least some content
+      if (hasInfluences || hasContext || hasDomain || hasFacts || hasVideos) {
+        console.log(`[Feed Generation] 🔄 Generating feed items for "${currentBook.title}"...`);
+        generatedFeedForBooksRef.current.add(bookId);
+
+        const result = await generateFeedItemsForBook(
+          user.id,
+          bookId,
+          currentBook.title,
+          currentBook.author || '',
+          currentBook.cover_url || null,
+          currentBook.reading_status || null,
+          currentBook.created_at
+        );
+
+        console.log(`[Feed Generation] ✅ Created ${result.created} feed items for "${currentBook.title}"`);
+      }
+    }, 5000); // Wait 5 seconds for content fetching to complete
+
+    return () => clearTimeout(timer);
+  }, [activeBook?.id, user, bookInfluences, bookContext, bookDomain, youtubeVideos]);
+
+  // Load personalized feed when feed page is shown
+  useEffect(() => {
+    if (!showFeedPage || !user) return;
+
+    async function loadPersonalizedFeed() {
+      setIsLoadingPersonalizedFeed(true);
+      setFeedDisplayCount(8); // Reset pagination
+      try {
+        console.log('[Feed] 🔄 Loading personalized feed...');
+        const items = await getPersonalizedFeed(user!.id);
+        setPersonalizedFeedItems(items as PersonalizedFeedItem[]);
+        console.log(`[Feed] ✅ Loaded ${items.length} feed items`);
+
+        // Mark only first 8 items as shown
+        const initialItems = items.slice(0, 8);
+        if (initialItems.length > 0) {
+          markFeedItemsAsShown(initialItems.map(item => item.id));
+        }
+      } catch (error) {
+        console.error('[Feed] ❌ Error loading feed:', error);
+      } finally {
+        setIsLoadingPersonalizedFeed(false);
+      }
+    }
+
+    loadPersonalizedFeed();
+  }, [showFeedPage, user]);
+
+  // Cleanup feed audio when leaving feed page
+  useEffect(() => {
+    if (!showFeedPage && feedAudioRef.current) {
+      feedAudioRef.current.pause();
+      feedAudioRef.current = null;
+      setFeedPlayingAudioUrl(null);
+    }
+  }, [showFeedPage]);
+
+  // Cleanup feed audio on unmount
+  useEffect(() => {
+    return () => {
+      if (feedAudioRef.current) {
+        feedAudioRef.current.pause();
+        feedAudioRef.current = null;
+      }
+    };
+  }, []);
+
+  // Handle feed podcast play/pause
+  function handleFeedPodcastPlay(episode: any) {
+    const audioUrl = episode?.audioUrl || (episode?.url && episode.url.match(/\.(mp3|m4a|wav|ogg|aac)(\?|$)/i) ? episode.url : null);
+
+    if (audioUrl) {
+      // Direct audio playback
+      if (feedPlayingAudioUrl === audioUrl) {
+        // Pause if already playing
+        if (feedAudioRef.current) {
+          feedAudioRef.current.pause();
+          setFeedPlayingAudioUrl(null);
+        }
+      } else {
+        // Stop any currently playing audio
+        if (feedAudioRef.current) {
+          feedAudioRef.current.pause();
+        }
+        // Play new audio
+        setFeedPlayingAudioUrl(audioUrl);
+        feedAudioRef.current = new Audio(audioUrl);
+        feedAudioRef.current.addEventListener('ended', () => {
+          setFeedPlayingAudioUrl(null);
+        });
+        feedAudioRef.current.addEventListener('error', () => {
+          console.error('[Feed] Audio playback failed, opening URL:', episode.url);
+          window.open(episode.url, '_blank');
+          setFeedPlayingAudioUrl(null);
+        });
+        feedAudioRef.current.play();
+      }
+    } else if (episode?.url) {
+      // No direct audio URL - open in new tab
+      if (feedPlayingAudioUrl === episode.url) {
+        setFeedPlayingAudioUrl(null);
+      } else {
+        if (feedAudioRef.current) {
+          feedAudioRef.current.pause();
+          setFeedPlayingAudioUrl(null);
+        }
+        setFeedPlayingAudioUrl(episode.url);
+        window.open(episode.url, '_blank');
+        setTimeout(() => setFeedPlayingAudioUrl(null), 1000);
+      }
+    }
+  }
+
   // Helper function to generate canonical book ID (matches database function)
   function generateCanonicalBookId(title: string, author: string): string {
     const normalizedTitle = (title || '').toLowerCase().trim().replace(/\s+/g, ' ');
@@ -8140,6 +8719,16 @@ export default function App() {
           setBooks(prev => [newBook, ...prev]);
           setSelectedIndex(0);
           setIsAdding(false);
+
+          // Create friend_book feed item for social feed
+          createFriendBookFeedItem(
+            user.id,
+            newBook.id,
+            newBook.title,
+            newBook.author || '',
+            newBook.cover_url || null,
+            readingStatus
+          );
           // Switch to books view (in case we're on bookshelf/notes screen)
           setShowBookshelf(false);
           setShowBookshelfCovers(false);
@@ -8186,12 +8775,22 @@ export default function App() {
       setShowBookshelf(false);
       setShowBookshelfCovers(false);
       setShowNotesView(false);
-      
+
+      // Create friend_book feed item for social feed
+      createFriendBookFeedItem(
+        user.id,
+        newBook.id,
+        newBook.title,
+        newBook.author || '',
+        newBook.cover_url || null,
+        readingStatus
+      );
+
       // If status is "read_it", integrate the new book into the merge sort game
       if (readingStatus === 'read_it') {
         addBookToMergeSortState(newBook.id);
       }
-      
+
       // If readingStatus is null, we need to show reading status selection in rating overlay
       if (readingStatus === null) {
         setSelectingReadingStatusInRating(true);
@@ -8955,6 +9554,12 @@ export default function App() {
                       onClick={() => {
                         setViewingUserId(followedUser.id);
                         setShowFollowingPage(false);
+                        setShowFeedPage(false);
+                        setShowBookshelf(false);
+                        setShowBookshelfCovers(true);
+                        setShowNotesView(false);
+                        setShowAccountPage(false);
+                        setShowSortingResults(false);
                       }}
                       className="w-full rounded-2xl p-4 flex items-center gap-4 hover:opacity-90 active:scale-[0.98] transition-all text-left"
                       style={standardGlassmorphicStyle}
@@ -9000,590 +9605,561 @@ export default function App() {
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
+
+              // Infinite scroll: load more when within 300px of bottom
+              if (
+                hasMoreFeedItems &&
+                !isLoadingMoreFeed &&
+                target.scrollHeight - target.scrollTop - target.clientHeight < 300
+              ) {
+                setIsLoadingMoreFeed(true);
+                const nextCount = Math.min(feedDisplayCount + 8, filteredFeedItems.length);
+                const newItems = filteredFeedItems.slice(feedDisplayCount, nextCount);
+                if (newItems.length > 0) {
+                  markFeedItemsAsShown(newItems.map(item => item.id));
+                }
+                setFeedDisplayCount(nextCount);
+                setIsLoadingMoreFeed(false);
+              }
             }}
           >
             {/* Feed Page */}
             <div className="w-full flex flex-col gap-4 px-3 pt-8">
-              {/* Mock Feed Item 1 - User added a book */}
-              <div
-                className="w-full rounded-2xl overflow-hidden"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.45)',
-                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                  backdropFilter: 'blur(9.4px)',
-                  WebkitBackdropFilter: 'blur(9.4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                }}
-              >
-                {/* Header - User info */}
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center">
-                    <span className="text-white font-bold text-sm">JD</span>
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900 text-sm">John Doe</p>
-                    <p className="text-xs text-slate-500">added a book</p>
-                  </div>
-                  <p className="text-xs text-slate-400">2h ago</p>
-                </div>
-
-                {/* Book Cover - Full width */}
-                <div className="w-full aspect-[3/4]">
-                  <img
-                    src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
-                    alt="The Great Gatsby"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-
-                {/* Book Info */}
-                <div className="px-4 py-3">
-                  <p className="font-bold text-slate-900">The Great Gatsby</p>
-                  <p className="text-sm text-slate-600">F. Scott Fitzgerald</p>
-                </div>
-              </div>
-
-              {/* Mock Feed Item - Facts about a book (AI-generated) */}
-              <div
-                className="w-full rounded-2xl overflow-hidden"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.45)',
-                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                  backdropFilter: 'blur(9.4px)',
-                  WebkitBackdropFilter: 'blur(9.4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                }}
-              >
-                {/* Header */}
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-400 flex items-center justify-center">
-                    <Sparkles size={20} className="text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900 text-sm">Did You Know?</p>
-                    <p className="text-xs text-slate-500">Facts from your reading</p>
-                  </div>
-                </div>
-
-                {/* Book + Facts Content */}
-                <div className="px-4 pb-4">
-                  {/* Book Info Row */}
-                  <div className="flex gap-3 mb-3">
-                    <img
-                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
-                      alt="The Great Gatsby"
-                      className="w-16 h-24 object-cover rounded-lg flex-shrink-0"
-                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-slate-900 text-sm">The Great Gatsby</p>
-                      <p className="text-xs text-slate-600 mb-2">F. Scott Fitzgerald</p>
-                      <div className="flex items-center gap-1">
-                        <Sparkles size={12} className="text-amber-500" />
-                        <span className="text-xs font-medium text-amber-600">3 Facts</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Facts List */}
-                  <div className="flex flex-col gap-2">
-                    <div className="bg-white/40 rounded-xl px-3 py-2">
-                      <p className="text-sm text-slate-700">Fitzgerald wrote the novel while living in France during the 1920s expatriate movement.</p>
-                    </div>
-                    <div className="bg-white/40 rounded-xl px-3 py-2">
-                      <p className="text-sm text-slate-700">The original cover art was created before the novel was finished, and Fitzgerald loved it so much he wrote it into the story.</p>
-                    </div>
-                    <div className="bg-white/40 rounded-xl px-3 py-2">
-                      <p className="text-sm text-slate-700">The book sold poorly during Fitzgerald's lifetime but became a classic after being distributed to soldiers in WWII.</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Mock Feed Item - YouTube video about a book (AI-discovered) */}
-              <div
-                className="w-full rounded-2xl overflow-hidden"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.45)',
-                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                  backdropFilter: 'blur(9.4px)',
-                  WebkitBackdropFilter: 'blur(9.4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                }}
-              >
-                {/* Header */}
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center">
-                    <Play size={20} className="text-white ml-0.5" fill="white" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900 text-sm">Watch</p>
-                    <p className="text-xs text-slate-500">Video about your book</p>
-                  </div>
-                </div>
-
-                {/* YouTube Thumbnail with Play Button */}
-                <div className="relative w-full aspect-video bg-slate-900">
-                  <img
-                    src="https://img.youtube.com/vi/dQw4w9WgXcQ/maxresdefault.jpg"
-                    alt="Video thumbnail"
-                    className="w-full h-full object-cover"
-                  />
-                  {/* Play Button Overlay */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-lg">
-                      <Play size={28} className="text-white ml-1" fill="white" />
-                    </div>
-                  </div>
-                  {/* Duration Badge */}
-                  <div className="absolute bottom-2 right-2 bg-black/80 px-2 py-0.5 rounded text-xs text-white font-medium">
-                    12:34
-                  </div>
-                </div>
-
-                {/* Video Title + Book Reference */}
-                <div className="px-4 py-3">
-                  <p className="font-bold text-slate-900 text-sm mb-3">Why "The Great Gatsby" Is The Great American Novel</p>
-                  <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
-                    <img
-                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
-                      alt="The Great Gatsby"
-                      className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
-                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-500">About</p>
-                      <p className="text-sm font-medium text-slate-800">The Great Gatsby</p>
-                      <p className="text-xs text-slate-500">F. Scott Fitzgerald</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Mock Feed Item - Podcast episode about a book (AI-discovered) */}
-              <div
-                className="w-full rounded-2xl overflow-hidden"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.45)',
-                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                  backdropFilter: 'blur(9.4px)',
-                  WebkitBackdropFilter: 'blur(9.4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                }}
-              >
-                {/* Header */}
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-400 to-purple-500 flex items-center justify-center">
-                    <Headphones size={20} className="text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900 text-sm">Listen</p>
-                    <p className="text-xs text-slate-500">Podcast about your book</p>
-                  </div>
-                </div>
-
-                {/* Podcast Content */}
-                <div className="px-4 pb-4">
-                  <div className="flex gap-3">
-                    {/* Podcast Artwork */}
-                    <div className="relative w-24 h-24 flex-shrink-0">
-                      <div
-                        className="w-full h-full rounded-xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center"
-                        style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
-                      >
-                        <Headphones size={32} className="text-white" />
-                      </div>
-                    </div>
-
-                    {/* Podcast Info */}
-                    <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
-                      <div>
-                        <p className="font-bold text-slate-900 text-sm line-clamp-2">The Hidden Meaning Behind The Great Gatsby's Green Light</p>
-                        <p className="text-xs text-slate-500 mt-1">The Literary Podcast • Ep. 42</p>
-                      </div>
-                      <div className="flex items-center gap-3 mt-2">
-                        <button className="w-8 h-8 rounded-full bg-emerald-500 flex items-center justify-center shadow-md active:scale-95 transition-transform">
-                          <Play size={14} className="text-white ml-0.5" fill="white" />
-                        </button>
-                        <span className="text-xs text-slate-500">45 min</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Book Reference */}
-                  <div className="flex items-center gap-3 mt-3 bg-white/30 rounded-xl p-2">
-                    <img
-                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
-                      alt="The Great Gatsby"
-                      className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
-                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-500">About</p>
-                      <p className="text-sm font-medium text-slate-800">The Great Gatsby</p>
-                      <p className="text-xs text-slate-500">F. Scott Fitzgerald</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Mock Feed Item - Recommended book */}
-              <div
-                className="w-full rounded-2xl overflow-hidden"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.45)',
-                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                  backdropFilter: 'blur(9.4px)',
-                  WebkitBackdropFilter: 'blur(9.4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                }}
-              >
-                {/* Header - Recommendation badge */}
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-yellow-500 flex items-center justify-center">
-                    <Sparkles size={20} className="text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900 text-sm">Recommended for you</p>
-                    <p className="text-xs text-slate-500">Based on The Great Gatsby</p>
-                  </div>
-                </div>
-
-                {/* Recommended Book Cover */}
-                <div className="w-full aspect-[3/4]">
-                  <img
-                    src="https://covers.openlibrary.org/b/isbn/9780684801223-L.jpg"
-                    alt="Tender Is the Night"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-
-                {/* Book Info + Add Button */}
-                <div className="px-4 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-slate-900">Tender Is the Night</p>
-                      <p className="text-sm text-slate-600">F. Scott Fitzgerald</p>
-                      <p className="text-xs text-slate-500 mt-1 line-clamp-2">A tale of love, ambition, and the American Dream on the French Riviera.</p>
-                    </div>
-                    <button
-                      className="flex-shrink-0 px-4 py-2 rounded-xl text-white text-sm font-semibold active:scale-95 transition-transform"
-                      style={{
-                        background: 'rgba(59, 130, 246, 0.85)',
-                        backdropFilter: 'blur(9.4px)',
-                        WebkitBackdropFilter: 'blur(9.4px)',
-                        border: '1px solid rgba(59, 130, 246, 0.3)',
-                      }}
-                    >
-                      Add
-                    </button>
-                  </div>
-
-                  {/* Based on book reference */}
-                  <div className="flex items-center gap-3 mt-3 bg-white/30 rounded-xl p-2">
-                    <img
-                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
-                      alt="The Great Gatsby"
-                      className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
-                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-500">Because you read</p>
-                      <p className="text-sm font-medium text-slate-800">The Great Gatsby</p>
-                      <p className="text-xs text-slate-500">F. Scott Fitzgerald</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Mock Feed Item - Influences (AI-generated) */}
-              <div
-                className="w-full rounded-2xl overflow-hidden"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.45)',
-                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                  backdropFilter: 'blur(9.4px)',
-                  WebkitBackdropFilter: 'blur(9.4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                }}
-              >
-                {/* Header */}
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-blue-500 flex items-center justify-center">
-                    <BookMarked size={20} className="text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900 text-sm">Influences</p>
-                    <p className="text-xs text-slate-500">Books that shaped your read</p>
-                  </div>
-                </div>
-
-                {/* Influences Content */}
-                <div className="px-4 pb-4">
-                  {/* Influenced Books Grid */}
-                  <div className="flex gap-2 mb-3 overflow-x-auto pb-2">
-                    <div className="flex-shrink-0 w-20">
-                      <img
-                        src="https://covers.openlibrary.org/b/isbn/9780141439518-L.jpg"
-                        alt="Pride and Prejudice"
-                        className="w-20 h-28 object-cover rounded-lg"
-                        style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
-                      />
-                      <p className="text-xs font-medium text-slate-700 mt-1 line-clamp-1">Pride & Prejudice</p>
-                      <p className="text-xs text-slate-500 line-clamp-1">Austen</p>
-                    </div>
-                    <div className="flex-shrink-0 w-20">
-                      <img
-                        src="https://covers.openlibrary.org/b/isbn/9780141439600-L.jpg"
-                        alt="Heart of Darkness"
-                        className="w-20 h-28 object-cover rounded-lg"
-                        style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
-                      />
-                      <p className="text-xs font-medium text-slate-700 mt-1 line-clamp-1">Heart of Darkness</p>
-                      <p className="text-xs text-slate-500 line-clamp-1">Conrad</p>
-                    </div>
-                    <div className="flex-shrink-0 w-20">
-                      <img
-                        src="https://covers.openlibrary.org/b/isbn/9780486415871-L.jpg"
-                        alt="The Waste Land"
-                        className="w-20 h-28 object-cover rounded-lg"
-                        style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
-                      />
-                      <p className="text-xs font-medium text-slate-700 mt-1 line-clamp-1">The Waste Land</p>
-                      <p className="text-xs text-slate-500 line-clamp-1">T.S. Eliot</p>
-                    </div>
-                  </div>
-
-                  {/* Source Book Reference */}
-                  <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
-                    <img
-                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
-                      alt="The Great Gatsby"
-                      className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
-                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-500">Influences on</p>
-                      <p className="text-sm font-medium text-slate-800">The Great Gatsby</p>
-                      <p className="text-xs text-slate-500">F. Scott Fitzgerald</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Mock Feed Item - Context (AI-generated) */}
-              <div
-                className="w-full rounded-2xl overflow-hidden"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.45)',
-                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                  backdropFilter: 'blur(9.4px)',
-                  WebkitBackdropFilter: 'blur(9.4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                }}
-              >
-                {/* Header */}
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-400 to-emerald-500 flex items-center justify-center">
-                    <Info size={20} className="text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900 text-sm">Context</p>
-                    <p className="text-xs text-slate-500">The world behind your book</p>
-                  </div>
-                </div>
-
-                {/* Context Content */}
-                <div className="px-4 pb-4">
-                  <div className="bg-white/40 rounded-xl p-3 mb-3">
-                    <p className="text-sm font-semibold text-slate-800 mb-2">The Roaring Twenties</p>
-                    <p className="text-sm text-slate-700 leading-relaxed">
-                      Set in 1922, during the Jazz Age—a period of unprecedented economic prosperity, cultural dynamism, and social change in America. Prohibition was in effect, yet speakeasies thrived, and the stock market seemed destined to rise forever.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    <span className="px-2 py-1 bg-white/50 rounded-full text-xs font-medium text-slate-600">Jazz Age</span>
-                    <span className="px-2 py-1 bg-white/50 rounded-full text-xs font-medium text-slate-600">Prohibition</span>
-                    <span className="px-2 py-1 bg-white/50 rounded-full text-xs font-medium text-slate-600">1920s America</span>
-                    <span className="px-2 py-1 bg-white/50 rounded-full text-xs font-medium text-slate-600">American Dream</span>
-                  </div>
-
-                  {/* Source Book Reference */}
-                  <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
-                    <img
-                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
-                      alt="The Great Gatsby"
-                      className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
-                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-500">Context for</p>
-                      <p className="text-sm font-medium text-slate-800">The Great Gatsby</p>
-                      <p className="text-xs text-slate-500">F. Scott Fitzgerald</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Mock Feed Item - Drilldown Subject (AI-generated) */}
-              <div
-                className="w-full rounded-2xl overflow-hidden"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.45)',
-                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                  backdropFilter: 'blur(9.4px)',
-                  WebkitBackdropFilter: 'blur(9.4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                }}
-              >
-                {/* Header */}
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center">
-                    <Search size={20} className="text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900 text-sm">Deep Dive</p>
-                    <p className="text-xs text-slate-500">A theme from your reading</p>
-                  </div>
-                </div>
-
-                {/* Drilldown Content */}
-                <div className="px-4 pb-4">
-                  <div className="bg-gradient-to-br from-rose-50 to-pink-50 rounded-xl p-4 mb-3 border border-rose-100">
-                    <p className="text-lg font-bold text-slate-900 mb-2">The Green Light</p>
-                    <p className="text-sm text-slate-700 leading-relaxed mb-3">
-                      One of literature's most iconic symbols, the green light at the end of Daisy's dock represents Gatsby's hopes and dreams for the future—particularly his desire to recapture his past with Daisy.
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50"></div>
-                      <p className="text-xs text-slate-500 italic">"Gatsby believed in the green light, the orgastic future..."</p>
-                    </div>
-                  </div>
-
+              {/* Feed filter pills */}
+              <div className="flex gap-2 mb-1">
+                {(['all', 'unread', 'read'] as const).map((filter) => (
                   <button
-                    className="w-full py-2.5 rounded-xl text-sm font-semibold text-rose-600 bg-white/50 border border-rose-200 active:scale-[0.98] transition-transform mb-3"
+                    key={filter}
+                    onClick={() => {
+                      setFeedFilter(filter);
+                      setFeedDisplayCount(8);
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                      feedFilter === filter
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-600'
+                    }`}
+                    style={feedFilter !== filter ? feedCardStyle : undefined}
                   >
-                    Explore more about symbolism →
+                    {filter === 'all' ? 'All' : filter === 'unread' ? 'Unread' : 'Read'}
                   </button>
-
-                  {/* Source Book Reference */}
-                  <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
-                    <img
-                      src="https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg"
-                      alt="The Great Gatsby"
-                      className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
-                      style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-500">From</p>
-                      <p className="text-sm font-medium text-slate-800">The Great Gatsby</p>
-                      <p className="text-xs text-slate-500">F. Scott Fitzgerald</p>
-                    </div>
-                  </div>
-                </div>
+                ))}
               </div>
 
-              {/* Mock Feed Item 2 - Added a book */}
-              <div
-                className="w-full rounded-2xl overflow-hidden"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.45)',
-                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                  backdropFilter: 'blur(9.4px)',
-                  WebkitBackdropFilter: 'blur(9.4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                }}
-              >
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-cyan-400 flex items-center justify-center">
-                    <span className="text-white font-bold text-sm">AS</span>
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900 text-sm">Alice Smith</p>
-                    <p className="text-xs text-slate-500">added a book</p>
-                  </div>
-                  <p className="text-xs text-slate-400">5h ago</p>
-                </div>
-                <div className="w-full aspect-[3/4]">
-                  <img
-                    src="https://covers.openlibrary.org/b/isbn/9780061120084-L.jpg"
-                    alt="To Kill a Mockingbird"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="px-4 py-3">
-                  <p className="font-bold text-slate-900">To Kill a Mockingbird</p>
-                  <p className="text-sm text-slate-600">Harper Lee</p>
-                </div>
-              </div>
+              {/* Loading skeleton */}
+              {isLoadingPersonalizedFeed && (
+                <>
+                  {[1, 2, 3].map((i) => (
+                    <motion.div
+                      key={`skeleton-${i}`}
+                      animate={{ opacity: [0.5, 0.8, 0.5] }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: i * 0.2 }}
+                      className="w-full rounded-2xl overflow-hidden"
+                      style={feedCardStyle}
+                    >
+                      {/* Header skeleton */}
+                      <div className="flex items-center gap-3 px-4 py-3">
+                        <div className="w-10 h-10 rounded-full bg-slate-300/50" />
+                        <div className="flex-1">
+                          <div className="w-24 h-4 bg-slate-300/50 rounded mb-1" />
+                          <div className="w-32 h-3 bg-slate-300/50 rounded" />
+                        </div>
+                        <div className="w-12 h-3 bg-slate-300/50 rounded" />
+                      </div>
+                      {/* Content skeleton */}
+                      <div className="px-4 pb-4">
+                        <div className="bg-white/40 rounded-xl p-3 mb-3">
+                          <div className="w-full h-4 bg-slate-300/50 rounded mb-2" />
+                          <div className="w-3/4 h-4 bg-slate-300/50 rounded" />
+                        </div>
+                        {/* Source book skeleton */}
+                        <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                          <div className="w-10 h-14 bg-slate-300/50 rounded-lg" />
+                          <div className="flex-1">
+                            <div className="w-12 h-3 bg-slate-300/50 rounded mb-1" />
+                            <div className="w-24 h-4 bg-slate-300/50 rounded mb-1" />
+                            <div className="w-20 h-3 bg-slate-300/50 rounded" />
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </>
+              )}
 
-              {/* Mock Feed Item 3 */}
-              <div
-                className="w-full rounded-2xl overflow-hidden"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.45)',
-                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                  backdropFilter: 'blur(9.4px)',
-                  WebkitBackdropFilter: 'blur(9.4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                }}
-              >
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-red-400 flex items-center justify-center">
-                    <span className="text-white font-bold text-sm">BW</span>
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900 text-sm">Bob Wilson</p>
-                    <p className="text-xs text-slate-500">added a book</p>
-                  </div>
-                  <p className="text-xs text-slate-400">1d ago</p>
+              {/* Empty state */}
+              {!isLoadingPersonalizedFeed && personalizedFeedItems.length === 0 && (
+                <div
+                  className="w-full rounded-2xl overflow-hidden p-8 text-center"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.45)',
+                    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                    backdropFilter: 'blur(9.4px)',
+                    WebkitBackdropFilter: 'blur(9.4px)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                  }}
+                >
+                  <Rss size={32} className="mx-auto mb-3 text-slate-400" />
+                  <p className="text-slate-800 font-medium mb-2">Your feed is empty</p>
+                  <p className="text-sm text-slate-500">Add books and mark them as read to see personalized content here.</p>
                 </div>
-                <div className="w-full aspect-[3/4]">
-                  <img
-                    src="https://covers.openlibrary.org/b/isbn/9780451524935-L.jpg"
-                    alt="1984"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="px-4 py-3">
-                  <p className="font-bold text-slate-900">1984</p>
-                  <p className="text-sm text-slate-600">George Orwell</p>
-                </div>
-              </div>
+              )}
 
-              {/* Mock Feed Item 4 */}
-              <div
-                className="w-full rounded-2xl overflow-hidden"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.45)',
-                  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                  backdropFilter: 'blur(9.4px)',
-                  WebkitBackdropFilter: 'blur(9.4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                }}
-              >
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-400 flex items-center justify-center">
-                    <span className="text-white font-bold text-sm">EJ</span>
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900 text-sm">Emma Johnson</p>
-                    <p className="text-xs text-slate-500">added a book</p>
-                  </div>
-                  <p className="text-xs text-slate-400">2d ago</p>
+              {/* Dynamic Feed Items */}
+              {!isLoadingPersonalizedFeed && displayedFeedItems.map((item) => {
+                // Helper to render read toggle button
+                const ReadToggle = () => (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const newRead = !item.read;
+                      markFeedItemRead(item.id, newRead);
+                      setPersonalizedFeedItems(prev =>
+                        prev.map(fi => fi.id === item.id ? { ...fi, read: newRead } : fi)
+                      );
+                    }}
+                    className="ml-1 p-1 rounded-full hover:bg-white/30 transition-colors"
+                    title={item.read ? 'Mark as unread' : 'Mark as read'}
+                  >
+                    {item.read ? (
+                      <CheckCircle2 size={16} className="text-green-500" />
+                    ) : (
+                      <Circle size={16} className="text-slate-300" />
+                    )}
+                  </button>
+                );
+                const cardOpacity = item.read ? 'opacity-60' : '';
+
+                // Render based on type
+                switch (item.type) {
+                  case 'fact':
+                    return (
+                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-400 flex items-center justify-center">
+                            <Sparkles size={20} className="text-white" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 text-sm">Did You Know?</p>
+                            <p className="text-xs text-slate-500">Facts from your reading</p>
+                          </div>
+                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
+                          <ReadToggle />
+                        </div>
+                        <div className="px-4 pb-4">
+                          <div className="bg-white/40 rounded-xl px-3 py-2 mb-3">
+                            <p className="text-sm text-slate-700">{item.content.fact}</p>
+                          </div>
+                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                            {item.source_book_cover_url ? (
+                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
+                            ) : (
+                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-slate-500">About</p>
+                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                  case 'context':
+                    const contextData = item.content.insight;
+                    return (
+                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-400 to-emerald-500 flex items-center justify-center">
+                            <Info size={20} className="text-white" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 text-sm">Context</p>
+                            <p className="text-xs text-slate-500">The world behind your book</p>
+                          </div>
+                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
+                          <ReadToggle />
+                        </div>
+                        <div className="px-4 pb-4">
+                          <div className="bg-white/40 rounded-xl p-3 mb-3">
+                            <p className="text-sm text-slate-700 leading-relaxed">
+                              {typeof contextData === 'string' ? contextData : contextData?.text || JSON.stringify(contextData)}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                            {item.source_book_cover_url ? (
+                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
+                            ) : (
+                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-slate-500">Context for</p>
+                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                  case 'drilldown':
+                    const drilldownData = item.content.insight;
+                    const domainLabel = item.content.domain_label || 'Domain';
+                    return (
+                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center">
+                            <Search size={20} className="text-white" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 text-sm">Deep Dive</p>
+                            <p className="text-xs text-slate-500">{domainLabel}</p>
+                          </div>
+                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
+                          <ReadToggle />
+                        </div>
+                        <div className="px-4 pb-4">
+                          <div className="bg-gradient-to-br from-rose-50 to-pink-50 rounded-xl p-3 mb-3 border border-rose-100">
+                            <p className="text-sm text-slate-700 leading-relaxed">
+                              {typeof drilldownData === 'string' ? drilldownData : drilldownData?.text || JSON.stringify(drilldownData)}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                            {item.source_book_cover_url ? (
+                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
+                            ) : (
+                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-slate-500">From</p>
+                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                  case 'influence':
+                    const influenceData = item.content.influence;
+                    return (
+                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-blue-500 flex items-center justify-center">
+                            <BookMarked size={20} className="text-white" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 text-sm">Influences</p>
+                            <p className="text-xs text-slate-500">Books that shaped your read</p>
+                          </div>
+                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
+                          <ReadToggle />
+                        </div>
+                        <div className="px-4 pb-4">
+                          <div className="bg-white/40 rounded-xl px-3 py-2 mb-3">
+                            <p className="text-sm text-slate-700">
+                              {typeof influenceData === 'string' ? influenceData : influenceData?.title || JSON.stringify(influenceData)}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                            {item.source_book_cover_url ? (
+                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
+                            ) : (
+                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-slate-500">Influenced</p>
+                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                  case 'podcast':
+                    const episode = item.content.episode;
+                    const podcastAudioUrl = episode?.audioUrl || (episode?.url && episode.url.match(/\.(mp3|m4a|wav|ogg|aac)(\?|$)/i) ? episode.url : null);
+                    const isPodcastPlaying = feedPlayingAudioUrl === (podcastAudioUrl || episode?.url);
+                    return (
+                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-400 to-purple-500 flex items-center justify-center">
+                            <Headphones size={20} className="text-white" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 text-sm">Listen</p>
+                            <p className="text-xs text-slate-500">Podcast about your book</p>
+                          </div>
+                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
+                          <ReadToggle />
+                        </div>
+                        <div className="px-4 pb-4">
+                          <div className="flex gap-3 mb-3">
+                            {/* Podcast thumbnail with play button overlay */}
+                            <div className="relative w-20 h-20 flex-shrink-0">
+                              {episode?.thumbnail ? (
+                                <img src={episode.thumbnail} alt={episode.title} className="w-full h-full rounded-xl object-cover" />
+                              ) : (
+                                <div className="w-full h-full rounded-xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center">
+                                  <Headphones size={28} className="text-white" />
+                                </div>
+                              )}
+                              {/* Play/Pause overlay button */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleFeedPodcastPlay(episode);
+                                }}
+                                className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl active:scale-95 transition-transform"
+                              >
+                                {isPodcastPlaying ? (
+                                  <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                                    <div className="flex gap-1">
+                                      <div className="w-1 h-4 bg-emerald-600 rounded-full" />
+                                      <div className="w-1 h-4 bg-emerald-600 rounded-full" />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                                    <Play size={18} className="text-emerald-600 ml-0.5" fill="currentColor" />
+                                  </div>
+                                )}
+                              </button>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-slate-900 text-sm line-clamp-2">{episode?.title || 'Podcast Episode'}</p>
+                              <p className="text-xs text-slate-500 mt-1">{episode?.podcast_name || 'Podcast'}</p>
+                              <div className="flex items-center gap-2 mt-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleFeedPodcastPlay(episode);
+                                  }}
+                                  className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium active:scale-95 transition-transform"
+                                >
+                                  {isPodcastPlaying ? (
+                                    <>
+                                      <VolumeX size={12} />
+                                      Stop
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Play size={12} />
+                                      Play
+                                    </>
+                                  )}
+                                </button>
+                                {episode?.length && (
+                                  <span className="text-xs text-slate-400">{episode.length}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                            {item.source_book_cover_url ? (
+                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
+                            ) : (
+                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-slate-500">About</p>
+                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                  case 'video':
+                    const video = item.content.video;
+                    const videoId = video?.videoId || video?.id;
+                    const isVideoPlaying = feedPlayingVideoId === videoId;
+                    return (
+                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center">
+                            <Play size={20} className="text-white ml-0.5" fill="white" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 text-sm">Watch</p>
+                            <p className="text-xs text-slate-500">Video about your book</p>
+                          </div>
+                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
+                          <ReadToggle />
+                        </div>
+                        {isVideoPlaying ? (
+                          <div className="relative w-full aspect-video bg-black">
+                            <iframe
+                              src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`}
+                              className="w-full h-full"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                            />
+                            <button
+                              onClick={() => setFeedPlayingVideoId(null)}
+                              className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center"
+                            >
+                              <X size={16} className="text-white" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setFeedPlayingVideoId(videoId)} className="block w-full text-left">
+                            <div className="relative w-full aspect-video bg-slate-900">
+                              {video?.thumbnail && (
+                                <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover" />
+                              )}
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="w-14 h-14 rounded-full bg-red-600/90 flex items-center justify-center shadow-lg">
+                                  <Play size={24} className="text-white ml-1" fill="white" />
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        )}
+                        <div className="px-4 py-3">
+                          <p className="font-bold text-slate-900 text-sm mb-3 line-clamp-2">{video?.title || 'YouTube Video'}</p>
+                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                            {item.source_book_cover_url ? (
+                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
+                            ) : (
+                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-slate-500">About</p>
+                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                  case 'related_book':
+                    const relatedBook = item.content.related_book;
+                    return (
+                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-yellow-500 flex items-center justify-center">
+                            <Sparkles size={20} className="text-white" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 text-sm">Recommended for you</p>
+                            <p className="text-xs text-slate-500">Based on {item.source_book_title}</p>
+                          </div>
+                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
+                          <ReadToggle />
+                        </div>
+                        <div className="px-4 pb-4">
+                          <div className="flex gap-4">
+                            {relatedBook?.cover_url ? (
+                              <img src={relatedBook.cover_url} alt={relatedBook.title} className="w-24 h-36 object-cover rounded-lg flex-shrink-0 shadow-md" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
+                            ) : (
+                              <div className="w-24 h-36 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center shadow-md">
+                                <BookOpen size={28} className="text-slate-400" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0 flex flex-col justify-center">
+                              <p className="font-bold text-slate-900 text-lg leading-tight">{relatedBook?.title || 'Related Book'}</p>
+                              <p className="text-sm text-slate-600 mt-0.5">{relatedBook?.author || 'Unknown Author'}</p>
+                              {relatedBook?.reason && (
+                                <p className="text-sm text-slate-700 mt-2 leading-snug">{relatedBook.reason}</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                  case 'article':
+                    const article = item.content.article;
+                    return (
+                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-500 to-slate-600 flex items-center justify-center">
+                            <FileText size={20} className="text-white" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 text-sm">Read</p>
+                            <p className="text-xs text-slate-500">Article about your book</p>
+                          </div>
+                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
+                          <ReadToggle />
+                        </div>
+                        <div className="px-4 pb-4">
+                          <div className="bg-white/40 rounded-xl p-3 mb-3">
+                            <p className="font-semibold text-slate-800 text-sm mb-1">{article?.title || 'Article'}</p>
+                            {article?.snippet && (
+                              <p className="text-xs text-slate-600 line-clamp-2">{article.snippet}</p>
+                            )}
+                            {article?.url && (
+                              <a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-2 text-xs text-blue-600 font-medium">
+                                <ExternalLink size={12} />
+                                Read article
+                              </a>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                            {item.source_book_cover_url ? (
+                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
+                            ) : (
+                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-slate-500">About</p>
+                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                  case 'friend_book':
+                    return (
+                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center">
+                            <Users size={20} className="text-white" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 text-sm">A friend added a book</p>
+                            <p className="text-xs text-slate-500">{item.content.action || 'added'}</p>
+                          </div>
+                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
+                          <ReadToggle />
+                        </div>
+                        {item.source_book_cover_url && (
+                          <div className="w-full aspect-[3/4]">
+                            <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-full h-full object-cover" />
+                          </div>
+                        )}
+                        <div className="px-4 py-3">
+                          <p className="font-bold text-slate-900">{item.source_book_title}</p>
+                          <p className="text-sm text-slate-600">{item.source_book_author}</p>
+                        </div>
+                      </div>
+                    );
+
+                  default:
+                    return null;
+                }
+              })}
+
+              {/* Load more indicator */}
+              {hasMoreFeedItems && !isLoadingPersonalizedFeed && (
+                <div className="w-full flex justify-center py-4">
+                  <div className="w-6 h-6 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
                 </div>
-                <div className="w-full aspect-[3/4]">
-                  <img
-                    src="https://covers.openlibrary.org/b/isbn/9780141439518-L.jpg"
-                    alt="Pride and Prejudice"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="px-4 py-3">
-                  <p className="font-bold text-slate-900">Pride and Prejudice</p>
-                  <p className="text-sm text-slate-600">Jane Austen</p>
-                </div>
-              </div>
+              )}
+
+              {/* End of feed */}
+              {!isLoadingPersonalizedFeed && !hasMoreFeedItems && displayedFeedItems.length > 0 && (
+                <p className="text-center text-xs text-slate-400 py-4">You've reached the end</p>
+              )}
+
             </div>
           </motion.main>
         ) : showSortingResults ? (
@@ -9742,11 +10318,20 @@ export default function App() {
                         // Find book index and navigate to it, then open notes
                         const bookIndex = books.findIndex(b => b.id === book.id);
                         if (bookIndex !== -1) {
-                          setSelectedIndex(bookIndex);
                           setShowNotesView(false);
-                          setTimeout(() => {
+                          setShowBookshelf(false);
+                          setShowBookshelfCovers(false);
+                          setShowAccountPage(false);
+                          setShowFollowingPage(false);
+                          setShowFeedPage(false);
+                          if (bookIndex === selectedIndex) {
+                            // Already on this book, just open notes directly
                             setIsShowingNotes(true);
-                          }, 300);
+                          } else {
+                            // Different book — ref tells the selectedIndex useEffect to open notes
+                            openNotesAfterNavRef.current = true;
+                            setSelectedIndex(bookIndex);
+                          }
                         }
                       }
                     }}
@@ -11947,8 +12532,23 @@ export default function App() {
           {/* Bookshelf button - left (circular, grid view) */}
           <button
             onClick={() => {
-              if (showBookshelfCovers) return; // Already on bookshelf, do nothing
+              if (
+                showBookshelfCovers &&
+                !showFeedPage &&
+                !showNotesView &&
+                !showAccountPage &&
+                !showSortingResults &&
+                !showFollowingPage &&
+                !viewingUserId
+              ) {
+                return; // Already on bookshelf, do nothing
+              }
               setScrollY(0); // Reset scroll when switching views
+              setViewingUserId(null);
+              setViewingUserBooks([]);
+              setViewingUserName('');
+              setViewingUserFullName(null);
+              setViewingUserAvatar(null);
               setShowBookshelfCovers(true);
               setShowBookshelf(false);
               setShowNotesView(false);
@@ -11970,6 +12570,11 @@ export default function App() {
             onClick={() => {
               if (showFeedPage) return; // Already on feed, do nothing
               setScrollY(0);
+              setViewingUserId(null);
+              setViewingUserBooks([]);
+              setViewingUserName('');
+              setViewingUserFullName(null);
+              setViewingUserAvatar(null);
               setShowFeedPage(true);
               setShowBookshelf(false);
               setShowBookshelfCovers(false);
@@ -12957,6 +13562,9 @@ export default function App() {
                 setShowBookshelfCovers(true);
                 setShowNotesView(false);
                 setShowAccountPage(false);
+                setShowFeedPage(false);
+                setShowSortingResults(false);
+                setShowFollowingPage(false);
                 setIsAdding(false);
               }}
             />

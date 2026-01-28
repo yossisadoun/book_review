@@ -6,6 +6,7 @@ export * from './types/book';
 // Supabase
 export * from './supabase/client';
 export * from './supabase/queries';
+export * from './supabase/feed';
 
 // API
 export * from './api/wikipedia';
