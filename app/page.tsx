@@ -13257,7 +13257,7 @@ export default function App() {
                 boxShadow: '0 10px 20px rgba(0,0,0,0.1)',
               }}
             >
-              Coming soon
+              Clubs coming soon
               <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1"
                 style={{
                   width: 0,
