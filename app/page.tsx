@@ -8864,6 +8864,7 @@ export default function App() {
     // Store the book metadata and add the book, then show rating overlay with reading status selection
     setPendingBookMeta(meta);
     setIsAdding(false);
+    setShowFeedPage(false);
     // Add book without status first, then show rating overlay
     // Pass meta directly to avoid race conditions with state updates
     await handleAddBookWithStatus(null as any, meta); // Add with null status, will update later
@@ -14210,6 +14211,7 @@ export default function App() {
                   setShowBookshelf(false);
                   setShowBookshelfCovers(false);
                   setShowNotesView(false);
+                  setShowFeedPage(false);
                 }
               }}
               onSelectUser={(userId) => {
@@ -14477,6 +14479,7 @@ export default function App() {
                     setShowBookshelfCovers(false);
                     setShowNotesView(false);
                     setShowAccountPage(false);
+                    setShowFeedPage(false);
 
                     // Add the book - handleAddBook will handle navigation
                     await handleAddBook(bookMeta);
