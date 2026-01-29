@@ -31,6 +31,7 @@ import {
   VolumeX,
   Rss,
   X,
+  MessageCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -1011,6 +1012,139 @@ async function saveBookContextToCache(bookTitle: string, bookAuthor: string, con
   }
 }
 
+// Discussion questions interface and functions
+interface DiscussionQuestion {
+  id: number;
+  question: string;
+  category: 'themes' | 'characters' | 'writing style' | 'ethics' | 'personal reflection' | 'real world';
+}
+
+async function getGrokDiscussionQuestions(bookTitle: string, author: string): Promise<DiscussionQuestion[]> {
+  console.log('[getGrokDiscussionQuestions] Called for:', bookTitle, 'by', author);
+
+  if (!grokApiKey) {
+    console.warn('[getGrokDiscussionQuestions] API key is missing!');
+    return [];
+  }
+
+  console.log('[getGrokDiscussionQuestions] API key found, waiting 2s before request...');
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  const url = 'https://api.x.ai/v1/chat/completions';
+
+  // Load prompt from yaml
+  const prompts = await loadPrompts();
+  const prompt = formatPrompt(prompts.discussion_questions.prompt, {
+    book_title: bookTitle,
+    author_name: author
+  });
+
+  const payload = {
+    messages: [
+      {
+        role: "user",
+        content: prompt
+      }
+    ],
+    model: "grok-4-1-fast-non-reasoning",
+    stream: false,
+    temperature: 0.7
+  };
+
+  console.log('[getGrokDiscussionQuestions] 🔵 Making request to Grok API...');
+  try {
+    const data = await fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload)
+    }, 2, 3000);
+
+    // Log usage
+    if (data.usage) {
+      logGrokUsage('getGrokDiscussionQuestions', data.usage);
+    }
+
+    const content = data.choices?.[0]?.message?.content || '[]';
+    // Try to extract JSON array from the response (Grok might wrap it in markdown)
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    const result = JSON.parse(jsonStr);
+    console.log('[getGrokDiscussionQuestions] ✅ Parsed', result.length, 'discussion questions');
+    return result || [];
+  } catch (err: any) {
+    console.error('[getGrokDiscussionQuestions] Error:', err);
+    return [];
+  }
+}
+
+async function getDiscussionQuestions(bookTitle: string, author: string, canonicalBookId: string): Promise<DiscussionQuestion[]> {
+  console.log(`[getDiscussionQuestions] 🔄 Fetching discussion questions for "${bookTitle}" by ${author}`);
+
+  // Check database cache first using canonical_book_id
+  try {
+    const { data: cachedData, error: cacheError } = await supabase
+      .from('discussion_questions_cache')
+      .select('questions')
+      .eq('canonical_book_id', canonicalBookId)
+      .maybeSingle();
+
+    if (!cacheError && cachedData && cachedData.questions && Array.isArray(cachedData.questions)) {
+      if (cachedData.questions.length > 0) {
+        console.log(`[getDiscussionQuestions] ✅ Found ${cachedData.questions.length} cached questions in database`);
+        return cachedData.questions as DiscussionQuestion[];
+      }
+    } else if (cacheError && cacheError.code !== 'PGRST116') {
+      console.warn('[getDiscussionQuestions] ⚠️ Error checking cache:', cacheError);
+    }
+  } catch (err) {
+    console.warn('[getDiscussionQuestions] ⚠️ Error checking cache:', err);
+  }
+
+  // Fetch from Grok API
+  const questions = await getGrokDiscussionQuestions(bookTitle, author);
+
+  // Save to cache if we got questions
+  if (questions.length > 0) {
+    await saveDiscussionQuestionsToCache(bookTitle, author, canonicalBookId, questions);
+  }
+
+  return questions;
+}
+
+async function saveDiscussionQuestionsToCache(
+  bookTitle: string,
+  bookAuthor: string,
+  canonicalBookId: string,
+  questions: DiscussionQuestion[]
+): Promise<void> {
+  try {
+    const recordData = {
+      canonical_book_id: canonicalBookId,
+      book_title: bookTitle,
+      book_author: bookAuthor,
+      questions: questions,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Upsert based on canonical_book_id
+    const { error } = await supabase
+      .from('discussion_questions_cache')
+      .upsert(recordData, { onConflict: 'canonical_book_id' });
+
+    if (error) {
+      console.error('[saveDiscussionQuestionsToCache] ❌ Error saving questions:', error);
+    } else {
+      console.log(`[saveDiscussionQuestionsToCache] ✅ Saved ${questions.length} questions to cache`);
+    }
+  } catch (err: any) {
+    console.error('[saveDiscussionQuestionsToCache] ❌ Error:', err);
+  }
+}
+
 // Helper function to save book influences to cache table
 async function saveBookInfluencesToCache(bookTitle: string, bookAuthor: string, influences: string[]): Promise<void> {
   try {
@@ -1207,7 +1341,19 @@ async function generateFeedItemsForBook(
   bookCoverUrl: string | null,
   readingStatus: string | null,
   bookCreatedAt: string
-): Promise<{ created: number; errors: string[] }> {
+): Promise<{ created: number; errors: string[]; skipped?: boolean }> {
+  // Check if feed items already exist for this user and book
+  const { count: existingCount } = await supabase
+    .from('feed_items')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('source_book_id', bookId);
+
+  if (existingCount && existingCount > 0) {
+    console.log(`[generateFeedItemsForBook] ⏭️ Skipping "${bookTitle}" - already has ${existingCount} feed items`);
+    return { created: 0, errors: [], skipped: true };
+  }
+
   const errors: string[] = [];
   let created = 0;
 
@@ -5542,6 +5688,8 @@ async function loadRandomTriviaQuestions(): Promise<Array<{
   question: string;
   correct_answer: string;
   wrong_answers: string[];
+  book_title?: string;
+  book_author?: string;
 }>> {
   console.log('[loadRandomTriviaQuestions] Loading random trivia questions from cache...');
   
@@ -5549,7 +5697,7 @@ async function loadRandomTriviaQuestions(): Promise<Array<{
     // Get all trivia questions from cache
     const { data: allQuestions, error } = await supabase
       .from('trivia_questions_cache')
-      .select('questions');
+      .select('questions, book_title, book_author');
     
     if (error) {
       console.error('[loadRandomTriviaQuestions] ❌ Error loading questions:', error);
@@ -5566,6 +5714,8 @@ async function loadRandomTriviaQuestions(): Promise<Array<{
       question: string;
       correct_answer: string;
       wrong_answers: string[];
+      book_title?: string;
+      book_author?: string;
     }> = [];
     
     for (const record of allQuestions) {
@@ -5575,7 +5725,9 @@ async function loadRandomTriviaQuestions(): Promise<Array<{
           allQuestionsFlat.push({
             question: q.question,
             correct_answer: q.correct_answer,
-            wrong_answers: q.wrong_answers || []
+            wrong_answers: q.wrong_answers || [],
+            book_title: record.book_title,
+            book_author: record.book_author,
           });
         }
       }
@@ -5826,6 +5978,22 @@ export default function App() {
   const feedAudioRef = useRef<HTMLAudioElement | null>(null);
   const [feedPlayingVideoId, setFeedPlayingVideoId] = useState<string | null>(null);
   const [followingUsers, setFollowingUsers] = useState<Array<{ id: string; full_name: string | null; avatar_url: string | null; email: string; followed_at: string }>>([]);
+
+  // Book discussion state
+  const [showBookDiscussion, setShowBookDiscussion] = useState(false);
+  const [discussionQuestions, setDiscussionQuestions] = useState<DiscussionQuestion[]>([]);
+  const [isLoadingDiscussionQuestions, setIsLoadingDiscussionQuestions] = useState(false);
+
+  // Book readers state (users who have the same book)
+  interface BookReader {
+    id: string;
+    name: string;
+    avatar: string | null;
+    isFollowing: boolean;
+  }
+  const [bookReaders, setBookReaders] = useState<BookReader[]>([]);
+  const [isLoadingBookReaders, setIsLoadingBookReaders] = useState(false);
+
   const [isLoadingFollowing, setIsLoadingFollowing] = useState(false);
   const [followingSortOrder, setFollowingSortOrder] = useState<'recent_desc' | 'recent_asc' | 'name_desc' | 'name_asc'>('recent_desc');
   const [editingNoteBookId, setEditingNoteBookId] = useState<string | null>(null);
@@ -5861,6 +6029,8 @@ export default function App() {
     question: string;
     correct_answer: string;
     wrong_answers: string[];
+    book_title?: string;
+    book_author?: string;
   }>>([]);
   const [triviaFirstPlayTimestamp, setTriviaFirstPlayTimestamp] = useState<number | null>(null);
   const [currentTriviaQuestionIndex, setCurrentTriviaQuestionIndex] = useState(0);
@@ -8342,6 +8512,137 @@ export default function App() {
     */
   }, [selectedIndex, books, researchData]); // Depend on selectedIndex, books, and researchData
 
+  // Fetch other users who have the same book (book readers)
+  useEffect(() => {
+    if (!user) return;
+
+    const currentBook = books[selectedIndex];
+    if (!currentBook || !currentBook.canonical_book_id) {
+      setBookReaders([]);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingBookReaders(true);
+
+    const fetchBookReaders = async () => {
+      try {
+        // 1. Get all books with the same canonical_book_id from other users
+        const { data: otherUsersBooks, error: booksError } = await supabase
+          .from('books')
+          .select('user_id')
+          .eq('canonical_book_id', currentBook.canonical_book_id)
+          .neq('user_id', user.id)
+          .limit(20);
+
+        if (booksError || !otherUsersBooks || otherUsersBooks.length === 0) {
+          if (!cancelled) {
+            setBookReaders([]);
+            setIsLoadingBookReaders(false);
+          }
+          return;
+        }
+
+        const userIds = [...new Set(otherUsersBooks.map(b => b.user_id))];
+
+        // 2. Get user profile info from users table
+        const { data: usersData, error: usersError } = await supabase
+          .from('users')
+          .select('id, full_name, avatar_url')
+          .in('id', userIds);
+
+        if (usersError || !usersData || usersData.length === 0) {
+          if (!cancelled) {
+            setBookReaders([]);
+            setIsLoadingBookReaders(false);
+          }
+          return;
+        }
+
+        // 3. Get list of users current user follows
+        const { data: followsData } = await supabase
+          .from('follows')
+          .select('following_id')
+          .eq('follower_id', user.id);
+
+        const followingIds = new Set(followsData?.map(f => f.following_id) || []);
+
+        // 4. Build readers list with following status, sorted by following first
+        const readers: BookReader[] = (usersData || []).map(u => ({
+          id: u.id,
+          name: u.full_name || 'User',
+          avatar: u.avatar_url,
+          isFollowing: followingIds.has(u.id),
+        })).sort((a, b) => (b.isFollowing ? 1 : 0) - (a.isFollowing ? 1 : 0));
+
+        if (!cancelled) {
+          setBookReaders(readers);
+          setIsLoadingBookReaders(false);
+        }
+      } catch (err) {
+        console.error('[BookReaders] Error fetching:', err);
+        if (!cancelled) {
+          setBookReaders([]);
+          setIsLoadingBookReaders(false);
+        }
+      }
+    };
+
+    // Small delay to batch with other fetches
+    const timer = setTimeout(fetchBookReaders, 500);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [activeBook?.canonical_book_id, user]);
+
+  // Fetch discussion questions when the discussion modal opens
+  useEffect(() => {
+    if (!showBookDiscussion || !activeBook || !activeBook.canonical_book_id) {
+      return;
+    }
+
+    // Don't fetch if we already have questions for this book
+    if (discussionQuestions.length > 0) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingDiscussionQuestions(true);
+
+    const fetchQuestions = async () => {
+      try {
+        const questions = await getDiscussionQuestions(
+          activeBook.title,
+          activeBook.author,
+          activeBook.canonical_book_id!
+        );
+
+        if (!cancelled) {
+          setDiscussionQuestions(questions);
+          setIsLoadingDiscussionQuestions(false);
+        }
+      } catch (err) {
+        console.error('[DiscussionQuestions] Error fetching:', err);
+        if (!cancelled) {
+          setIsLoadingDiscussionQuestions(false);
+        }
+      }
+    };
+
+    fetchQuestions();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showBookDiscussion, activeBook?.canonical_book_id]);
+
+  // Reset discussion questions when the book changes
+  useEffect(() => {
+    setDiscussionQuestions([]);
+  }, [activeBook?.id]);
+
   // Track which books we've generated feed items for to avoid duplicate generation
   const generatedFeedForBooksRef = useRef<Set<string>>(new Set());
 
@@ -10039,6 +10340,27 @@ export default function App() {
 
                   case 'related_book':
                     const relatedBook = item.content.related_book;
+                    const handleRelatedBookClick = () => {
+                      if (!relatedBook) return;
+                      // Create a BookWithRatings object from the related book
+                      const bookForModal: BookWithRatings = {
+                        id: `related-${item.id}`,
+                        user_id: user?.id || '',
+                        title: relatedBook.title || 'Related Book',
+                        author: relatedBook.author || 'Unknown Author',
+                        cover_url: relatedBook.cover_url || null,
+                        publish_year: null,
+                        wikipedia_url: null,
+                        google_books_url: null,
+                        genre: null,
+                        first_issue_year: null,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                        reading_status: null,
+                        ratings: { writing: null, insights: null, flow: null, world: null, characters: null },
+                      };
+                      setViewingBookFromOtherUser(bookForModal);
+                    };
                     return (
                       <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
@@ -10053,22 +10375,27 @@ export default function App() {
                           <ReadToggle />
                         </div>
                         <div className="px-4 pb-4">
-                          <div className="flex gap-4">
-                            {relatedBook?.cover_url ? (
-                              <img src={relatedBook.cover_url} alt={relatedBook.title} className="w-24 h-36 object-cover rounded-lg flex-shrink-0 shadow-md" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
-                            ) : (
-                              <div className="w-24 h-36 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center shadow-md">
-                                <BookOpen size={28} className="text-slate-400" />
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0 flex flex-col justify-center">
-                              <p className="font-bold text-slate-900 text-lg leading-tight">{relatedBook?.title || 'Related Book'}</p>
-                              <p className="text-sm text-slate-600 mt-0.5">{relatedBook?.author || 'Unknown Author'}</p>
-                              {relatedBook?.reason && (
-                                <p className="text-sm text-slate-700 mt-2 leading-snug">{relatedBook.reason}</p>
+                          <button
+                            onClick={handleRelatedBookClick}
+                            className="w-full text-left active:scale-[0.98] transition-transform"
+                          >
+                            <div className="flex gap-4">
+                              {relatedBook?.cover_url ? (
+                                <img src={relatedBook.cover_url} alt={relatedBook.title} className="w-24 h-36 object-cover rounded-lg flex-shrink-0 shadow-md" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
+                              ) : (
+                                <div className="w-24 h-36 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center shadow-md">
+                                  <BookOpen size={28} className="text-slate-400" />
+                                </div>
                               )}
+                              <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                <p className="font-bold text-slate-900 text-lg leading-tight">{relatedBook?.title || 'Related Book'}</p>
+                                <p className="text-sm text-slate-600 mt-0.5">{relatedBook?.author || 'Unknown Author'}</p>
+                                {relatedBook?.reason && (
+                                  <p className="text-sm text-slate-700 mt-2 leading-snug">{relatedBook.reason}</p>
+                                )}
+                              </div>
                             </div>
-                          </div>
+                          </button>
                         </div>
                       </div>
                     );
@@ -11859,7 +12186,94 @@ export default function App() {
                 </>
               )}
             </div>
-            
+
+            {/* Readers section - profile pictures and chat button */}
+            {!isShowingNotes && !showRatingOverlay && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: 0.1 }}
+                className="w-full mt-3"
+              >
+                <div className="rounded-2xl px-4 py-3" style={bookPageGlassmorphicStyle}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {isLoadingBookReaders ? (
+                        <motion.div
+                          animate={{ opacity: [0.5, 0.8, 0.5] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          className="flex items-center gap-2"
+                        >
+                          <div className="flex -space-x-2">
+                            {[1, 2, 3].map((i) => (
+                              <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-slate-300/50" style={{ zIndex: 5 - i }} />
+                            ))}
+                          </div>
+                          <div className="w-16 h-3 bg-slate-300/50 rounded ml-1" />
+                        </motion.div>
+                      ) : bookReaders.length > 0 ? (
+                        <>
+                          {/* Stacked profile pictures */}
+                          <div className="flex -space-x-2">
+                            {bookReaders.slice(0, 5).map((reader, index) => (
+                              reader.avatar ? (
+                                <img
+                                  key={reader.id}
+                                  src={reader.avatar}
+                                  alt={reader.name}
+                                  className="w-8 h-8 rounded-full border-2 border-white object-cover"
+                                  style={{ zIndex: 5 - index }}
+                                  title={reader.name}
+                                />
+                              ) : (
+                                <div
+                                  key={reader.id}
+                                  className="w-8 h-8 rounded-full border-2 border-white bg-slate-300 flex items-center justify-center text-xs font-bold text-slate-600"
+                                  style={{ zIndex: 5 - index }}
+                                  title={reader.name}
+                                >
+                                  {reader.name.charAt(0).toUpperCase()}
+                                </div>
+                              )
+                            ))}
+                            {bookReaders.length > 5 && (
+                              <div
+                                className="w-8 h-8 rounded-full border-2 border-white bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600"
+                                style={{ zIndex: 0 }}
+                              >
+                                +{bookReaders.length - 5}
+                              </div>
+                            )}
+                          </div>
+                          <span className="text-xs text-slate-600 ml-1">
+                            {bookReaders.length} {bookReaders.length === 1 ? 'reader' : 'readers'}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-xs text-slate-500">
+                          Discussion topics for this book
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Chat button */}
+                    <button
+                      onClick={() => setShowBookDiscussion(true)}
+                      disabled={isLoadingBookReaders}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl active:scale-95 transition-all disabled:opacity-50"
+                      style={{
+                        background: 'rgba(59, 130, 246, 0.9)',
+                        boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)',
+                      }}
+                    >
+                      <MessageCircle size={14} className="text-white" />
+                      <span className="text-xs font-bold text-white">Discuss</span>
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {/* Info box - always open, below cover and above facts */}
             {!showRatingOverlay && (
               <AnimatePresence mode="wait">
@@ -13436,6 +13850,38 @@ export default function App() {
                       </div>
                       
                       <div className="rounded-xl p-4 mb-4 shadow-sm" style={standardGlassmorphicStyle}>
+                        {(() => {
+                          const currentQuestion = triviaQuestions[currentTriviaQuestionIndex];
+                          const normalizedTitle = (currentQuestion.book_title || '').toLowerCase().trim();
+                          const normalizedAuthor = (currentQuestion.book_author || '').toLowerCase().trim();
+                          const sourceBook = books.find(
+                            (book) =>
+                              (book.title || '').toLowerCase().trim() === normalizedTitle &&
+                              (book.author || '').toLowerCase().trim() === normalizedAuthor
+                          );
+                          if (!sourceBook) return null;
+                          return (
+                            <div className="flex items-center gap-3 mb-3">
+                              {sourceBook.cover_url ? (
+                                <img
+                                  src={sourceBook.cover_url}
+                                  alt={sourceBook.title}
+                                  className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
+                                  style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                                />
+                              ) : (
+                                <div className="w-10 h-14 bg-white/60 rounded-lg flex-shrink-0 flex items-center justify-center">
+                                  <BookOpen size={14} className="text-slate-500" />
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-[11px] text-slate-600">From</p>
+                                <p className="text-xs font-semibold text-slate-900 truncate">{sourceBook.title}</p>
+                                <p className="text-[11px] text-slate-500 truncate">{sourceBook.author}</p>
+                              </div>
+                            </div>
+                          );
+                        })()}
                         <p className="text-xs font-bold text-slate-950 mb-4">
                           {triviaQuestions[currentTriviaQuestionIndex].question}
                         </p>
@@ -13570,6 +14016,143 @@ export default function App() {
             />
           )}
       </AnimatePresence>
+
+        {/* Book Discussion Modal */}
+        <AnimatePresence>
+          {showBookDiscussion && activeBook && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-[100] flex flex-col"
+              style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+            >
+              {/* Header */}
+              <motion.div
+                initial={{ y: -20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -20, opacity: 0 }}
+                className="flex items-center justify-between px-4 py-3 border-b border-slate-200"
+                style={{ backgroundColor: '#f5f5f1' }}
+              >
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setShowBookDiscussion(false)}
+                    className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                    style={standardGlassmorphicStyle}
+                  >
+                    <X size={18} className="text-slate-950" />
+                  </button>
+                  <div>
+                    <h2 className="font-bold text-slate-950 text-sm">Discussion</h2>
+                    <p className="text-xs text-slate-500 truncate max-w-[200px]">{activeBook.title}</p>
+                  </div>
+                </div>
+                <div className="flex -space-x-1">
+                  {bookReaders.slice(0, 3).map((reader) => (
+                    reader.avatar ? (
+                      <img
+                        key={reader.id}
+                        src={reader.avatar}
+                        alt={reader.name}
+                        className="w-6 h-6 rounded-full border border-white object-cover"
+                      />
+                    ) : (
+                      <div
+                        key={reader.id}
+                        className="w-6 h-6 rounded-full border border-white bg-slate-300 flex items-center justify-center text-[10px] font-bold text-slate-600"
+                        title={reader.name}
+                      >
+                        {reader.name.charAt(0).toUpperCase()}
+                      </div>
+                    )
+                  ))}
+                </div>
+              </motion.div>
+
+              {/* Discussion Content */}
+              <motion.div
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 20, opacity: 0 }}
+                className="flex-1 overflow-y-auto px-4 py-4 space-y-3"
+                style={{ backgroundColor: '#f5f5f1' }}
+              >
+                {/* Section header */}
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles size={16} className="text-amber-500" />
+                  <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Discussion Topics</span>
+                </div>
+
+                {isLoadingDiscussionQuestions ? (
+                  // Loading skeleton
+                  <motion.div
+                    animate={{ opacity: [0.5, 0.8, 0.5] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    className="space-y-3"
+                  >
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div key={i} className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
+                        <div className="flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-300/50 flex-shrink-0" />
+                          <div className="flex-1 space-y-2">
+                            <div className="w-16 h-3 bg-slate-300/50 rounded" />
+                            <div className="w-full h-4 bg-slate-300/50 rounded" />
+                            <div className="w-3/4 h-4 bg-slate-300/50 rounded" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </motion.div>
+                ) : discussionQuestions.length > 0 ? (
+                  // Discussion questions
+                  discussionQuestions.map((question, index) => {
+                    const categoryColors: Record<string, string> = {
+                      'themes': 'bg-purple-100 text-purple-700',
+                      'characters': 'bg-blue-100 text-blue-700',
+                      'writing style': 'bg-green-100 text-green-700',
+                      'ethics': 'bg-red-100 text-red-700',
+                      'personal reflection': 'bg-amber-100 text-amber-700',
+                      'real world': 'bg-cyan-100 text-cyan-700',
+                    };
+                    const colorClass = categoryColors[question.category] || 'bg-slate-100 text-slate-700';
+
+                    return (
+                      <motion.div
+                        key={question.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        className="rounded-2xl p-4"
+                        style={standardGlassmorphicStyle}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                            <span className="text-sm font-bold text-blue-600">{question.id}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${colorClass}`}>
+                                {question.category}
+                              </span>
+                            </div>
+                            <p className="text-sm text-slate-800 leading-relaxed">{question.question}</p>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })
+                ) : (
+                  // Empty state
+                  <div className="rounded-xl p-4 text-center" style={standardGlassmorphicStyle}>
+                    <p className="text-xs text-slate-600">No discussion topics available yet.</p>
+                  </div>
+                )}
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Quick View Modal for Books from Other Users */}
       <AnimatePresence>

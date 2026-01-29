@@ -31,6 +31,9 @@ interface PromptsConfig {
   trivia_questions: {
     prompt: string;
   };
+  discussion_questions: {
+    prompt: string;
+  };
 }
 
 let promptsCache: PromptsConfig | null = null;
@@ -281,6 +284,41 @@ Output schema (exact structure):
 
 Input facts:
 {FACTS_JSON}`
+      },
+      discussion_questions: {
+        prompt: `You are a professional book club facilitator.
+
+Generate 10 discussion topics for the book:
+
+**"{book_title}"** by **"{author_name}"**.
+
+Return the result as a JSON array.
+
+Each item should have:
+- id
+- question
+- category (one of: "themes", "characters", "writing style", "ethics", "personal reflection", "real world")
+
+Guidelines:
+- Questions must be open-ended and spark conversation
+- No trivia or yes/no questions
+- Avoid major spoilers
+- Start easy and get progressively deeper
+- Include at least:
+  - 2 about characters
+  - 2 about major themes
+  - 2 that connect the book to modern life
+  - 2 that invite personal reflection
+- Questions should feel natural when read aloud in a group.
+
+Example output format:
+[
+  {
+    "id": 1,
+    "question": "...",
+    "category": "themes"
+  }
+]`
       }
     };
   }
