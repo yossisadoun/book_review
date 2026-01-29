@@ -1499,9 +1499,22 @@ async function getPersonalizedFeed(userId: string): Promise<any[]> {
   const { data: follows } = await supabase.from('follows').select('following_id').eq('follower_id', userId);
   if (follows && follows.length > 0) {
     const followingIds = follows.map(f => f.following_id);
-    typeQueries.push(
-      supabase.from('feed_items').select('*').in('user_id', followingIds).eq('type', 'friend_book').order('created_at', { ascending: false }).limit(POOL_SIZE)
-    );
+    let publicFollowingIds = followingIds;
+    const { data: publicUsers, error: publicUsersError } = await supabase
+      .from('users')
+      .select('id')
+      .in('id', followingIds)
+      .eq('is_public', true);
+
+    if (!publicUsersError && publicUsers && publicUsers.length > 0) {
+      publicFollowingIds = publicUsers.map(user => user.id);
+    }
+
+    if (publicFollowingIds.length > 0) {
+      typeQueries.push(
+        supabase.from('feed_items').select('*').in('user_id', publicFollowingIds).eq('type', 'friend_book').order('created_at', { ascending: false }).limit(POOL_SIZE)
+      );
+    }
   }
 
   const results = await Promise.all(typeQueries);
@@ -5838,6 +5851,7 @@ export default function App() {
   const [viewingUserName, setViewingUserName] = useState<string>('');
   const [viewingUserFullName, setViewingUserFullName] = useState<string | null>(null);
   const [viewingUserAvatar, setViewingUserAvatar] = useState<string | null>(null);
+  const [viewingUserIsPrivate, setViewingUserIsPrivate] = useState(false);
   const [viewingBookFromOtherUser, setViewingBookFromOtherUser] = useState<BookWithRatings | null>(null);
   const [isLoadingViewingUserBooks, setIsLoadingViewingUserBooks] = useState(false);
   const [isFadingOutViewingUser, setIsFadingOutViewingUser] = useState(false);
@@ -5961,6 +5975,9 @@ export default function App() {
   const [showAccountPage, setShowAccountPage] = useState(() => getLastPageState().showAccountPage);
   const [grokUsageLogs, setGrokUsageLogs] = useState<GrokUsageLog[]>([]);
   const [isLoadingGrokLogs, setIsLoadingGrokLogs] = useState(false);
+  const [isProfilePublic, setIsProfilePublic] = useState(true);
+  const [isLoadingPrivacySetting, setIsLoadingPrivacySetting] = useState(false);
+  const [isSavingPrivacySetting, setIsSavingPrivacySetting] = useState(false);
   const [showBookshelf, setShowBookshelf] = useState(() => getLastPageState().showBookshelf);
   const [showBookshelfCovers, setShowBookshelfCovers] = useState(() => getLastPageState().showBookshelfCovers);
   const [showNotesView, setShowNotesView] = useState(() => getLastPageState().showNotesView);
@@ -6865,6 +6882,7 @@ export default function App() {
       setViewingUserName('');
       setViewingUserFullName(null);
       setViewingUserAvatar(null);
+      setViewingUserIsPrivate(false);
       setIsFollowingViewingUser(false);
       setViewingUserFollowingCount(0);
       return;
@@ -6880,7 +6898,7 @@ export default function App() {
         // First, get user info from users table
         const { data: userData, error: userError } = await supabase
           .from('users')
-          .select('id, email, full_name, avatar_url')
+          .select('id, email, full_name, avatar_url, is_public')
           .eq('id', userId)
           .single();
 
@@ -6888,12 +6906,21 @@ export default function App() {
           setViewingUserFullName(userData.full_name);
           setViewingUserAvatar(userData.avatar_url);
           setViewingUserName(userData.full_name || userData.email || userId);
+          setViewingUserIsPrivate(userData.is_public === false);
         } else {
           // Fallback if users table doesn't have the user
           const emailMatch = userId.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
           setViewingUserName(emailMatch ? userId.split('@')[0] : userId.substring(0, 8));
           setViewingUserFullName(null);
           setViewingUserAvatar(null);
+          setViewingUserIsPrivate(false);
+        }
+
+        // If the user is private, don't load their books
+        if (userData?.is_public === false) {
+          setViewingUserBooks([]);
+          setIsLoadingViewingUserBooks(false);
+          return;
         }
 
         // Check if current user follows this user
@@ -6979,6 +7006,43 @@ export default function App() {
     };
 
     loadGrokLogs();
+  }, [showAccountPage, user]);
+
+  // Load privacy setting when account page is shown
+  useEffect(() => {
+    if (!showAccountPage || !user) return;
+    let cancelled = false;
+
+    const loadPrivacySetting = async () => {
+      setIsLoadingPrivacySetting(true);
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('is_public')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (!cancelled) {
+          if (!error && data && typeof data.is_public === 'boolean') {
+            setIsProfilePublic(data.is_public);
+          } else {
+            setIsProfilePublic(true);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error('[Account] Error loading privacy setting:', err);
+          setIsProfilePublic(true);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingPrivacySetting(false);
+      }
+    };
+
+    loadPrivacySetting();
+    return () => {
+      cancelled = true;
+    };
   }, [showAccountPage, user]);
 
   // Load followed users when following page is shown
@@ -8548,8 +8612,9 @@ export default function App() {
         // 2. Get user profile info from users table
         const { data: usersData, error: usersError } = await supabase
           .from('users')
-          .select('id, full_name, avatar_url')
-          .in('id', userIds);
+          .select('id, full_name, avatar_url, is_public')
+          .in('id', userIds)
+          .eq('is_public', true);
 
         if (usersError || !usersData || usersData.length === 0) {
           if (!cancelled) {
@@ -9433,6 +9498,16 @@ export default function App() {
     border: '1px solid rgba(255, 255, 255, 0.2)',
   };
   
+  // Blue glassmorphism for primary actions
+  const blueGlassmorphicStyle: React.CSSProperties = {
+    background: 'rgba(59, 130, 246, 0.85)',
+    borderRadius: '999px',
+    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(59, 130, 246, 0.3)',
+  };
+
   // Consistent glassmorphism style (less transparent for book page info cards)
   const glassmorphicStyle: React.CSSProperties = {
     background: 'rgba(255, 255, 255, 0.45)',
@@ -9697,6 +9772,68 @@ export default function App() {
                     </p>
                   </div>
                 </div>
+              </div>
+
+              {/* Privacy */}
+              <div className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-950">Privacy</h3>
+                    <p className="text-xs text-slate-600 mt-1">
+                      Public lets others view your bookshelf and see your added books in their feed.
+                    </p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!user || isSavingPrivacySetting) return;
+                      const nextValue = !isProfilePublic;
+                      setIsProfilePublic(nextValue);
+                      setIsSavingPrivacySetting(true);
+                      try {
+                        const { data, error } = await supabase
+                          .from('users')
+                          .update({ is_public: nextValue })
+                          .eq('id', user.id)
+                          .select('id')
+                          .maybeSingle();
+
+                        if (error || !data) {
+                          const { error: upsertError } = await supabase
+                            .from('users')
+                            .upsert({
+                              id: user.id,
+                              email: user.email,
+                              full_name: user.user_metadata?.full_name || null,
+                              avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture || null,
+                              is_public: nextValue,
+                            }, { onConflict: 'id' });
+
+                          if (upsertError) {
+                            console.error('[Account] Error saving privacy setting:', upsertError);
+                            setIsProfilePublic(!nextValue);
+                          }
+                        }
+                      } catch (err) {
+                        console.error('[Account] Error saving privacy setting:', err);
+                        setIsProfilePublic(!nextValue);
+                      } finally {
+                        setIsSavingPrivacySetting(false);
+                      }
+                    }}
+                    disabled={isLoadingPrivacySetting || isSavingPrivacySetting}
+                    className={`min-w-[88px] px-3 py-2 text-xs font-bold rounded-full transition-all ${
+                      isProfilePublic
+                        ? 'text-white active:scale-95'
+                        : 'text-slate-700 hover:opacity-80 active:scale-95'
+                    } ${isLoadingPrivacySetting || isSavingPrivacySetting ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    style={isProfilePublic ? blueGlassmorphicStyle : glassmorphicStyle}
+                  >
+                    {isLoadingPrivacySetting ? 'Loading...' : isProfilePublic ? 'Public' : 'Private'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-2">
+                  Private hides your bookshelf and removes your added books from other users' feeds.
+                </p>
               </div>
 
               {/* Grok API Usage Logs */}
@@ -10445,6 +10582,25 @@ export default function App() {
                     );
 
                   case 'friend_book':
+                    const handleFriendBookAdd = () => {
+                      const bookForModal: BookWithRatings = {
+                        id: `friend-${item.id}`,
+                        user_id: user?.id || '',
+                        title: item.source_book_title || 'Book',
+                        author: item.source_book_author || 'Unknown Author',
+                        cover_url: item.source_book_cover_url || null,
+                        publish_year: null,
+                        wikipedia_url: null,
+                        google_books_url: null,
+                        genre: null,
+                        first_issue_year: null,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString(),
+                        reading_status: null,
+                        ratings: { writing: null, insights: null, flow: null, world: null, characters: null },
+                      };
+                      setViewingBookFromOtherUser(bookForModal);
+                    };
                     return (
                       <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
@@ -10458,14 +10614,30 @@ export default function App() {
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
                         </div>
-                        {item.source_book_cover_url && (
-                          <div className="w-full aspect-[3/4]">
+                        {item.source_book_cover_url ? (
+                          <div className="relative w-full aspect-[3/4]">
                             <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-full h-full object-cover" />
+                            <button
+                              onClick={handleFriendBookAdd}
+                              className="absolute bottom-2 right-2 text-white text-xs font-bold rounded-full transition-all active:scale-95 px-3 py-1.5"
+                              style={blueGlassmorphicStyle}
+                            >
+                              Add book
+                            </button>
                           </div>
-                        )}
+                        ) : null}
                         <div className="px-4 py-3">
                           <p className="font-bold text-slate-900">{item.source_book_title}</p>
                           <p className="text-sm text-slate-600">{item.source_book_author}</p>
+                          {!item.source_book_cover_url && (
+                            <button
+                              onClick={handleFriendBookAdd}
+                              className="mt-3 text-white text-xs font-bold rounded-full transition-all active:scale-95 px-3 py-1.5"
+                              style={blueGlassmorphicStyle}
+                            >
+                              Add book
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -11105,7 +11277,9 @@ export default function App() {
                     style={glassmorphicStyle}
                   >
                     <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto" />
-                    <p className="text-sm text-slate-600">This user hasn't added any books yet.</p>
+                    <p className="text-sm text-slate-600">
+                      {viewingUserIsPrivate ? "This user's bookshelf is private." : "This user hasn't added any books yet."}
+                    </p>
                   </div>
                 ) : null}
 
@@ -11229,7 +11403,9 @@ export default function App() {
                 <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 py-20">
                   <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
                   {viewingUserId ? (
-                    <p className="text-sm text-slate-600">This user hasn't added any books yet.</p>
+                    <p className="text-sm text-slate-600">
+                      {viewingUserIsPrivate ? "This user's bookshelf is private." : "This user hasn't added any books yet."}
+                    </p>
                   ) : (
                     <button
                       onClick={() => setIsAdding(true)}
@@ -11697,7 +11873,9 @@ export default function App() {
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
             <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
             {viewingUserId ? (
-              <p className="text-sm text-slate-600">This user hasn't added any books yet.</p>
+              <p className="text-sm text-slate-600">
+                {viewingUserIsPrivate ? "This user's bookshelf is private." : "This user hasn't added any books yet."}
+              </p>
             ) : (
               <button
                 onClick={() => setIsAdding(true)}
@@ -12979,32 +13157,6 @@ export default function App() {
             <Library size={18} className="text-slate-950" />
           </button>
 
-          {/* Feed button */}
-          <button
-            onClick={() => {
-              if (showFeedPage) return; // Already on feed, do nothing
-              setScrollY(0);
-              setViewingUserId(null);
-              setViewingUserBooks([]);
-              setViewingUserName('');
-              setViewingUserFullName(null);
-              setViewingUserAvatar(null);
-              setShowFeedPage(true);
-              setShowBookshelf(false);
-              setShowBookshelfCovers(false);
-              setShowNotesView(false);
-              setShowAccountPage(false);
-              setShowSortingResults(false);
-            }}
-            className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
-              showFeedPage
-                ? 'bg-white/40 hover:bg-white/50'
-                : 'bg-white/20 hover:bg-white/30'
-            }`}
-          >
-            <Rss size={18} className="text-slate-950" />
-          </button>
-
           {/* Game button - trivia game */}
           <div className="relative group">
             {(() => {
@@ -13085,6 +13237,64 @@ export default function App() {
               );
             })()}
           </div>
+
+          {/* Clubs button */}
+          <div className="relative group">
+            <button
+              onClick={() => {}}
+              className="w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center bg-white/20 hover:bg-white/30"
+            >
+              <Users size={18} className="text-slate-950" />
+            </button>
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50"
+              style={{
+                background: '#1d1d1f',
+                color: '#fff',
+                padding: '8px 14px',
+                borderRadius: '10px',
+                fontSize: '0.75rem',
+                fontWeight: '700',
+                boxShadow: '0 10px 20px rgba(0,0,0,0.1)',
+              }}
+            >
+              Coming soon
+              <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1"
+                style={{
+                  width: 0,
+                  height: 0,
+                  borderLeft: '6px solid transparent',
+                  borderRight: '6px solid transparent',
+                  borderTop: '6px solid #1d1d1f',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Feed button */}
+          <button
+            onClick={() => {
+              if (showFeedPage) return; // Already on feed, do nothing
+              setScrollY(0);
+              setViewingUserId(null);
+              setViewingUserBooks([]);
+              setViewingUserName('');
+              setViewingUserFullName(null);
+              setViewingUserAvatar(null);
+              setShowFeedPage(true);
+              setShowBookshelf(false);
+              setShowBookshelfCovers(false);
+              setShowNotesView(false);
+              setShowAccountPage(false);
+              setShowSortingResults(false);
+            }}
+            className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
+              showFeedPage
+                ? 'bg-white/40 hover:bg-white/50'
+                : 'bg-white/20 hover:bg-white/30'
+            }`}
+          >
+            <Rss size={18} className="text-slate-950" />
+          </button>
 
           {/* Search button - right (circular) */}
           <button
