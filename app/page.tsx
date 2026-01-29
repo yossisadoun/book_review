@@ -1342,15 +1342,18 @@ async function generateFeedItemsForBook(
   readingStatus: string | null,
   bookCreatedAt: string
 ): Promise<{ created: number; errors: string[]; skipped?: boolean }> {
-  // Check if feed items already exist for this user and book
+  const generatedTypes: FeedItemType[] = ['fact', 'context', 'drilldown', 'influence', 'podcast', 'article', 'related_book', 'video'];
+
+  // Check if generated feed items already exist for this user and book
   const { count: existingCount } = await supabase
     .from('feed_items')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId)
-    .eq('source_book_id', bookId);
+    .eq('source_book_id', bookId)
+    .in('type', generatedTypes);
 
   if (existingCount && existingCount > 0) {
-    console.log(`[generateFeedItemsForBook] ⏭️ Skipping "${bookTitle}" - already has ${existingCount} feed items`);
+    console.log(`[generateFeedItemsForBook] ⏭️ Skipping "${bookTitle}" - already has ${existingCount} generated feed items`);
     return { created: 0, errors: [], skipped: true };
   }
 
