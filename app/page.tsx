@@ -14586,7 +14586,7 @@ export default function App() {
             <div
               className="fixed inset-0"
               style={{
-                backgroundImage: 'url(/bg.png)',
+                backgroundImage: `url(${getAssetPath('/bg.png')})`,
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
               }}
@@ -14633,7 +14633,7 @@ export default function App() {
               <div className="relative flex items-center justify-center mb-6 mt-[100px] h-[288px]">
                 {/* Logo in center */}
                 <motion.img
-                  src="/logo.png"
+                  src={getAssetPath('/logo.png')}
                   alt="Logo"
                   className="w-72 h-72 object-contain"
                   style={{
