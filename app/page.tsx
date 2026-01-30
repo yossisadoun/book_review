@@ -9766,8 +9766,8 @@ export default function App() {
           </button>
         )}
 
-        {/* Info button when on bookshelf */}
-        {(showBookshelf || showBookshelfCovers) && !showAccountPage && !showSortingResults && !showFollowingPage && !showNotesView && !showFeedPage && (
+        {/* Info button when on bookshelf (not when viewing another user) */}
+        {(showBookshelf || showBookshelfCovers) && !showAccountPage && !showSortingResults && !showFollowingPage && !showNotesView && !showFeedPage && !viewingUserId && (
           <button
             onClick={() => setShowAboutScreen(true)}
             className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
