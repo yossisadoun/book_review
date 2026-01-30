@@ -25,7 +25,10 @@ import {
   ChevronDown,
   User,
   Users,
+  MessageSquareQuote,
+  MessagesSquare,
   GripVertical,
+  Microscope,
   Trophy,
   Volume2,
   VolumeX,
@@ -5887,6 +5890,9 @@ export default function App() {
   // Handle book navigation swipe
   const handleBookSwipe = () => {
     if (!bookTouchStart || !bookTouchEnd) return;
+
+    // Don't allow swiping when in notes editor
+    if (isShowingNotes) return;
     
     const distanceX = bookTouchStart.x - bookTouchEnd.x;
     const distanceY = bookTouchStart.y - bookTouchEnd.y;
@@ -5986,6 +5992,7 @@ export default function App() {
   const [showNotesView, setShowNotesView] = useState(() => getLastPageState().showNotesView);
   const [showFollowingPage, setShowFollowingPage] = useState(() => getLastPageState().showFollowingPage);
   const [showFeedPage, setShowFeedPage] = useState(() => getLastPageState().showFeedPage);
+  const [showAboutScreen, setShowAboutScreen] = useState(false);
   const [feedView, setFeedView] = useState<'following' | 'community'>('following');
   const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
   const [isLoadingFeed, setIsLoadingFeed] = useState(false);
@@ -6970,10 +6977,30 @@ export default function App() {
 
   // Set default view to bookshelf covers when user has no books (first-time user)
   useEffect(() => {
+    console.log('[Intro Debug] useEffect triggered:', {
+      isLoaded,
+      booksLength: books.length,
+      showBookshelf,
+      showBookshelfCovers,
+      showNotesView,
+      showAccountPage,
+      showFollowingPage,
+      hasSeenIntro: localStorage.getItem('hasSeenIntro'),
+    });
+
     if (isLoaded && books.length === 0 && !showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showFollowingPage) {
+      console.log('[Intro Debug] Condition met - showing bookshelf covers');
       // First-time user: default to bookshelf covers view
       setShowBookshelfCovers(true);
       setBookshelfGrouping('reading_status'); // Ensure it's grouped by status
+
+      // Show intro screen for new users who haven't seen it
+      const hasSeenIntro = localStorage.getItem('hasSeenIntro');
+      console.log('[Intro Debug] hasSeenIntro:', hasSeenIntro);
+      if (!hasSeenIntro) {
+        console.log('[Intro Debug] Showing about screen');
+        setShowAboutScreen(true);
+      }
     }
   }, [isLoaded, books.length, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage]);
 
@@ -9657,44 +9684,66 @@ export default function App() {
                 <ChevronLeft size={18} className="text-slate-950" />
               </motion.button>
             )}
-            {isShowingNotes && activeBook ? (
-              <Pencil size={24} className="text-slate-950" />
-            ) : showAccountPage ? (
-              <User size={24} className="text-slate-950" />
-            ) : showFollowingPage ? (
-              <Users size={24} className="text-slate-950" />
-            ) : showFeedPage ? (
-              <Rss size={24} className="text-slate-950" />
-            ) : showSortingResults ? (
-              <Star size={24} className="text-slate-950" />
-            ) : showNotesView ? (
-              <Pencil size={24} className="text-slate-950" />
-            ) : showBookshelfCovers ? (
-              <Library size={24} className="text-slate-950" />
-            ) : showBookshelf ? (
-              <Library size={24} className="text-slate-950" />
-            ) : (
-              <BookOpen size={24} className="text-slate-950" />
-            )}
-          <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
-              {viewingUserId
-                ? (viewingUserFullName || viewingUserName).toUpperCase()
-                : showAccountPage
-                  ? 'ACCOUNT'
-                  : showFollowingPage
-                    ? 'FOLLOWING'
-                    : showFeedPage
-                      ? 'FEED'
-                      : showSortingResults
-                        ? 'SORTED RESULTS'
-                        : showNotesView
-                          ? 'NOTES'
-                          : showBookshelfCovers
-                            ? 'BOOKSHELF'
-                            : showBookshelf
-                              ? 'BOOKSHELF'
-                              : 'BOOKS'}
-          </h1>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={
+                  viewingUserId ? `user-${viewingUserId}` :
+                  isShowingNotes ? 'notes-editor' :
+                  showAccountPage ? 'account' :
+                  showFollowingPage ? 'following' :
+                  showFeedPage ? 'feed' :
+                  showSortingResults ? 'sorted' :
+                  showNotesView ? 'notes' :
+                  showBookshelfCovers ? 'bookshelf-covers' :
+                  showBookshelf ? 'bookshelf' :
+                  'books'
+                }
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="flex items-center gap-3"
+              >
+                {isShowingNotes && activeBook ? (
+                  <Pencil size={24} className="text-slate-950" />
+                ) : showAccountPage ? (
+                  <User size={24} className="text-slate-950" />
+                ) : showFollowingPage ? (
+                  <Users size={24} className="text-slate-950" />
+                ) : showFeedPage ? (
+                  <Rss size={24} className="text-slate-950" />
+                ) : showSortingResults ? (
+                  <Star size={24} className="text-slate-950" />
+                ) : showNotesView ? (
+                  <Pencil size={24} className="text-slate-950" />
+                ) : showBookshelfCovers ? (
+                  <Library size={24} className="text-slate-950" />
+                ) : showBookshelf ? (
+                  <Library size={24} className="text-slate-950" />
+                ) : (
+                  <BookOpen size={24} className="text-slate-950" />
+                )}
+                <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
+                  {viewingUserId
+                    ? (viewingUserFullName || viewingUserName).toUpperCase()
+                    : showAccountPage
+                      ? 'ACCOUNT'
+                      : showFollowingPage
+                        ? 'FOLLOWING'
+                        : showFeedPage
+                          ? 'FEED'
+                          : showSortingResults
+                            ? 'SORTED RESULTS'
+                            : showNotesView
+                              ? 'NOTES'
+                              : showBookshelfCovers
+                                ? 'BOOKSHELF'
+                                : showBookshelf
+                                  ? 'BOOKSHELF'
+                                  : 'BOOKS'}
+                </h1>
+              </motion.div>
+            </AnimatePresence>
           </div>
         
         {/* Back button when on account page, sorting results, following page, or notes view */}
@@ -9714,6 +9763,17 @@ export default function App() {
             style={{ ...glassmorphicStyle, borderRadius: '50%' }}
           >
             <ChevronLeft size={18} className="text-slate-950" />
+          </button>
+        )}
+
+        {/* Info button when on bookshelf */}
+        {(showBookshelf || showBookshelfCovers) && !showAccountPage && !showSortingResults && !showFollowingPage && !showNotesView && !showFeedPage && (
+          <button
+            onClick={() => setShowAboutScreen(true)}
+            className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
+            style={{ ...glassmorphicStyle, borderRadius: '50%' }}
+          >
+            <Info size={18} className="text-slate-950" />
           </button>
         )}
         </motion.div>
@@ -11956,7 +12016,13 @@ export default function App() {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3, ease: "easeInOut" }}
-                    className="absolute inset-0 w-full h-full bg-white rounded-3xl p-4 flex flex-col"
+                    className="absolute inset-0 w-full h-full rounded-lg p-4 flex flex-col"
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.6)',
+                      backdropFilter: 'blur(9.4px)',
+                      WebkitBackdropFilter: 'blur(9.4px)',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                    }}
                   >
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-bold text-slate-950">
@@ -12361,7 +12427,7 @@ export default function App() {
                 )}
               </AnimatePresence>
 
-              {books.length > 1 && (
+              {books.length > 1 && !isShowingNotes && (
                 <>
                   <button onClick={() => setSelectedIndex(prev => (prev > 0 ? prev - 1 : books.length - 1))} className="absolute left-0 top-1/2 -translate-y-1/2 p-4 text-white drop-shadow-lg z-10 opacity-0 group-hover:opacity-100 transition-opacity"><ChevronLeft size={36} /></button>
                   <button onClick={() => setSelectedIndex(prev => (prev < books.length - 1 ? prev + 1 : 0))} className="absolute right-0 top-1/2 -translate-y-1/2 p-4 text-white drop-shadow-lg z-10 opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight size={36} /></button>
@@ -12370,7 +12436,7 @@ export default function App() {
             </div>
 
             {/* Readers section - profile pictures and chat button */}
-            {!isShowingNotes && !showRatingOverlay && (
+            {!showRatingOverlay && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -13248,7 +13314,7 @@ export default function App() {
               onClick={() => {}}
               className="w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center bg-white/20 hover:bg-white/30"
             >
-              <Users size={18} className="text-slate-950" />
+              <MessageSquareQuote size={18} className="text-slate-950" />
             </button>
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50"
               style={{
@@ -14500,6 +14566,175 @@ export default function App() {
               </motion.div>
             </motion.div>
           )}
+      </AnimatePresence>
+
+      {/* About Screen Modal */}
+      <AnimatePresence>
+        {showAboutScreen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center px-4"
+            onClick={() => {
+              setShowAboutScreen(false);
+              localStorage.setItem('hasSeenIntro', 'true');
+            }}
+          >
+            {/* Background image */}
+            <div
+              className="fixed inset-0"
+              style={{
+                backgroundImage: 'url(/bg.png)',
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }}
+            />
+            {/* Full screen glassmorphic overlay */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+              className="fixed inset-0"
+              style={{ ...standardGlassmorphicStyle, borderRadius: 0 }}
+            />
+
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ duration: 0.3, delay: 0.1 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative flex flex-col items-center pointer-events-auto z-10 p-8 max-w-md"
+            >
+              {/* Header */}
+              <motion.h1
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 0.2 }}
+                className="text-[30px] font-bold text-slate-900 text-center mb-3 uppercase leading-tight"
+              >
+                BOOKS DON'T END<br />ON THE LAST PAGE
+              </motion.h1>
+
+              {/* Subtitle */}
+              <motion.p
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 0.3 }}
+                className="text-[18.4px] text-slate-600 text-center mb-6 px-4"
+              >
+                There's a whole world of videos, podcasts and ideas around the books you read.
+              </motion.p>
+
+              {/* Logo and animated icons container - fixed height to prevent layout shift */}
+              <div className="relative flex items-center justify-center mb-6 mt-[100px] h-[288px]">
+                {/* Logo in center */}
+                <motion.img
+                  src="/logo.png"
+                  alt="Logo"
+                  className="w-72 h-72 object-contain"
+                  style={{
+                    filter: 'drop-shadow(0 20px 40px rgba(255, 255, 255, 0.8))',
+                  }}
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ duration: 0.4, delay: 0.4 }}
+                />
+
+                {/* Podcast icon - arc left outer - Purple */}
+                <motion.div
+                  initial={{ scale: 0, opacity: 0, x: 0, y: 0 }}
+                  animate={{ scale: 1, opacity: 1, x: -130, y: -140 }}
+                  transition={{ duration: 0.6, delay: 0.6, type: "spring", stiffness: 150 }}
+                  className="absolute"
+                >
+                  <div className="w-[60px] h-[60px] rounded-full flex items-center justify-center" style={{
+                    background: 'rgba(147, 51, 234, 0.75)',
+                    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                    backdropFilter: 'blur(9.4px)',
+                    WebkitBackdropFilter: 'blur(9.4px)',
+                    border: '1px solid rgba(147, 51, 234, 0.3)',
+                  }}>
+                    <Headphones size={30} className="text-white" />
+                  </div>
+                </motion.div>
+
+                {/* Play/Video icon - arc left inner - Red */}
+                <motion.div
+                  initial={{ scale: 0, opacity: 0, x: 0, y: 0 }}
+                  animate={{ scale: 1, opacity: 1, x: -50, y: -160 }}
+                  transition={{ duration: 0.6, delay: 0.75, type: "spring", stiffness: 150 }}
+                  className="absolute"
+                >
+                  <div className="w-[60px] h-[60px] rounded-full flex items-center justify-center" style={{
+                    background: 'rgba(239, 68, 68, 0.75)',
+                    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                    backdropFilter: 'blur(9.4px)',
+                    WebkitBackdropFilter: 'blur(9.4px)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                  }}>
+                    <Play size={30} className="text-white" />
+                  </div>
+                </motion.div>
+
+                {/* Microscope icon - arc right inner - Yellow */}
+                <motion.div
+                  initial={{ scale: 0, opacity: 0, x: 0, y: 0 }}
+                  animate={{ scale: 1, opacity: 1, x: 50, y: -160 }}
+                  transition={{ duration: 0.6, delay: 0.9, type: "spring", stiffness: 150 }}
+                  className="absolute"
+                >
+                  <div className="w-[60px] h-[60px] rounded-full flex items-center justify-center" style={{
+                    background: 'rgba(234, 179, 8, 0.75)',
+                    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                    backdropFilter: 'blur(9.4px)',
+                    WebkitBackdropFilter: 'blur(9.4px)',
+                    border: '1px solid rgba(234, 179, 8, 0.3)',
+                  }}>
+                    <Microscope size={30} className="text-white" />
+                  </div>
+                </motion.div>
+
+                {/* Messages icon - arc right outer - White */}
+                <motion.div
+                  initial={{ scale: 0, opacity: 0, x: 0, y: 0 }}
+                  animate={{ scale: 1, opacity: 1, x: 130, y: -140 }}
+                  transition={{ duration: 0.6, delay: 1.05, type: "spring", stiffness: 150 }}
+                  className="absolute"
+                >
+                  <div className="w-[60px] h-[60px] rounded-full flex items-center justify-center" style={{
+                    background: 'rgba(255, 255, 255, 0.75)',
+                    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                    backdropFilter: 'blur(9.4px)',
+                    WebkitBackdropFilter: 'blur(9.4px)',
+                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                  }}>
+                    <MessagesSquare size={30} className="text-slate-800" />
+                  </div>
+                </motion.div>
+              </div>
+
+              {/* Add Book Button */}
+              <motion.button
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.4, delay: 1.3 }}
+                onClick={() => {
+                  setShowAboutScreen(false);
+                  localStorage.setItem('hasSeenIntro', 'true');
+                  setIsAdding(true);
+                }}
+                className="px-8 py-3 text-white font-semibold text-base active:scale-95 transition-transform"
+                style={blueGlassmorphicStyle}
+              >
+                Add a book
+              </motion.button>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       {/* Profile panel menu - rendered at root level for topmost z-index */}
