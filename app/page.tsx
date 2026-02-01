@@ -3548,6 +3548,7 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
   const [isVisible, setIsVisible] = useState(true); // Start visible to prevent flickering
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  const [isTextExpanded, setIsTextExpanded] = useState(false);
   const minSwipeDistance = 50;
   const prevInsightsRef = useRef<string>('');
   
@@ -3591,6 +3592,7 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
 
   function handleNext() {
     setIsVisible(false);
+    setIsTextExpanded(false);
     // Wait for fade out, then show next (or loop back to first)
     setTimeout(() => {
       setCurrentIndex(prev => (prev + 1) % insights.length);
@@ -3600,6 +3602,7 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
 
   function handlePrev() {
     setIsVisible(false);
+    setIsTextExpanded(false);
     setTimeout(() => {
       setCurrentIndex(prev => (prev > 0 ? prev - 1 : insights.length - 1));
       setIsVisible(true);
@@ -3677,9 +3680,30 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
                 {currentInsight.label}
               </span>
             </div>
-            <p className="text-xs font-medium text-slate-950 leading-relaxed text-center">
-              💡 {currentInsight.text}
-            </p>
+            <div className="text-center">
+              <p
+                className={`text-xs font-medium text-slate-950 leading-relaxed ${!isTextExpanded ? 'line-clamp-4' : ''}`}
+                onClick={(e) => {
+                  if (currentInsight.text.length > 200) {
+                    e.stopPropagation();
+                    setIsTextExpanded(!isTextExpanded);
+                  }
+                }}
+              >
+                💡 {currentInsight.text}
+              </p>
+              {currentInsight.text.length > 200 && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsTextExpanded(!isTextExpanded);
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+                >
+                  {isTextExpanded ? 'Show less' : 'Show more'}
+                </button>
+              )}
+            </div>
             {currentInsight.sourceUrl && (
               <a
                 href={currentInsight.sourceUrl}
@@ -3727,6 +3751,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  const [isTextExpanded, setIsTextExpanded] = useState(false);
   const minSwipeDistance = 50;
   
   // Consistent glassmorphism style (less transparent for book page info cards)
@@ -3770,6 +3795,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
 
   function handleNext() {
     setIsVisible(false);
+    setIsTextExpanded(false);
     // Wait for fade out, then show next (or loop back to first)
     setTimeout(() => {
       setCurrentIndex(prev => (prev + 1) % episodes.length);
@@ -3779,6 +3805,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
 
   function handlePrev() {
     setIsVisible(false);
+    setIsTextExpanded(false);
     setTimeout(() => {
       setCurrentIndex(prev => (prev > 0 ? prev - 1 : episodes.length - 1));
       setIsVisible(true);
@@ -3980,14 +4007,49 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                 </div>
               )}
             </div>
-            <p className="text-xs font-medium text-slate-800 leading-relaxed mb-1">
-              {currentEpisode.episode_summary}
-            </p>
-            {currentEpisode.podcast_summary && (
-              <p className="text-xs text-slate-600 italic">
-                {currentEpisode.podcast_summary}
-              </p>
-            )}
+            {(() => {
+              const combinedText = `${currentEpisode.episode_summary || ''}${currentEpisode.podcast_summary ? ` ${currentEpisode.podcast_summary}` : ''}`;
+              const needsShowMore = combinedText.length > 150;
+              return (
+                <div>
+                  <p
+                    className={`text-xs font-medium text-slate-800 leading-relaxed mb-1 ${!isTextExpanded && needsShowMore ? 'line-clamp-3' : ''}`}
+                    onClick={(e) => {
+                      if (needsShowMore) {
+                        e.stopPropagation();
+                        setIsTextExpanded(!isTextExpanded);
+                      }
+                    }}
+                  >
+                    {currentEpisode.episode_summary}
+                  </p>
+                  {currentEpisode.podcast_summary && (
+                    <p
+                      className={`text-xs text-slate-600 italic ${!isTextExpanded && needsShowMore ? 'line-clamp-2' : ''}`}
+                      onClick={(e) => {
+                        if (needsShowMore) {
+                          e.stopPropagation();
+                          setIsTextExpanded(!isTextExpanded);
+                        }
+                      }}
+                    >
+                      {currentEpisode.podcast_summary}
+                    </p>
+                  )}
+                  {needsShowMore && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsTextExpanded(!isTextExpanded);
+                      }}
+                      className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+                    >
+                      {isTextExpanded ? 'Show less' : 'Show more'}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
             <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
               Tap for next ({currentIndex + 1}/{episodes.length})
             </p>
@@ -4336,6 +4398,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
   const [isVisible, setIsVisible] = useState(false);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  const [isTextExpanded, setIsTextExpanded] = useState(false);
   const minSwipeDistance = 50;
   
   // Consistent glassmorphism style (less transparent for book page info cards)
@@ -4365,6 +4428,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
 
   function handleNext() {
     setIsVisible(false);
+    setIsTextExpanded(false);
     // Wait for fade out, then show next (or loop back to first)
     setTimeout(() => {
       setCurrentIndex(prev => (prev + 1) % books.length);
@@ -4374,6 +4438,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
 
   function handlePrev() {
     setIsVisible(false);
+    setIsTextExpanded(false);
     setTimeout(() => {
       setCurrentIndex(prev => (prev > 0 ? prev - 1 : books.length - 1));
       setIsVisible(true);
@@ -4507,9 +4572,35 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
                 )}
               </div>
             </div>
-            <p className="text-xs font-medium text-slate-800 leading-relaxed mb-3">
-              {currentBook.reason}
-            </p>
+            {(() => {
+              const needsShowMore = currentBook.reason && currentBook.reason.length > 120;
+              return (
+                <div className="mb-3">
+                  <p
+                    className={`text-xs font-medium text-slate-800 leading-relaxed ${!isTextExpanded && needsShowMore ? 'line-clamp-3' : ''}`}
+                    onClick={(e) => {
+                      if (needsShowMore) {
+                        e.stopPropagation();
+                        setIsTextExpanded(!isTextExpanded);
+                      }
+                    }}
+                  >
+                    {currentBook.reason}
+                  </p>
+                  {needsShowMore && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsTextExpanded(!isTextExpanded);
+                      }}
+                      className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+                    >
+                      {isTextExpanded ? 'Show less' : 'Show more'}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
             {books.length > 1 && (
               <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
                 Tap card for next ({currentIndex + 1}/{books.length})
