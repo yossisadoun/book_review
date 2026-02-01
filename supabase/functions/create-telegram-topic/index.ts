@@ -56,13 +56,14 @@ serve(async (req) => {
     const topicName = `${bookTitle} - ${bookAuthor}`.substring(0, 128)
 
     // Create forum topic using Telegram Bot API
+    // Using 📚 books emoji as the topic icon
     const createResponse = await fetch(`${TELEGRAM_API}/createForumTopic`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: CHAT_ID,
         name: topicName,
-        icon_color: 7322096, // Blue color
+        icon_custom_emoji_id: '5350481781306958339', // 📚 books emoji
       }),
     })
 

@@ -35,6 +35,7 @@ import {
   Rss,
   X,
   MessageCircle,
+  Lightbulb,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -8987,6 +8988,51 @@ export default function App() {
     };
   }, [activeBook?.canonical_book_id, user]);
 
+  // Pre-fetch/create Telegram topic in the background when book loads
+  useEffect(() => {
+    if (!user || !activeBook?.canonical_book_id) return;
+
+    // Skip if already cached locally
+    if (telegramTopics.has(activeBook.canonical_book_id)) return;
+
+    let cancelled = false;
+
+    const prefetchTelegramTopic = async () => {
+      try {
+        // First check if topic exists in database
+        const existing = await getTelegramTopic(activeBook.canonical_book_id!);
+        if (existing) {
+          if (!cancelled) {
+            setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, existing));
+          }
+          return;
+        }
+
+        // Topic doesn't exist - create it in the background
+        const topic = await getOrCreateTelegramTopic(
+          activeBook.title,
+          activeBook.author,
+          activeBook.canonical_book_id!,
+          activeBook.cover_url || undefined
+        );
+
+        if (topic && !cancelled) {
+          setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
+        }
+      } catch (err) {
+        console.error('[TelegramTopic] Error prefetching:', err);
+      }
+    };
+
+    // Small delay to not compete with other fetches
+    const timer = setTimeout(prefetchTelegramTopic, 1000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [activeBook?.canonical_book_id, user]);
+
   // Fetch discussion questions when the discussion modal opens
   useEffect(() => {
     if (!showBookDiscussion || !activeBook || !activeBook.canonical_book_id) {
@@ -12841,69 +12887,85 @@ export default function App() {
 
                     {/* Buttons container */}
                     <div className="flex items-center gap-2">
-                      {/* Telegram discussion button */}
-                      <button
-                        onClick={async () => {
-                          if (!activeBook?.canonical_book_id) return;
-                          setIsLoadingTelegramTopic(true);
-                          try {
-                            // Check if we already have the topic cached locally
-                            const cachedTopic = telegramTopics.get(activeBook.canonical_book_id);
-                            if (cachedTopic) {
-                              window.open(cachedTopic.inviteLink, '_blank');
-                              return;
-                            }
+                      {isLoadingBookReaders ? (
+                        <motion.div
+                          animate={{ opacity: [0.5, 0.8, 0.5] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          className="flex items-center gap-2"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-slate-300/50" />
+                          <div className="w-8 h-8 rounded-full bg-slate-300/50" />
+                        </motion.div>
+                      ) : (
+                        <>
+                          {/* Telegram discussion button */}
+                          <button
+                            onClick={async () => {
+                              if (!activeBook?.canonical_book_id) return;
+                              setIsLoadingTelegramTopic(true);
+                              try {
+                                // Check if we already have the topic cached locally
+                                const cachedTopic = telegramTopics.get(activeBook.canonical_book_id);
+                                if (cachedTopic) {
+                                  window.open(cachedTopic.inviteLink, '_blank');
+                                  return;
+                                }
 
-                            // Get or create the topic
-                            const topic = await getOrCreateTelegramTopic(
-                              activeBook.title,
-                              activeBook.author,
-                              activeBook.canonical_book_id,
-                              activeBook.cover_url || undefined
-                            );
+                                // Get or create the topic
+                                const topic = await getOrCreateTelegramTopic(
+                                  activeBook.title,
+                                  activeBook.author,
+                                  activeBook.canonical_book_id,
+                                  activeBook.cover_url || undefined
+                                );
 
-                            if (topic) {
-                              // Cache locally
-                              setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
-                              // Open the invite link
-                              window.open(topic.inviteLink, '_blank');
-                            }
-                          } catch (err) {
-                            console.error('Error opening Telegram topic:', err);
-                          } finally {
-                            setIsLoadingTelegramTopic(false);
-                          }
-                        }}
-                        disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
-                        className="flex items-center justify-center w-8 h-8 rounded-full active:scale-95 transition-all disabled:opacity-50"
-                        style={{
-                          background: 'rgba(0, 136, 204, 0.9)',
-                          boxShadow: '0 2px 8px rgba(0, 136, 204, 0.3)',
-                        }}
-                      >
-                        {isLoadingTelegramTopic ? (
-                          <motion.div
-                            animate={{ rotate: 360 }}
-                            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                            className="w-4 h-4 border-2 border-white border-t-transparent rounded-full"
-                          />
-                        ) : (
-                          <MessagesSquare size={16} className="text-white" />
-                        )}
-                      </button>
+                                if (topic) {
+                                  // Cache locally
+                                  setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
+                                  // Open the invite link
+                                  window.open(topic.inviteLink, '_blank');
+                                }
+                              } catch (err) {
+                                console.error('Error opening Telegram topic:', err);
+                              } finally {
+                                setIsLoadingTelegramTopic(false);
+                              }
+                            }}
+                            disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
+                            className="flex items-center justify-center w-8 h-8 rounded-full active:scale-95 transition-all disabled:opacity-50"
+                            style={{
+                              background: 'rgba(255, 255, 255, 0.6)',
+                              backdropFilter: 'blur(9.4px)',
+                              WebkitBackdropFilter: 'blur(9.4px)',
+                              border: '1px solid rgba(255, 255, 255, 0.3)',
+                            }}
+                          >
+                            {isLoadingTelegramTopic ? (
+                              <motion.div
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full"
+                              />
+                            ) : (
+                              <MessagesSquare size={16} className="text-slate-700" />
+                            )}
+                          </button>
 
-                      {/* Chat button */}
-                      <button
-                        onClick={() => setShowBookDiscussion(true)}
-                        disabled={isLoadingBookReaders}
-                        className="flex items-center justify-center w-8 h-8 rounded-full active:scale-95 transition-all disabled:opacity-50"
-                        style={{
-                          background: 'rgba(59, 130, 246, 0.9)',
-                          boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)',
-                        }}
-                      >
-                        <MessageCircle size={16} className="text-white" />
-                      </button>
+                          {/* Discussion button */}
+                          <button
+                            onClick={() => setShowBookDiscussion(true)}
+                            className="flex items-center justify-center w-8 h-8 rounded-full active:scale-95 transition-all"
+                            style={{
+                              background: 'rgba(255, 255, 255, 0.6)',
+                              backdropFilter: 'blur(9.4px)',
+                              WebkitBackdropFilter: 'blur(9.4px)',
+                              border: '1px solid rgba(255, 255, 255, 0.3)',
+                            }}
+                          >
+                            <Lightbulb size={16} className="text-slate-700" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
