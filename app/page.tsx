@@ -6977,32 +6977,24 @@ export default function App() {
 
   // Set default view to bookshelf covers when user has no books (first-time user)
   useEffect(() => {
-    console.log('[Intro Debug] useEffect triggered:', {
-      isLoaded,
-      booksLength: books.length,
-      showBookshelf,
-      showBookshelfCovers,
-      showNotesView,
-      showAccountPage,
-      showFollowingPage,
-      hasSeenIntro: localStorage.getItem('hasSeenIntro'),
-    });
-
     if (isLoaded && books.length === 0 && !showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showFollowingPage) {
-      console.log('[Intro Debug] Condition met - showing bookshelf covers');
       // First-time user: default to bookshelf covers view
       setShowBookshelfCovers(true);
       setBookshelfGrouping('reading_status'); // Ensure it's grouped by status
+    }
+  }, [isLoaded, books.length, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage]);
 
-      // Show intro screen for new users who haven't seen it
+  // Show intro screen for new users who haven't seen it (separate from page state)
+  useEffect(() => {
+    if (isLoaded && user && books.length === 0) {
       const hasSeenIntro = localStorage.getItem('hasSeenIntro');
-      console.log('[Intro Debug] hasSeenIntro:', hasSeenIntro);
+      console.log('[Intro Debug] Checking intro:', { isLoaded, userId: user.id, booksLength: books.length, hasSeenIntro });
       if (!hasSeenIntro) {
-        console.log('[Intro Debug] Showing about screen');
+        console.log('[Intro Debug] Showing intro screen for new user');
         setShowAboutScreen(true);
       }
     }
-  }, [isLoaded, books.length, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage]);
+  }, [isLoaded, user, books.length]);
 
   // Save page state to localStorage whenever it changes
   useEffect(() => {
