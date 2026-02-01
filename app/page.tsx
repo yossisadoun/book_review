@@ -15028,7 +15028,7 @@ export default function App() {
                 setShowAboutScreen(false);
                 localStorage.setItem('hasSeenIntro', 'true');
               }}
-              className="absolute top-5 right-4 w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+              className="absolute top-5 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
               style={standardGlassmorphicStyle}
             >
               <X size={18} className="text-slate-950" />
