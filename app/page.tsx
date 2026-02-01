@@ -13170,55 +13170,20 @@ export default function App() {
 
                 {/* Related Books - Show below analysis */}
                 {(() => {
-                  const isNotRead = activeBook.reading_status !== 'read_it';
-                  const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
-                  const isRelatedRevealed = revealedSections.has('related');
-                  const shouldBlurRelated = isNotRead && !isRelatedRevealed;
-                  
                   const related = relatedBooks.get(activeBook.id);
                   // Check if we have data (including empty array which means we fetched but got no results)
                   const hasData = related !== undefined; // undefined means not fetched yet, [] means fetched but empty
                   const hasRelated = related && related.length > 0;
                   const isLoading = loadingRelatedForBookId === activeBook.id && !hasData;
-                  
+
                   // Only show the related books section if loading or has related books
                   // Don't show if we've fetched and got empty results
                   if (!isLoading && !hasRelated) return null;
-                  
+
                   return (
-                    <div 
-                      className={`w-full space-y-2 relative ${shouldBlurRelated ? 'cursor-pointer' : ''}`}
-                      onClick={() => {
-                        if (shouldBlurRelated) {
-                          setSpoilerRevealed(prev => {
-                            const newMap = new Map(prev);
-                            const revealed = newMap.get(activeBook.id) || new Set<string>();
-                            revealed.add('related');
-                            newMap.set(activeBook.id, revealed);
-                            return newMap;
-                          });
-                        }
-                      }}
-                    >
-                      <AnimatePresence>
-                        {shouldBlurRelated && (
-                          <motion.div
-                            key="spoiler-related"
-                            initial={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.3, ease: "easeInOut" }}
-                            className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
-                          >
-                            <div className="text-center px-4">
-                              <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Related.</p>
-                              <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                      <div className={shouldBlurRelated ? 'blur-sm pointer-events-none select-none' : ''}>
-                        {/* Related Books Header */}
-                        <div className="flex items-center justify-center mb-2">
+                    <div className="w-full space-y-2">
+                      {/* Related Books Header */}
+                      <div className="flex items-center justify-center mb-2">
                         <AnimatePresence mode="wait">
                           <motion.div
                             key={`related-menu-${activeBook?.id || 'default'}`}
@@ -13241,21 +13206,20 @@ export default function App() {
                           animate={{ opacity: [0.5, 0.8, 0.5] }}
                           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                           className="rounded-xl p-4"
-          style={glassmorphicStyle}
+                          style={glassmorphicStyle}
                         >
                           <div className="h-12 flex items-center justify-center">
                             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
                           </div>
                         </motion.div>
                       ) : (
-                        <RelatedBooks 
-                          books={related || []} 
+                        <RelatedBooks
+                          books={related || []}
                           bookId={activeBook.id}
                           isLoading={false}
                           onAddBook={handleAddBook}
                         />
                       )}
-                      </div>
                     </div>
                   );
                 })()}
