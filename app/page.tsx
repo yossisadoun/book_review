@@ -3633,8 +3633,11 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
           className="rounded-xl p-4"
           style={glassmorphicStyle}
         >
-            <div className="h-12 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-2">
+            <div className="w-16 h-3 bg-slate-300/50 rounded animate-pulse" />
             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+            <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+            <div className="w-20 h-3 bg-slate-300/50 rounded animate-pulse mt-1" />
           </div>
         </motion.div>
       </div>
@@ -3905,8 +3908,16 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
           className="rounded-xl p-4"
           style={glassmorphicStyle}
         >
-          <div className="h-12 flex items-center justify-center">
-            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+          <div className="flex items-start gap-3 mb-3">
+            <div className="w-12 h-12 bg-slate-300/50 rounded-lg animate-pulse flex-shrink-0" />
+            <div className="flex-1 space-y-2">
+              <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+              <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
+            <div className="w-2/3 h-3 bg-slate-300/50 rounded animate-pulse" />
           </div>
         </motion.div>
       </div>
@@ -4136,11 +4147,17 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
         <motion.div
           animate={{ opacity: [0.5, 0.8, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="rounded-xl p-4"
+          className="rounded-xl overflow-hidden"
           style={glassmorphicStyle}
         >
-          <div className="h-12 flex items-center justify-center">
-            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+          <div className="relative w-full bg-slate-300/50 animate-pulse" style={{ paddingBottom: '56.25%' }}>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Play size={32} className="text-slate-400/50" />
+            </div>
+          </div>
+          <div className="p-4 space-y-2">
+            <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+            <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
           </div>
         </motion.div>
       </div>
@@ -4312,8 +4329,11 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
           className="rounded-xl p-4"
           style={glassmorphicStyle}
         >
-          <div className="h-12 flex items-center justify-center">
-            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+          <div className="space-y-2">
+            <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+            <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
+            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse mt-3" />
+            <div className="w-5/6 h-3 bg-slate-300/50 rounded animate-pulse" />
           </div>
         </motion.div>
       </div>
@@ -4469,8 +4489,17 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
           className="rounded-xl p-4"
           style={glassmorphicStyle}
         >
-          <div className="h-12 flex items-center justify-center">
-            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+          <div className="flex items-start gap-3 mb-3">
+            <div className="w-16 h-20 bg-slate-300/50 rounded-lg animate-pulse flex-shrink-0" />
+            <div className="flex-1 space-y-2">
+              <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+              <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
+              <div className="w-20 h-6 bg-slate-300/50 rounded-lg animate-pulse mt-2" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
+            <div className="w-4/5 h-3 bg-slate-300/50 rounded animate-pulse" />
           </div>
         </motion.div>
       </div>
@@ -12875,10 +12904,13 @@ export default function App() {
                           animate={{ opacity: [0.5, 0.8, 0.5] }}
                           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                           className="rounded-xl p-4"
-          style={glassmorphicStyle}
+                          style={glassmorphicStyle}
                         >
-                          <div className="h-12 flex items-center justify-center">
+                          <div className="flex flex-col items-center gap-2">
+                            <div className="w-16 h-3 bg-slate-300/50 rounded animate-pulse" />
                             <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                            <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+                            <div className="w-20 h-3 bg-slate-300/50 rounded animate-pulse mt-1" />
                           </div>
                         </motion.div>
                       ) : currentInsights.length > 0 ? (
@@ -12964,10 +12996,18 @@ export default function App() {
                           animate={{ opacity: [0.5, 0.8, 0.5] }}
                           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                           className="rounded-xl p-4"
-          style={glassmorphicStyle}
+                          style={glassmorphicStyle}
                         >
-                          <div className="h-12 flex items-center justify-center">
-                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                          <div className="flex items-start gap-3 mb-3">
+                            <div className="w-12 h-12 bg-slate-300/50 rounded-lg animate-pulse flex-shrink-0" />
+                            <div className="flex-1 space-y-2">
+                              <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+                              <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
+                            <div className="w-2/3 h-3 bg-slate-300/50 rounded animate-pulse" />
                           </div>
                         </motion.div>
                       ) : (
@@ -13052,11 +13092,17 @@ export default function App() {
                         <motion.div
                           animate={{ opacity: [0.5, 0.8, 0.5] }}
                           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="rounded-xl p-4"
-          style={glassmorphicStyle}
+                          className="rounded-xl overflow-hidden"
+                          style={glassmorphicStyle}
                         >
-                          <div className="h-12 flex items-center justify-center">
-                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                          <div className="relative w-full bg-slate-300/50 animate-pulse" style={{ paddingBottom: '56.25%' }}>
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <Play size={32} className="text-slate-400/50" />
+                            </div>
+                          </div>
+                          <div className="p-4 space-y-2">
+                            <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+                            <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
                           </div>
                         </motion.div>
                       ) : (
@@ -13149,10 +13195,13 @@ export default function App() {
                           animate={{ opacity: [0.5, 0.8, 0.5] }}
                           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                           className="rounded-xl p-4"
-          style={glassmorphicStyle}
+                          style={glassmorphicStyle}
                         >
-                          <div className="h-12 flex items-center justify-center">
-                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                          <div className="space-y-2">
+                            <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+                            <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
+                            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse mt-3" />
+                            <div className="w-5/6 h-3 bg-slate-300/50 rounded animate-pulse" />
                           </div>
                         </motion.div>
                       ) : (
@@ -13208,8 +13257,17 @@ export default function App() {
                           className="rounded-xl p-4"
                           style={glassmorphicStyle}
                         >
-                          <div className="h-12 flex items-center justify-center">
-                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                          <div className="flex items-start gap-3 mb-3">
+                            <div className="w-16 h-20 bg-slate-300/50 rounded-lg animate-pulse flex-shrink-0" />
+                            <div className="flex-1 space-y-2">
+                              <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+                              <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
+                              <div className="w-20 h-6 bg-slate-300/50 rounded-lg animate-pulse mt-2" />
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
+                            <div className="w-4/5 h-3 bg-slate-300/50 rounded animate-pulse" />
                           </div>
                         </motion.div>
                       ) : (
