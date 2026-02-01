@@ -7432,6 +7432,70 @@ export default function App() {
     (activeBook?.podcast_episodes_apple || []).map(e => e.url).join(','),
     (activeBook?.podcast_episodes || []).map(e => e.url).join(',')
   ]);
+
+  const bookPageSectionsResolved = useMemo(() => {
+    if (!activeBook) return true;
+
+    const hasFacts = activeBook.author_facts && activeBook.author_facts.length > 0;
+    const research = researchData.get(activeBook.id) || null;
+    const hasResearch = !!(research && research.pillars && research.pillars.length > 0);
+    const influences = bookInfluences.get(activeBook.id) || [];
+    const hasInfluences = influences.length > 0;
+    const domainData = bookDomain.get(activeBook.id);
+    const hasDomain = !!(domainData && domainData.facts && domainData.facts.length > 0);
+    const contextInsights = bookContext.get(activeBook.id) || [];
+    const hasContext = contextInsights.length > 0;
+
+    const isLoadingFacts = loadingFactsForBookId === activeBook.id && !hasFacts;
+    const isLoadingResearch = loadingResearchForBookId === activeBook.id && !hasResearch;
+    const isLoadingInfluences = loadingInfluencesForBookId === activeBook.id && !hasInfluences;
+    const isLoadingDomain = loadingDomainForBookId === activeBook.id && !hasDomain;
+    const isLoadingContext = loadingContextForBookId === activeBook.id && !hasContext;
+    const isInsightsLoading = isLoadingFacts || isLoadingResearch || isLoadingInfluences || isLoadingDomain || isLoadingContext;
+
+    const hasEpisodes = combinedPodcastEpisodes.length > 0;
+    const isPodcastsLoading = loadingPodcastsForBookId === activeBook.id && !hasEpisodes;
+
+    const videos = youtubeVideos.get(activeBook.id) || [];
+    const hasVideos = videos.length > 0;
+    const isVideosLoading = loadingVideosForBookId === activeBook.id && !hasVideos;
+
+    const articles = analysisArticles.get(activeBook.id) || [];
+    const hasRealArticles = articles.length > 0 && articles.some(article => {
+      const isFallback = article.title?.includes('Search Google Scholar') ||
+                         (article.url && article.url.includes('scholar.google.com/scholar?q='));
+      return !isFallback;
+    });
+    const hasOnlyFallback = articles.length > 0 && !hasRealArticles;
+    const hasArticles = hasRealArticles;
+    const isAnalysisLoading = loadingAnalysisForBookId === activeBook.id && !hasArticles && !hasOnlyFallback;
+
+    const related = relatedBooks.get(activeBook.id);
+    const hasData = related !== undefined;
+    const isRelatedLoading = loadingRelatedForBookId === activeBook.id && !hasData;
+
+    return !(isInsightsLoading || isPodcastsLoading || isVideosLoading || isAnalysisLoading || isRelatedLoading);
+  }, [
+    activeBook?.id,
+    activeBook?.author_facts,
+    combinedPodcastEpisodes.length,
+    researchData,
+    bookInfluences,
+    bookDomain,
+    bookContext,
+    youtubeVideos,
+    analysisArticles,
+    relatedBooks,
+    loadingFactsForBookId,
+    loadingResearchForBookId,
+    loadingInfluencesForBookId,
+    loadingDomainForBookId,
+    loadingContextForBookId,
+    loadingPodcastsForBookId,
+    loadingVideosForBookId,
+    loadingAnalysisForBookId,
+    loadingRelatedForBookId,
+  ]);
   
   // Save bookshelf grouping preference
   useEffect(() => {
@@ -10343,6 +10407,25 @@ export default function App() {
                   </button>
                 );
                 const cardOpacity = item.read ? 'opacity-60' : '';
+                const openSourceBookOverlay = () => {
+                  const bookForModal: BookWithRatings = {
+                    id: `feed-source-${item.id}`,
+                    user_id: user?.id || '',
+                    title: item.source_book_title || 'Book',
+                    author: item.source_book_author || 'Unknown Author',
+                    cover_url: item.source_book_cover_url || null,
+                    publish_year: null,
+                    wikipedia_url: null,
+                    google_books_url: null,
+                    genre: null,
+                    first_issue_year: null,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    reading_status: null,
+                    ratings: { writing: null, insights: null, flow: null, world: null, characters: null },
+                  };
+                  setViewingBookFromOtherUser(bookForModal);
+                };
 
                 // Render based on type
                 switch (item.type) {
@@ -10364,7 +10447,10 @@ export default function App() {
                           <div className="bg-white/40 rounded-xl px-3 py-2 mb-3">
                             <p className="text-sm text-slate-700">{item.content.fact}</p>
                           </div>
-                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                          <button
+                            onClick={openSourceBookOverlay}
+                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                          >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
                             ) : (
@@ -10375,7 +10461,7 @@ export default function App() {
                               <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
                               <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
                             </div>
-                          </div>
+                          </button>
                         </div>
                       </div>
                     );
@@ -10401,7 +10487,10 @@ export default function App() {
                               {typeof contextData === 'string' ? contextData : contextData?.text || JSON.stringify(contextData)}
                             </p>
                           </div>
-                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                          <button
+                            onClick={openSourceBookOverlay}
+                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                          >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
                             ) : (
@@ -10412,7 +10501,7 @@ export default function App() {
                               <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
                               <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
                             </div>
-                          </div>
+                          </button>
                         </div>
                       </div>
                     );
@@ -10439,7 +10528,10 @@ export default function App() {
                               {typeof drilldownData === 'string' ? drilldownData : drilldownData?.text || JSON.stringify(drilldownData)}
                             </p>
                           </div>
-                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                          <button
+                            onClick={openSourceBookOverlay}
+                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                          >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
                             ) : (
@@ -10450,7 +10542,7 @@ export default function App() {
                               <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
                               <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
                             </div>
-                          </div>
+                          </button>
                         </div>
                       </div>
                     );
@@ -10476,7 +10568,10 @@ export default function App() {
                               {typeof influenceData === 'string' ? influenceData : influenceData?.title || JSON.stringify(influenceData)}
                             </p>
                           </div>
-                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                          <button
+                            onClick={openSourceBookOverlay}
+                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                          >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
                             ) : (
@@ -10487,7 +10582,7 @@ export default function App() {
                               <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
                               <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
                             </div>
-                          </div>
+                          </button>
                         </div>
                       </div>
                     );
@@ -10571,7 +10666,10 @@ export default function App() {
                               </div>
                             </div>
                           </div>
-                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                          <button
+                            onClick={openSourceBookOverlay}
+                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                          >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
                             ) : (
@@ -10582,7 +10680,7 @@ export default function App() {
                               <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
                               <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
                             </div>
-                          </div>
+                          </button>
                         </div>
                       </div>
                     );
@@ -10635,7 +10733,10 @@ export default function App() {
                         )}
                         <div className="px-4 py-3">
                           <p className="font-bold text-slate-900 text-sm mb-3 line-clamp-2">{video?.title || 'YouTube Video'}</p>
-                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                          <button
+                            onClick={openSourceBookOverlay}
+                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                          >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
                             ) : (
@@ -10646,7 +10747,7 @@ export default function App() {
                               <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
                               <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
                             </div>
-                          </div>
+                          </button>
                         </div>
                       </div>
                     );
@@ -10741,7 +10842,10 @@ export default function App() {
                               </a>
                             )}
                           </div>
-                          <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
+                          <button
+                            onClick={openSourceBookOverlay}
+                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                          >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
                             ) : (
@@ -10752,7 +10856,7 @@ export default function App() {
                               <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
                               <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
                             </div>
-                          </div>
+                          </button>
                         </div>
                       </div>
                     );
@@ -12723,6 +12827,33 @@ export default function App() {
             {/* Insights Section - Show below cover with spacing */}
             {!showRatingOverlay && (
               <>
+                {!bookPageSectionsResolved ? (
+                  <motion.div
+                    animate={{ opacity: [0.5, 0.8, 0.5] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    className="w-full space-y-3"
+                  >
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div key={`book-page-skeleton-${i}`} className="rounded-xl p-4" style={glassmorphicStyle}>
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="w-24 h-3 bg-slate-300/50 rounded" />
+                          <div className="w-12 h-3 bg-slate-300/50 rounded" />
+                        </div>
+                        <div className="space-y-2">
+                          <div className="w-full h-4 bg-slate-300/50 rounded" />
+                          <div className="w-5/6 h-4 bg-slate-300/50 rounded" />
+                          <div className="w-3/4 h-4 bg-slate-300/50 rounded" />
+                        </div>
+                      </div>
+                    ))}
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                    className="w-full space-y-2"
+                  >
                 {/* Insights: Show if we have facts, research, or are loading */}
                 {(() => {
                   const isNotRead = activeBook.reading_status !== 'read_it';
@@ -12739,11 +12870,11 @@ export default function App() {
                   const domainLabel = domainData?.label || 'Domain';
                   const contextInsights = bookContext.get(activeBook.id) || [];
                   const hasContext = contextInsights.length > 0;
-                  const isLoadingFacts = loadingFactsForBookId === activeBook.id && !hasFacts;
-                  const isLoadingResearch = loadingResearchForBookId === activeBook.id && !hasResearch;
-                  const isLoadingInfluences = loadingInfluencesForBookId === activeBook.id && !hasInfluences;
-                  const isLoadingDomain = loadingDomainForBookId === activeBook.id && !hasDomain;
-                  const isLoadingContext = loadingContextForBookId === activeBook.id && !hasContext;
+                  const isLoadingFacts = !bookPageSectionsResolved && loadingFactsForBookId === activeBook.id && !hasFacts;
+                  const isLoadingResearch = !bookPageSectionsResolved && loadingResearchForBookId === activeBook.id && !hasResearch;
+                  const isLoadingInfluences = !bookPageSectionsResolved && loadingInfluencesForBookId === activeBook.id && !hasInfluences;
+                  const isLoadingDomain = !bookPageSectionsResolved && loadingDomainForBookId === activeBook.id && !hasDomain;
+                  const isLoadingContext = !bookPageSectionsResolved && loadingContextForBookId === activeBook.id && !hasContext;
                   
                   // Get available categories
                   const categories: { id: string; label: string; count: number }[] = [];
@@ -12804,50 +12935,11 @@ export default function App() {
                   }
                   
                   return (
-                    <div 
-                      className={`w-full space-y-2 relative ${shouldBlurInsights ? 'cursor-pointer' : ''}`}
-                      onClick={() => {
-                        if (shouldBlurInsights) {
-                          setSpoilerRevealed(prev => {
-                            const newMap = new Map(prev);
-                            const revealed = newMap.get(activeBook.id) || new Set<string>();
-                            revealed.add('insights');
-                            newMap.set(activeBook.id, revealed);
-                            return newMap;
-                          });
-                        }
-                      }}
-                    >
-                      <AnimatePresence>
-                        {shouldBlurInsights && (
-                          <motion.div
-                            key="spoiler-insights"
-                            initial={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.3, ease: "easeInOut" }}
-                            className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
-                          >
-                            <div className="text-center px-4">
-                              <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Insights.</p>
-                              <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                      <div className={`transition-[filter] duration-300 ${shouldBlurInsights ? 'blur-sm pointer-events-none select-none' : ''}`}>
-                        {/* Insights Header with Category Selector */}
-                        <div className="flex items-center justify-center mb-2 relative z-[40]">
-                        <AnimatePresence mode="wait">
-                          <motion.div
-                            key={`insights-menu-${activeBook?.id || 'default'}`}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
-                            transition={{ duration: 0.3, ease: "easeInOut" }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm relative"
-                            style={bookPageGlassmorphicStyle}
-                          >
-                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">INSIGHTS:</span>
+                    <div className="w-full space-y-2">
+                      {/* Insights Header with Category Selector - Always visible */}
+                      <div className="flex items-center justify-center mb-2 relative z-[40]">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm relative" style={bookPageGlassmorphicStyle}>
+                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">INSIGHTS:</span>
                           {categories.length > 1 && (
                             <>
                               <span className="text-[10px] font-bold text-slate-400">/</span>
@@ -12860,8 +12952,8 @@ export default function App() {
                                   className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded transition-colors text-blue-700 hover:bg-blue-50"
                                 >
                                   {currentCategory?.label || 'Trivia'}
-                                  <ChevronDown 
-                                    size={12} 
+                                  <ChevronDown
+                                    size={12}
                                     className={`transition-transform ${isInsightCategoryDropdownOpen ? 'rotate-180' : ''}`}
                                   />
                                 </button>
@@ -12895,31 +12987,62 @@ export default function App() {
                               <span className="text-[10px] font-bold text-blue-700">{currentCategory?.label || 'Trivia'}</span>
                             </>
                           )}
-                        </motion.div>
-                        </AnimatePresence>
+                        </div>
                       </div>
-                      {isLoading ? (
-                        // Show loading placeholder
-                        <motion.div
-                          animate={{ opacity: [0.5, 0.8, 0.5] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="rounded-xl p-4"
-                          style={glassmorphicStyle}
-                        >
-                          <div className="flex flex-col items-center gap-2">
-                            <div className="w-16 h-3 bg-slate-300/50 rounded animate-pulse" />
-                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
-                            <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-                            <div className="w-20 h-3 bg-slate-300/50 rounded animate-pulse mt-1" />
-                          </div>
-                        </motion.div>
-                      ) : currentInsights.length > 0 ? (
-                        <InsightsCards 
-                          insights={currentInsights} 
-                          bookId={`${activeBook.id}-${selectedInsightCategory}`}
-                          isLoading={false}
-                        />
-                      ) : null}
+                      {/* Content with spoiler protection */}
+                      <div
+                        className={`relative ${shouldBlurInsights ? 'cursor-pointer' : ''}`}
+                        onClick={() => {
+                          if (shouldBlurInsights) {
+                            setSpoilerRevealed(prev => {
+                              const newMap = new Map(prev);
+                              const revealed = newMap.get(activeBook.id) || new Set<string>();
+                              revealed.add('insights');
+                              newMap.set(activeBook.id, revealed);
+                              return newMap;
+                            });
+                          }
+                        }}
+                      >
+                        <AnimatePresence>
+                          {shouldBlurInsights && (
+                            <motion.div
+                              key="spoiler-insights"
+                              initial={{ opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              transition={{ duration: 0.3, ease: "easeInOut" }}
+                              className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
+                            >
+                              <div className="text-center px-4">
+                                <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Insights.</p>
+                                <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                        <div className={`transition-[filter] duration-300 ${shouldBlurInsights ? 'blur-sm pointer-events-none select-none' : ''}`}>
+                          {isLoading ? (
+                            <motion.div
+                              animate={{ opacity: [0.5, 0.8, 0.5] }}
+                              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                              className="rounded-xl p-4"
+                              style={glassmorphicStyle}
+                            >
+                              <div className="flex flex-col items-center gap-2">
+                                <div className="w-16 h-3 bg-slate-300/50 rounded animate-pulse" />
+                                <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                                <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+                                <div className="w-20 h-3 bg-slate-300/50 rounded animate-pulse mt-1" />
+                              </div>
+                            </motion.div>
+                          ) : currentInsights.length > 0 ? (
+                            <InsightsCards
+                              insights={currentInsights}
+                              bookId={`${activeBook.id}-${selectedInsightCategory}`}
+                              isLoading={false}
+                            />
+                          ) : null}
+                        </div>
                       </div>
                     </div>
                   );
@@ -12935,89 +13058,80 @@ export default function App() {
                   const episodes = combinedPodcastEpisodes;
                   const hasEpisodes = episodes.length > 0;
                   // Only show loading if we don't have episodes yet. Once loaded, always show.
-                  const isLoading = activeBook && loadingPodcastsForBookId === activeBook.id && !hasEpisodes;
+                  const isLoading = !bookPageSectionsResolved && activeBook && loadingPodcastsForBookId === activeBook.id && !hasEpisodes;
                   
                   // Only show the podcast section if loading or has episodes
                   if (!isLoading && !hasEpisodes) return null;
                   
                   return (
-                    <div 
-                      className={`w-full space-y-2 relative ${shouldBlurPodcasts ? 'cursor-pointer' : ''}`}
-                          onClick={() => {
-                        if (shouldBlurPodcasts) {
-                          setSpoilerRevealed(prev => {
-                            const newMap = new Map(prev);
-                            const revealed = newMap.get(activeBook.id) || new Set<string>();
-                            revealed.add('podcasts');
-                            newMap.set(activeBook.id, revealed);
-                            return newMap;
-                          });
-                        }
-                      }}
-                    >
-                      <AnimatePresence>
-                        {shouldBlurPodcasts && (
-                          <motion.div
-                            key="spoiler-podcasts"
-                            initial={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.3, ease: "easeInOut" }}
-                            className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
-                          >
-                            <div className="text-center px-4">
-                              <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Podcasts.</p>
-                              <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                      <div className={`transition-[filter] duration-300 ${shouldBlurPodcasts ? 'blur-sm pointer-events-none select-none' : ''}`}>
-                        {/* Podcast Header */}
-                        <div className="flex items-center justify-center mb-2">
-                        <AnimatePresence mode="wait">
-                          <motion.div
-                            key={`podcasts-menu-${activeBook?.id || 'default'}`}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
-                            transition={{ duration: 0.3, ease: "easeInOut" }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
-                            style={bookPageGlassmorphicStyle}
-                          >
-                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">PODCASTS:</span>
-                            <span className="text-[10px] font-bold text-slate-400">/</span>
-                            <span className="text-[10px] font-bold text-blue-700">Curated + Apple</span>
-                          </motion.div>
-                        </AnimatePresence>
+                    <div className="w-full space-y-2">
+                      {/* Podcast Header - Always visible */}
+                      <div className="flex items-center justify-center mb-2">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
+                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">PODCASTS:</span>
+                          <span className="text-[10px] font-bold text-slate-400">/</span>
+                          <span className="text-[10px] font-bold text-blue-700">Curated + Apple</span>
+                        </div>
                       </div>
-                      {isLoading ? (
-                        // Show loading placeholder
-                        <motion.div
-                          animate={{ opacity: [0.5, 0.8, 0.5] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="rounded-xl p-4"
-                          style={glassmorphicStyle}
-                        >
-                          <div className="flex items-start gap-3 mb-3">
-                            <div className="w-12 h-12 bg-slate-300/50 rounded-lg animate-pulse flex-shrink-0" />
-                            <div className="flex-1 space-y-2">
-                              <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-                              <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
-                            <div className="w-2/3 h-3 bg-slate-300/50 rounded animate-pulse" />
-                          </div>
-                        </motion.div>
-                      ) : (
-                        // Show episodes
-                        <PodcastEpisodes 
-                          episodes={episodes} 
-                          bookId={activeBook?.id || ''}
-                          isLoading={false}
-                        />
-                      )}
+                      {/* Content with spoiler protection */}
+                      <div
+                        className={`relative ${shouldBlurPodcasts ? 'cursor-pointer' : ''}`}
+                        onClick={() => {
+                          if (shouldBlurPodcasts) {
+                            setSpoilerRevealed(prev => {
+                              const newMap = new Map(prev);
+                              const revealed = newMap.get(activeBook.id) || new Set<string>();
+                              revealed.add('podcasts');
+                              newMap.set(activeBook.id, revealed);
+                              return newMap;
+                            });
+                          }
+                        }}
+                      >
+                        <AnimatePresence>
+                          {shouldBlurPodcasts && (
+                            <motion.div
+                              key="spoiler-podcasts"
+                              initial={{ opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              transition={{ duration: 0.3, ease: "easeInOut" }}
+                              className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
+                            >
+                              <div className="text-center px-4">
+                                <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Podcasts.</p>
+                                <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                        <div className={`transition-[filter] duration-300 ${shouldBlurPodcasts ? 'blur-sm pointer-events-none select-none' : ''}`}>
+                          {isLoading ? (
+                            <motion.div
+                              animate={{ opacity: [0.5, 0.8, 0.5] }}
+                              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                              className="rounded-xl p-4"
+                              style={glassmorphicStyle}
+                            >
+                              <div className="flex items-start gap-3 mb-3">
+                                <div className="w-12 h-12 bg-slate-300/50 rounded-lg animate-pulse flex-shrink-0" />
+                                <div className="flex-1 space-y-2">
+                                  <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+                                  <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
+                                <div className="w-2/3 h-3 bg-slate-300/50 rounded animate-pulse" />
+                              </div>
+                            </motion.div>
+                          ) : (
+                            <PodcastEpisodes
+                              episodes={episodes}
+                              bookId={activeBook?.id || ''}
+                              isLoading={false}
+                            />
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -13032,86 +13146,79 @@ export default function App() {
 
                   const videos = youtubeVideos.get(activeBook.id) || [];
                   const hasVideos = videos.length > 0;
-                  const isLoading = loadingVideosForBookId === activeBook.id && !hasVideos;
+                  const isLoading = !bookPageSectionsResolved && loadingVideosForBookId === activeBook.id && !hasVideos;
 
                   // Only show the videos section if loading or has videos
                   if (!isLoading && !hasVideos) return null;
 
                   return (
-                    <div
-                      className={`w-full space-y-2 relative ${shouldBlurVideos ? 'cursor-pointer' : ''}`}
-                      onClick={() => {
-                        if (shouldBlurVideos) {
-                          setSpoilerRevealed(prev => {
-                            const newMap = new Map(prev);
-                            const revealed = newMap.get(activeBook.id) || new Set<string>();
-                            revealed.add('videos');
-                            newMap.set(activeBook.id, revealed);
-                            return newMap;
-                          });
-                        }
-                      }}
-                    >
-                      <AnimatePresence>
-                        {shouldBlurVideos && (
-                          <motion.div
-                            key="spoiler-videos"
-                            initial={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.3, ease: "easeInOut" }}
-                            className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
-                          >
-                            <div className="text-center px-4">
-                              <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Videos.</p>
-                              <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                      <div className={`transition-[filter] duration-300 ${shouldBlurVideos ? 'blur-sm pointer-events-none select-none' : ''}`}>
-                        {/* Videos Header */}
-                        <div className="flex items-center justify-center mb-2">
-                        <AnimatePresence mode="wait">
-                          <motion.div
-                            key={`videos-menu-${activeBook?.id || 'default'}`}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
-                            transition={{ duration: 0.3, ease: "easeInOut" }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
-                            style={bookPageGlassmorphicStyle}
-                          >
-                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">VIDEOS:</span>
-                            <span className="text-[10px] font-bold text-slate-400">/</span>
-                            <span className="text-[10px] font-bold text-blue-700">YouTube</span>
-                          </motion.div>
-                        </AnimatePresence>
+                    <div className="w-full space-y-2">
+                      {/* Videos Header */}
+                      <div className="flex items-center justify-center mb-2">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
+                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">VIDEOS:</span>
+                          <span className="text-[10px] font-bold text-slate-400">/</span>
+                          <span className="text-[10px] font-bold text-blue-700">YouTube</span>
+                        </div>
                       </div>
-                      {isLoading ? (
-                        // Show loading placeholder
-                        <motion.div
-                          animate={{ opacity: [0.5, 0.8, 0.5] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="rounded-xl overflow-hidden"
-                          style={glassmorphicStyle}
-                        >
-                          <div className="relative w-full bg-slate-300/50 animate-pulse" style={{ paddingBottom: '56.25%' }}>
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <Play size={32} className="text-slate-400/50" />
-                            </div>
-                          </div>
-                          <div className="p-4 space-y-2">
-                            <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-                            <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
-                          </div>
-                        </motion.div>
-                      ) : (
-                        <YouTubeVideos
-                          videos={videos}
-                          bookId={activeBook.id}
-                          isLoading={false}
-                        />
-                      )}
+                      {/* Content with spoiler protection */}
+                      <div
+                        className={`relative ${shouldBlurVideos ? 'cursor-pointer' : ''}`}
+                        onClick={() => {
+                          if (shouldBlurVideos) {
+                            setSpoilerRevealed(prev => {
+                              const newMap = new Map(prev);
+                              const revealed = newMap.get(activeBook.id) || new Set<string>();
+                              revealed.add('videos');
+                              newMap.set(activeBook.id, revealed);
+                              return newMap;
+                            });
+                          }
+                        }}
+                      >
+                        <AnimatePresence>
+                          {shouldBlurVideos && (
+                            <motion.div
+                              key="spoiler-videos"
+                              initial={{ opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              transition={{ duration: 0.3, ease: "easeInOut" }}
+                              className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
+                            >
+                              <div className="text-center px-4">
+                                <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Videos.</p>
+                                <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                        <div className={`transition-[filter] duration-300 ${shouldBlurVideos ? 'blur-sm pointer-events-none select-none' : ''}`}>
+                          {isLoading ? (
+                            // Show loading placeholder
+                            <motion.div
+                              animate={{ opacity: [0.5, 0.8, 0.5] }}
+                              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                              className="rounded-xl overflow-hidden"
+                              style={glassmorphicStyle}
+                            >
+                              <div className="relative w-full bg-slate-300/50 animate-pulse" style={{ paddingBottom: '56.25%' }}>
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                  <Play size={32} className="text-slate-400/50" />
+                                </div>
+                              </div>
+                              <div className="p-4 space-y-2">
+                                <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+                                <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
+                              </div>
+                            </motion.div>
+                          ) : (
+                            <YouTubeVideos
+                              videos={videos}
+                              bookId={activeBook.id}
+                              isLoading={false}
+                            />
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -13134,84 +13241,77 @@ export default function App() {
                   });
                   const hasOnlyFallback = articles.length > 0 && !hasRealArticles;
                   const hasArticles = hasRealArticles;
-                  const isLoading = loadingAnalysisForBookId === activeBook.id && !hasArticles && !hasOnlyFallback;
+                  const isLoading = !bookPageSectionsResolved && loadingAnalysisForBookId === activeBook.id && !hasArticles && !hasOnlyFallback;
 
                   // Only show the analysis section if loading or has articles
                   if (!isLoading && !hasArticles) return null;
 
                   return (
-                    <div
-                      className={`w-full space-y-2 relative ${shouldBlurAnalysis ? 'cursor-pointer' : ''}`}
-                      onClick={() => {
-                        if (shouldBlurAnalysis) {
-                          setSpoilerRevealed(prev => {
-                            const newMap = new Map(prev);
-                            const revealed = newMap.get(activeBook.id) || new Set<string>();
-                            revealed.add('analysis');
-                            newMap.set(activeBook.id, revealed);
-                            return newMap;
-                          });
-                        }
-                      }}
-                    >
-                      <AnimatePresence>
-                        {shouldBlurAnalysis && (
-                          <motion.div
-                            key="spoiler-analysis"
-                            initial={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.3, ease: "easeInOut" }}
-                            className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
-                          >
-                            <div className="text-center px-4">
-                              <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Analysis.</p>
-                              <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                      <div className={`transition-[filter] duration-300 ${shouldBlurAnalysis ? 'blur-sm pointer-events-none select-none' : ''}`}>
+                    <div className="w-full space-y-2">
                       {/* Analysis Header */}
                       <div className="flex items-center justify-center mb-2">
-                        <AnimatePresence mode="wait">
-                          <motion.div
-                            key={`analysis-menu-${activeBook?.id || 'default'}`}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
-                            transition={{ duration: 0.3, ease: "easeInOut" }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
-                            style={bookPageGlassmorphicStyle}
-                          >
-                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">ANALYSIS:</span>
-                            <span className="text-[10px] font-bold text-slate-400">/</span>
-                            <span className="text-[10px] font-bold text-blue-700">Google Scholar</span>
-                          </motion.div>
-                        </AnimatePresence>
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
+                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">ANALYSIS:</span>
+                          <span className="text-[10px] font-bold text-slate-400">/</span>
+                          <span className="text-[10px] font-bold text-blue-700">Google Scholar</span>
+                        </div>
                       </div>
-                      {isLoading ? (
-                        // Show loading placeholder
-                        <motion.div
-                          animate={{ opacity: [0.5, 0.8, 0.5] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="rounded-xl p-4"
-                          style={glassmorphicStyle}
-                        >
-                          <div className="space-y-2">
-                            <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-                            <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
-                            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse mt-3" />
-                            <div className="w-5/6 h-3 bg-slate-300/50 rounded animate-pulse" />
-                          </div>
-                        </motion.div>
-                      ) : (
-                        // Show articles
-                        <AnalysisArticles
-                          articles={articles}
-                          bookId={activeBook.id}
-                          isLoading={false}
-                        />
-                      )}
+                      {/* Content with spoiler protection */}
+                      <div
+                        className={`relative ${shouldBlurAnalysis ? 'cursor-pointer' : ''}`}
+                        onClick={() => {
+                          if (shouldBlurAnalysis) {
+                            setSpoilerRevealed(prev => {
+                              const newMap = new Map(prev);
+                              const revealed = newMap.get(activeBook.id) || new Set<string>();
+                              revealed.add('analysis');
+                              newMap.set(activeBook.id, revealed);
+                              return newMap;
+                            });
+                          }
+                        }}
+                      >
+                        <AnimatePresence>
+                          {shouldBlurAnalysis && (
+                            <motion.div
+                              key="spoiler-analysis"
+                              initial={{ opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              transition={{ duration: 0.3, ease: "easeInOut" }}
+                              className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
+                            >
+                              <div className="text-center px-4">
+                                <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Analysis.</p>
+                                <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                        <div className={`transition-[filter] duration-300 ${shouldBlurAnalysis ? 'blur-sm pointer-events-none select-none' : ''}`}>
+                          {isLoading ? (
+                            // Show loading placeholder
+                            <motion.div
+                              animate={{ opacity: [0.5, 0.8, 0.5] }}
+                              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                              className="rounded-xl p-4"
+                              style={glassmorphicStyle}
+                            >
+                              <div className="space-y-2">
+                                <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+                                <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
+                                <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse mt-3" />
+                                <div className="w-5/6 h-3 bg-slate-300/50 rounded animate-pulse" />
+                              </div>
+                            </motion.div>
+                          ) : (
+                            // Show articles
+                            <AnalysisArticles
+                              articles={articles}
+                              bookId={activeBook.id}
+                              isLoading={false}
+                            />
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -13223,7 +13323,7 @@ export default function App() {
                   // Check if we have data (including empty array which means we fetched but got no results)
                   const hasData = related !== undefined; // undefined means not fetched yet, [] means fetched but empty
                   const hasRelated = related && related.length > 0;
-                  const isLoading = loadingRelatedForBookId === activeBook.id && !hasData;
+                  const isLoading = !bookPageSectionsResolved && loadingRelatedForBookId === activeBook.id && !hasData;
 
                   // Only show the related books section if loading or has related books
                   // Don't show if we've fetched and got empty results
@@ -13233,21 +13333,11 @@ export default function App() {
                     <div className="w-full space-y-2">
                       {/* Related Books Header */}
                       <div className="flex items-center justify-center mb-2">
-                        <AnimatePresence mode="wait">
-                          <motion.div
-                            key={`related-menu-${activeBook?.id || 'default'}`}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
-                            transition={{ duration: 0.3, ease: "easeInOut" }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
-                            style={bookPageGlassmorphicStyle}
-                          >
-                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">RELATED:</span>
-                            <span className="text-[10px] font-bold text-slate-400">/</span>
-                            <span className="text-[10px] font-bold text-blue-700">Grok</span>
-                          </motion.div>
-                        </AnimatePresence>
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
+                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">RELATED:</span>
+                          <span className="text-[10px] font-bold text-slate-400">/</span>
+                          <span className="text-[10px] font-bold text-blue-700">Grok</span>
+                        </div>
                       </div>
                       {isLoading ? (
                         // Show loading placeholder
@@ -13282,6 +13372,8 @@ export default function App() {
                   );
                 })()}
 
+                  </motion.div>
+                )}
               </>
             )}
           </div>
@@ -14411,16 +14503,19 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-[100] flex flex-col"
-              style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+              className="fixed inset-0 z-[100] flex flex-col pt-4"
+              style={{
+                ...backgroundImageStyle,
+                backgroundColor: 'rgba(0, 0, 0, 0.45)',
+              }}
             >
               {/* Header */}
               <motion.div
                 initial={{ y: -20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: -20, opacity: 0 }}
-                className="flex items-center justify-between px-4 py-3 border-b border-slate-200"
-                style={{ backgroundColor: '#f5f5f1' }}
+                className="flex items-center justify-between px-4 py-3 mx-4 mt-4 mb-4 rounded-2xl"
+                style={standardGlassmorphicStyle}
               >
                 <div className="flex items-center gap-3">
                   <button
@@ -14431,7 +14526,7 @@ export default function App() {
                     <X size={18} className="text-slate-950" />
                   </button>
                   <div>
-                    <h2 className="font-bold text-slate-950 text-sm">Discussion</h2>
+                    <h2 className="font-bold text-slate-950 text-sm">Discussions</h2>
                     <p className="text-xs text-slate-500 truncate max-w-[200px]">{activeBook.title}</p>
                   </div>
                 </div>
@@ -14463,12 +14558,14 @@ export default function App() {
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 20, opacity: 0 }}
                 className="flex-1 overflow-y-auto px-4 py-4 space-y-3"
-                style={{ backgroundColor: '#f5f5f1' }}
+                style={{ backgroundColor: 'transparent' }}
               >
                 {/* Section header */}
                 <div className="flex items-center gap-2 mb-2">
-                  <Sparkles size={16} className="text-amber-500" />
-                  <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Discussion Topics</span>
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg shadow-sm" style={glassmorphicStyle}>
+                    <Sparkles size={16} className="text-amber-500" />
+                    <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Discussion Topics</span>
+                  </div>
                 </div>
 
                 {isLoadingDiscussionQuestions ? (
@@ -14714,6 +14811,16 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
               className="relative flex flex-col items-center pointer-events-auto z-10 p-8 max-w-md"
             >
+              <button
+                onClick={() => {
+                  setShowAboutScreen(false);
+                  localStorage.setItem('hasSeenIntro', 'true');
+                }}
+                className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                style={standardGlassmorphicStyle}
+              >
+                <X size={18} className="text-slate-950" />
+              </button>
               {/* Header */}
               <motion.h1
                 initial={{ opacity: 0, y: -20 }}
