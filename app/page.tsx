@@ -12805,7 +12805,7 @@ export default function App() {
                           </motion.div>
                         )}
                       </AnimatePresence>
-                      <div className={shouldBlurInsights ? 'blur-sm pointer-events-none select-none' : ''}>
+                      <div className={`transition-[filter] duration-300 ${shouldBlurInsights ? 'blur-sm pointer-events-none select-none' : ''}`}>
                         {/* Insights Header with Category Selector */}
                         <div className="flex items-center justify-center mb-2 relative z-[40]">
                         <AnimatePresence mode="wait">
@@ -12939,7 +12939,7 @@ export default function App() {
                           </motion.div>
                         )}
                       </AnimatePresence>
-                      <div className={shouldBlurPodcasts ? 'blur-sm pointer-events-none select-none' : ''}>
+                      <div className={`transition-[filter] duration-300 ${shouldBlurPodcasts ? 'blur-sm pointer-events-none select-none' : ''}`}>
                         {/* Podcast Header */}
                         <div className="flex items-center justify-center mb-2">
                         <AnimatePresence mode="wait">
@@ -13028,7 +13028,7 @@ export default function App() {
                           </motion.div>
                         )}
                       </AnimatePresence>
-                      <div className={shouldBlurVideos ? 'blur-sm pointer-events-none select-none' : ''}>
+                      <div className={`transition-[filter] duration-300 ${shouldBlurVideos ? 'blur-sm pointer-events-none select-none' : ''}`}>
                         {/* Videos Header */}
                         <div className="flex items-center justify-center mb-2">
                         <AnimatePresence mode="wait">
@@ -13124,7 +13124,7 @@ export default function App() {
                           </motion.div>
                         )}
                       </AnimatePresence>
-                      <div className={shouldBlurAnalysis ? 'blur-sm pointer-events-none select-none' : ''}>
+                      <div className={`transition-[filter] duration-300 ${shouldBlurAnalysis ? 'blur-sm pointer-events-none select-none' : ''}`}>
                       {/* Analysis Header */}
                       <div className="flex items-center justify-center mb-2">
                         <AnimatePresence mode="wait">
