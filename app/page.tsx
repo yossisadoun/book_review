@@ -12983,30 +12983,118 @@ export default function App() {
                   );
                 })()}
                 
-                {/* Analysis Articles - Show below podcasts */}
+                {/* YouTube Videos - Show below podcasts */}
+                {(() => {
+                  const isNotRead = activeBook.reading_status !== 'read_it';
+                  const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
+                  const isVideosRevealed = revealedSections.has('videos');
+                  const shouldBlurVideos = isNotRead && !isVideosRevealed;
+
+                  const videos = youtubeVideos.get(activeBook.id) || [];
+                  const hasVideos = videos.length > 0;
+                  const isLoading = loadingVideosForBookId === activeBook.id && !hasVideos;
+
+                  // Only show the videos section if loading or has videos
+                  if (!isLoading && !hasVideos) return null;
+
+                  return (
+                    <div
+                      className={`w-full space-y-2 relative ${shouldBlurVideos ? 'cursor-pointer' : ''}`}
+                      onClick={() => {
+                        if (shouldBlurVideos) {
+                          setSpoilerRevealed(prev => {
+                            const newMap = new Map(prev);
+                            const revealed = newMap.get(activeBook.id) || new Set<string>();
+                            revealed.add('videos');
+                            newMap.set(activeBook.id, revealed);
+                            return newMap;
+                          });
+                        }
+                      }}
+                    >
+                      <AnimatePresence>
+                        {shouldBlurVideos && (
+                          <motion.div
+                            key="spoiler-videos"
+                            initial={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
+                          >
+                            <div className="text-center px-4">
+                              <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Videos.</p>
+                              <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                      <div className={shouldBlurVideos ? 'blur-sm pointer-events-none select-none' : ''}>
+                        {/* Videos Header */}
+                        <div className="flex items-center justify-center mb-2">
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            key={`videos-menu-${activeBook?.id || 'default'}`}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
+                            style={bookPageGlassmorphicStyle}
+                          >
+                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">VIDEOS:</span>
+                            <span className="text-[10px] font-bold text-slate-400">/</span>
+                            <span className="text-[10px] font-bold text-blue-700">YouTube</span>
+                          </motion.div>
+                        </AnimatePresence>
+                      </div>
+                      {isLoading ? (
+                        // Show loading placeholder
+                        <motion.div
+                          animate={{ opacity: [0.5, 0.8, 0.5] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          className="rounded-xl p-4"
+          style={glassmorphicStyle}
+                        >
+                          <div className="h-12 flex items-center justify-center">
+                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                          </div>
+                        </motion.div>
+                      ) : (
+                        <YouTubeVideos
+                          videos={videos}
+                          bookId={activeBook.id}
+                          isLoading={false}
+                        />
+                      )}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Analysis Articles - Show below videos */}
                 {(() => {
                   const isNotRead = activeBook.reading_status !== 'read_it';
                   const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
                   const isAnalysisRevealed = revealedSections.has('analysis');
                   const shouldBlurAnalysis = isNotRead && !isAnalysisRevealed;
-                  
+
                   const articles = analysisArticles.get(activeBook.id) || [];
                   // Check if we have real articles (not just the fallback search URL)
                   // A fallback article has a title that starts with "Search Google Scholar" and URL contains "scholar.google.com/scholar?q="
                   const hasRealArticles = articles.length > 0 && articles.some(article => {
-                    const isFallback = article.title?.includes('Search Google Scholar') || 
+                    const isFallback = article.title?.includes('Search Google Scholar') ||
                                        (article.url && article.url.includes('scholar.google.com/scholar?q='));
                     return !isFallback;
                   });
                   const hasOnlyFallback = articles.length > 0 && !hasRealArticles;
                   const hasArticles = hasRealArticles;
                   const isLoading = loadingAnalysisForBookId === activeBook.id && !hasArticles && !hasOnlyFallback;
-                  
+
                   // Only show the analysis section if loading or has articles
                   if (!isLoading && !hasArticles) return null;
-                  
+
                   return (
-                    <div 
+                    <div
                       className={`w-full space-y-2 relative ${shouldBlurAnalysis ? 'cursor-pointer' : ''}`}
                       onClick={() => {
                         if (shouldBlurAnalysis) {
@@ -13069,96 +13157,8 @@ export default function App() {
                         </motion.div>
                       ) : (
                         // Show articles
-                        <AnalysisArticles 
-                          articles={articles} 
-                          bookId={activeBook.id}
-                          isLoading={false}
-                        />
-                      )}
-                      </div>
-                    </div>
-                  );
-                })()}
-                
-                {/* YouTube Videos - Show below analysis */}
-                {(() => {
-                  const isNotRead = activeBook.reading_status !== 'read_it';
-                  const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
-                  const isVideosRevealed = revealedSections.has('videos');
-                  const shouldBlurVideos = isNotRead && !isVideosRevealed;
-                  
-                  const videos = youtubeVideos.get(activeBook.id) || [];
-                  const hasVideos = videos.length > 0;
-                  const isLoading = loadingVideosForBookId === activeBook.id && !hasVideos;
-                  
-                  // Only show the videos section if loading or has videos
-                  if (!isLoading && !hasVideos) return null;
-                  
-                  return (
-                    <div 
-                      className={`w-full space-y-2 relative ${shouldBlurVideos ? 'cursor-pointer' : ''}`}
-                      onClick={() => {
-                        if (shouldBlurVideos) {
-                          setSpoilerRevealed(prev => {
-                            const newMap = new Map(prev);
-                            const revealed = newMap.get(activeBook.id) || new Set<string>();
-                            revealed.add('videos');
-                            newMap.set(activeBook.id, revealed);
-                            return newMap;
-                          });
-                        }
-                      }}
-                    >
-                      <AnimatePresence>
-                        {shouldBlurVideos && (
-                          <motion.div
-                            key="spoiler-videos"
-                            initial={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.3, ease: "easeInOut" }}
-                            className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
-                          >
-                            <div className="text-center px-4">
-                              <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Videos.</p>
-                              <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                      <div className={shouldBlurVideos ? 'blur-sm pointer-events-none select-none' : ''}>
-                        {/* Videos Header */}
-                        <div className="flex items-center justify-center mb-2">
-                        <AnimatePresence mode="wait">
-                          <motion.div
-                            key={`videos-menu-${activeBook?.id || 'default'}`}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
-                            transition={{ duration: 0.3, ease: "easeInOut" }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm"
-                            style={bookPageGlassmorphicStyle}
-                          >
-                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">VIDEOS:</span>
-                            <span className="text-[10px] font-bold text-slate-400">/</span>
-                            <span className="text-[10px] font-bold text-blue-700">YouTube</span>
-                          </motion.div>
-                        </AnimatePresence>
-                      </div>
-                      {isLoading ? (
-                        // Show loading placeholder
-                        <motion.div
-                          animate={{ opacity: [0.5, 0.8, 0.5] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="rounded-xl p-4"
-          style={glassmorphicStyle}
-                        >
-                          <div className="h-12 flex items-center justify-center">
-                            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
-                          </div>
-                        </motion.div>
-                      ) : (
-                        <YouTubeVideos 
-                          videos={videos} 
+                        <AnalysisArticles
+                          articles={articles}
                           bookId={activeBook.id}
                           isLoading={false}
                         />
@@ -13168,7 +13168,7 @@ export default function App() {
                   );
                 })()}
 
-                {/* Related Books - Show below videos */}
+                {/* Related Books - Show below analysis */}
                 {(() => {
                   const isNotRead = activeBook.reading_status !== 'read_it';
                   const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
