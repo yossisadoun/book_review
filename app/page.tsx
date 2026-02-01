@@ -1148,6 +1148,117 @@ async function saveDiscussionQuestionsToCache(
   }
 }
 
+// Check if a Telegram topic exists for this book
+async function getTelegramTopic(canonicalBookId: string): Promise<{ topicId: number; inviteLink: string } | null> {
+  try {
+    const { data, error } = await supabase
+      .from('telegram_topics')
+      .select('telegram_topic_id, invite_link')
+      .eq('canonical_book_id', canonicalBookId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[getTelegramTopic] Error:', error);
+      return null;
+    }
+
+    if (data) {
+      return {
+        topicId: data.telegram_topic_id,
+        inviteLink: data.invite_link,
+      };
+    }
+
+    return null;
+  } catch (err) {
+    console.error('[getTelegramTopic] Error:', err);
+    return null;
+  }
+}
+
+// Create a new Telegram topic for a book
+async function createTelegramTopic(
+  bookTitle: string,
+  bookAuthor: string,
+  canonicalBookId: string,
+  discussionQuestions?: DiscussionQuestion[],
+  coverUrl?: string
+): Promise<{ topicId: number; inviteLink: string } | null> {
+  try {
+    // Call the Supabase edge function to create the topic
+    const { data, error } = await supabase.functions.invoke('create-telegram-topic', {
+      body: { bookTitle, bookAuthor, canonicalBookId, discussionQuestions, coverUrl },
+    });
+
+    if (error) {
+      console.error('[createTelegramTopic] Edge Function Error:', error);
+      return null;
+    }
+
+    if (!data?.success) {
+      console.error('[createTelegramTopic] API Error:', data?.error);
+      return null;
+    }
+
+    // Save to Supabase
+    const { error: insertError } = await supabase
+      .from('telegram_topics')
+      .insert({
+        canonical_book_id: canonicalBookId,
+        book_title: bookTitle,
+        book_author: bookAuthor,
+        telegram_topic_id: data.topicId,
+        invite_link: data.inviteLink,
+      });
+
+    if (insertError) {
+      console.error('[createTelegramTopic] DB Insert Error:', insertError);
+      // Still return the data even if DB save fails
+    }
+
+    return {
+      topicId: data.topicId,
+      inviteLink: data.inviteLink,
+    };
+  } catch (err) {
+    console.error('[createTelegramTopic] Error:', err);
+    return null;
+  }
+}
+
+// Get or create Telegram topic for a book
+async function getOrCreateTelegramTopic(
+  bookTitle: string,
+  bookAuthor: string,
+  canonicalBookId: string,
+  coverUrl?: string
+): Promise<{ topicId: number; inviteLink: string } | null> {
+  // First check if topic already exists
+  const existing = await getTelegramTopic(canonicalBookId);
+  if (existing) {
+    return existing;
+  }
+
+  // Fetch discussion questions from cache to include in the topic
+  let discussionQuestions: DiscussionQuestion[] = [];
+  try {
+    const { data } = await supabase
+      .from('discussion_questions_cache')
+      .select('questions')
+      .eq('canonical_book_id', canonicalBookId)
+      .maybeSingle();
+
+    if (data?.questions) {
+      discussionQuestions = data.questions as DiscussionQuestion[];
+    }
+  } catch (err) {
+    console.error('[getOrCreateTelegramTopic] Error fetching questions:', err);
+  }
+
+  // Create new topic with discussion questions and cover
+  return await createTelegramTopic(bookTitle, bookAuthor, canonicalBookId, discussionQuestions, coverUrl);
+}
+
 // Helper function to save book influences to cache table
 async function saveBookInfluencesToCache(bookTitle: string, bookAuthor: string, influences: string[]): Promise<void> {
   try {
@@ -6130,6 +6241,14 @@ export default function App() {
   const [showBookDiscussion, setShowBookDiscussion] = useState(false);
   const [discussionQuestions, setDiscussionQuestions] = useState<DiscussionQuestion[]>([]);
   const [isLoadingDiscussionQuestions, setIsLoadingDiscussionQuestions] = useState(false);
+
+  // Telegram discussion topic state
+  interface TelegramTopic {
+    topicId: number;
+    inviteLink: string;
+  }
+  const [telegramTopics, setTelegramTopics] = useState<Map<string, TelegramTopic>>(new Map());
+  const [isLoadingTelegramTopic, setIsLoadingTelegramTopic] = useState(false);
 
   // Book readers state (users who have the same book)
   interface BookReader {
@@ -12720,19 +12839,72 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* Chat button */}
-                    <button
-                      onClick={() => setShowBookDiscussion(true)}
-                      disabled={isLoadingBookReaders}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl active:scale-95 transition-all disabled:opacity-50"
-                      style={{
-                        background: 'rgba(59, 130, 246, 0.9)',
-                        boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)',
-                      }}
-                    >
-                      <MessageCircle size={14} className="text-white" />
-                      <span className="text-xs font-bold text-white">Discuss</span>
-                    </button>
+                    {/* Buttons container */}
+                    <div className="flex items-center gap-2">
+                      {/* Telegram discussion button */}
+                      <button
+                        onClick={async () => {
+                          if (!activeBook?.canonical_book_id) return;
+                          setIsLoadingTelegramTopic(true);
+                          try {
+                            // Check if we already have the topic cached locally
+                            const cachedTopic = telegramTopics.get(activeBook.canonical_book_id);
+                            if (cachedTopic) {
+                              window.open(cachedTopic.inviteLink, '_blank');
+                              return;
+                            }
+
+                            // Get or create the topic
+                            const topic = await getOrCreateTelegramTopic(
+                              activeBook.title,
+                              activeBook.author,
+                              activeBook.canonical_book_id,
+                              activeBook.cover_url || undefined
+                            );
+
+                            if (topic) {
+                              // Cache locally
+                              setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
+                              // Open the invite link
+                              window.open(topic.inviteLink, '_blank');
+                            }
+                          } catch (err) {
+                            console.error('Error opening Telegram topic:', err);
+                          } finally {
+                            setIsLoadingTelegramTopic(false);
+                          }
+                        }}
+                        disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
+                        className="flex items-center justify-center w-8 h-8 rounded-full active:scale-95 transition-all disabled:opacity-50"
+                        style={{
+                          background: 'rgba(0, 136, 204, 0.9)',
+                          boxShadow: '0 2px 8px rgba(0, 136, 204, 0.3)',
+                        }}
+                      >
+                        {isLoadingTelegramTopic ? (
+                          <motion.div
+                            animate={{ rotate: 360 }}
+                            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                            className="w-4 h-4 border-2 border-white border-t-transparent rounded-full"
+                          />
+                        ) : (
+                          <MessagesSquare size={16} className="text-white" />
+                        )}
+                      </button>
+
+                      {/* Chat button */}
+                      <button
+                        onClick={() => setShowBookDiscussion(true)}
+                        disabled={isLoadingBookReaders}
+                        className="flex items-center justify-center w-8 h-8 rounded-full active:scale-95 transition-all disabled:opacity-50"
+                        style={{
+                          background: 'rgba(59, 130, 246, 0.9)',
+                          boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)',
+                        }}
+                      >
+                        <MessageCircle size={16} className="text-white" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -14784,6 +14956,17 @@ export default function App() {
               localStorage.setItem('hasSeenIntro', 'true');
             }}
           >
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowAboutScreen(false);
+                localStorage.setItem('hasSeenIntro', 'true');
+              }}
+              className="absolute top-5 right-4 w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+              style={standardGlassmorphicStyle}
+            >
+              <X size={18} className="text-slate-950" />
+            </button>
             {/* Background image */}
             <div
               className="fixed inset-0"
@@ -14811,16 +14994,6 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
               className="relative flex flex-col items-center pointer-events-auto z-10 p-8 max-w-md"
             >
-              <button
-                onClick={() => {
-                  setShowAboutScreen(false);
-                  localStorage.setItem('hasSeenIntro', 'true');
-                }}
-                className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
-                style={standardGlassmorphicStyle}
-              >
-                <X size={18} className="text-slate-950" />
-              </button>
               {/* Header */}
               <motion.h1
                 initial={{ opacity: 0, y: -20 }}

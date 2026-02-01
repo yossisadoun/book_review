@@ -1,0 +1,3 @@
+# Disable JWT verification - allow unauthenticated requests
+# This is safe because we're just creating Telegram topics
+verify_jwt = false
