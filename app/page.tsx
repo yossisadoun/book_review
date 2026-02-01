@@ -1183,12 +1183,13 @@ async function createTelegramTopic(
   bookAuthor: string,
   canonicalBookId: string,
   discussionQuestions?: DiscussionQuestion[],
-  coverUrl?: string
+  coverUrl?: string,
+  genre?: string
 ): Promise<{ topicId: number; inviteLink: string } | null> {
   try {
     // Call the Supabase edge function to create the topic
     const { data, error } = await supabase.functions.invoke('create-telegram-topic', {
-      body: { bookTitle, bookAuthor, canonicalBookId, discussionQuestions, coverUrl },
+      body: { bookTitle, bookAuthor, canonicalBookId, discussionQuestions, coverUrl, genre },
     });
 
     if (error) {
@@ -1232,7 +1233,8 @@ async function getOrCreateTelegramTopic(
   bookTitle: string,
   bookAuthor: string,
   canonicalBookId: string,
-  coverUrl?: string
+  coverUrl?: string,
+  genre?: string
 ): Promise<{ topicId: number; inviteLink: string } | null> {
   // First check if topic already exists
   const existing = await getTelegramTopic(canonicalBookId);
@@ -1256,8 +1258,8 @@ async function getOrCreateTelegramTopic(
     console.error('[getOrCreateTelegramTopic] Error fetching questions:', err);
   }
 
-  // Create new topic with discussion questions and cover
-  return await createTelegramTopic(bookTitle, bookAuthor, canonicalBookId, discussionQuestions, coverUrl);
+  // Create new topic with discussion questions, cover, and genre
+  return await createTelegramTopic(bookTitle, bookAuthor, canonicalBookId, discussionQuestions, coverUrl, genre);
 }
 
 // Helper function to save book influences to cache table
@@ -9013,7 +9015,8 @@ export default function App() {
           activeBook.title,
           activeBook.author,
           activeBook.canonical_book_id!,
-          activeBook.cover_url || undefined
+          activeBook.cover_url || undefined,
+          activeBook.genre || undefined
         );
 
         if (topic && !cancelled) {
@@ -12916,7 +12919,8 @@ export default function App() {
                                   activeBook.title,
                                   activeBook.author,
                                   activeBook.canonical_book_id,
-                                  activeBook.cover_url || undefined
+                                  activeBook.cover_url || undefined,
+                                  activeBook.genre || undefined
                                 );
 
                                 if (topic) {
