@@ -38,6 +38,8 @@ import {
   Lightbulb,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Lottie from 'lottie-react';
+import arrowAnimation from '@/public/arrow_anim.json';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginScreen } from '@/components/LoginScreen';
 import { BookLoading } from '@/components/BookLoading';
@@ -1413,14 +1415,18 @@ async function createFriendBookFeedItem(
   bookTitle: string,
   bookAuthor: string,
   bookCoverUrl: string | null,
-  readingStatus: string | null
+  readingStatus: string | null,
+  description?: string | null
 ): Promise<void> {
-  const content = {
+  const content: Record<string, any> = {
     action: 'added',
     book_title: bookTitle,
     book_author: bookAuthor,
     book_cover_url: bookCoverUrl,
   };
+  if (description) {
+    content.description = description;
+  }
 
   const feedItem = {
     user_id: userId,
@@ -4290,24 +4296,9 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
 
   const currentVideo = videos[currentIndex];
   const videoUrl = `https://www.youtube.com/watch?v=${currentVideo.videoId}`;
-  const embedUrl = `https://www.youtube.com/embed/${currentVideo.videoId}`;
 
   return (
-    <div
-      onClick={handleNext}
-      onTouchStart={(e) => {
-        const touch = e.touches[0];
-        setTouchStart({ x: touch.clientX, y: touch.clientY });
-      }}
-      onTouchMove={(e) => {
-        if (touchStart) {
-          const touch = e.touches[0];
-          setTouchEnd({ x: touch.clientX, y: touch.clientY });
-        }
-      }}
-      onTouchEnd={handleSwipe}
-      className="w-full cursor-pointer"
-    >
+    <div className="w-full">
       <AnimatePresence mode="wait">
         {isVisible && (
           <motion.div
@@ -4319,24 +4310,38 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
             className="rounded-xl overflow-hidden"
             style={glassmorphicStyle}
           >
-            <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
-              <iframe
-                src={embedUrl}
-                title={currentVideo.title}
-                className="absolute top-0 left-0 w-full h-full"
-                frameBorder="0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                onClick={(e) => e.stopPropagation()}
-              />
-            </div>
+            {/* Thumbnail with play button - works on iOS */}
+            <a
+              href={videoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="relative w-full block"
+              style={{ paddingBottom: '56.25%' }}
+            >
+              {currentVideo.thumbnail ? (
+                <img
+                  src={currentVideo.thumbnail}
+                  alt={currentVideo.title}
+                  className="absolute top-0 left-0 w-full h-full object-cover"
+                />
+              ) : (
+                <div className="absolute top-0 left-0 w-full h-full bg-slate-300 flex items-center justify-center">
+                  <Play size={48} className="text-slate-500" />
+                </div>
+              )}
+              {/* Play button overlay */}
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20 active:bg-black/40 transition-colors">
+                <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-lg">
+                  <Play size={32} className="text-white ml-1" fill="white" />
+                </div>
+              </div>
+            </a>
             <div className="p-4">
-              <a 
-                href={videoUrl} 
-                target="_blank" 
+              <a
+                href={videoUrl}
+                target="_blank"
                 rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="text-xs font-bold text-blue-700 hover:text-blue-800 hover:underline block mb-2 line-clamp-2"
+                className="text-xs font-bold text-blue-700 hover:text-blue-800 hover:underline block mb-2 line-clamp-2 text-left"
               >
                 {currentVideo.title}
               </a>
@@ -4353,9 +4358,12 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
               )}
             </div>
             {videos.length > 1 && (
-              <p className="text-xs text-slate-600 text-center pb-2 font-bold uppercase tracking-wider">
+              <button
+                onClick={handleNext}
+                className="w-full text-xs text-slate-600 text-center pb-2 font-bold uppercase tracking-wider hover:text-slate-800"
+              >
                 Tap for next ({currentIndex + 1}/{videos.length})
-              </p>
+              </button>
             )}
           </motion.div>
         )}
@@ -4942,6 +4950,19 @@ function ResearchSection({ research, bookId, isLoading = false }: ResearchSectio
     </div>
   );
 }
+
+// Memoized arrow animation to prevent re-renders from restarting animation
+const ArrowAnimation = React.memo(function ArrowAnimation() {
+  return (
+    <div className="absolute top-0 left-0 right-0 pointer-events-none z-10 flex justify-end pt-32 pr-4">
+      <Lottie
+        animationData={arrowAnimation}
+        loop={false}
+        className="w-44 h-44"
+      />
+    </div>
+  );
+});
 
 interface RatingStarsProps {
   value: number | null;
@@ -5668,7 +5689,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   placeholder={isQueryHebrew ? "חפש ספר..." : "Search for book, author, user..."}
                   value={query} 
                   onChange={e => setQuery(e.target.value)}
-                  className={`w-full h-11 bg-white/20 border border-white/30 rounded-full focus:outline-none focus:bg-white/30 text-sm transition-all text-slate-950 placeholder:text-slate-600 ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
+                  className={`w-full h-11 bg-white/20 border border-white/30 rounded-full focus:outline-none focus:bg-white/30 text-base transition-all text-slate-950 placeholder:text-slate-600 ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
                   dir={isQueryHebrew ? "rtl" : "ltr"}
                 />
                 <button
@@ -6179,6 +6200,14 @@ export default function App() {
   const bookshelfGroupingDropdownRef = useRef<HTMLDivElement>(null);
   const [scrollY, setScrollY] = useState(0);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
+
+  // Scroll to top when status bar area is tapped (iOS pattern)
+  const scrollToTop = () => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
   
   // Helper function to get last page from localStorage
   const getLastPageState = (): { showBookshelf: boolean; showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean; showFollowingPage: boolean; showFeedPage: boolean } => {
@@ -6233,11 +6262,15 @@ export default function App() {
   const [personalizedFeedItems, setPersonalizedFeedItems] = useState<PersonalizedFeedItem[]>([]);
   const [isLoadingPersonalizedFeed, setIsLoadingPersonalizedFeed] = useState(false);
   const [feedDisplayCount, setFeedDisplayCount] = useState(8);
-  const [feedFilter, setFeedFilter] = useState<'all' | 'unread' | 'read'>('all');
+  const [feedFilter, setFeedFilter] = useState<'all' | 'unread'>('all');
+  const [feedTypeFilter, setFeedTypeFilter] = useState<'all' | 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book'>('all');
+  const [isFeedTypeDropdownOpen, setIsFeedTypeDropdownOpen] = useState(false);
+  const feedTypeDropdownRef = useRef<HTMLDivElement>(null);
   const [isLoadingMoreFeed, setIsLoadingMoreFeed] = useState(false);
   const [feedPlayingAudioUrl, setFeedPlayingAudioUrl] = useState<string | null>(null);
   const feedAudioRef = useRef<HTMLAudioElement | null>(null);
   const [feedPlayingVideoId, setFeedPlayingVideoId] = useState<string | null>(null);
+  const [expandedFeedDescriptions, setExpandedFeedDescriptions] = useState<Set<string>>(new Set());
   const [followingUsers, setFollowingUsers] = useState<Array<{ id: string; full_name: string | null; avatar_url: string | null; email: string; followed_at: string }>>([]);
 
   // Book discussion state
@@ -7516,10 +7549,17 @@ export default function App() {
 
   // Memoize filtered feed items for pagination
   const filteredFeedItems = useMemo(() => {
-    if (feedFilter === 'all') return personalizedFeedItems;
-    if (feedFilter === 'unread') return personalizedFeedItems.filter(item => !item.read);
-    return personalizedFeedItems.filter(item => item.read);
-  }, [personalizedFeedItems, feedFilter]);
+    let items = personalizedFeedItems;
+    // Filter by read status
+    if (feedFilter === 'unread') {
+      items = items.filter(item => !item.read);
+    }
+    // Filter by type
+    if (feedTypeFilter !== 'all') {
+      items = items.filter(item => item.type === feedTypeFilter);
+    }
+    return items;
+  }, [personalizedFeedItems, feedFilter, feedTypeFilter]);
 
   const displayedFeedItems = filteredFeedItems.slice(0, feedDisplayCount);
   const hasMoreFeedItems = feedDisplayCount < filteredFeedItems.length;
@@ -7974,16 +8014,30 @@ export default function App() {
   // Close bookshelf grouping dropdown when clicking outside
   useEffect(() => {
     if (!isBookshelfGroupingDropdownOpen) return;
-    
+
     const handleClickOutside = (e: MouseEvent) => {
       if (bookshelfGroupingDropdownRef.current && !bookshelfGroupingDropdownRef.current.contains(e.target as Node)) {
         setIsBookshelfGroupingDropdownOpen(false);
       }
     };
-    
+
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isBookshelfGroupingDropdownOpen]);
+
+  // Close feed type dropdown when clicking outside
+  useEffect(() => {
+    if (!isFeedTypeDropdownOpen) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (feedTypeDropdownRef.current && !feedTypeDropdownRef.current.contains(e.target as Node)) {
+        setIsFeedTypeDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isFeedTypeDropdownOpen]);
 
   // Close insight category dropdown when clicking outside
   useEffect(() => {
@@ -9468,7 +9522,8 @@ export default function App() {
             newBook.title,
             newBook.author || '',
             newBook.cover_url || null,
-            readingStatus
+            readingStatus,
+            newBook.summary || null
           );
           // Switch to books view (in case we're on bookshelf/notes screen)
           setShowBookshelf(false);
@@ -9524,7 +9579,8 @@ export default function App() {
         newBook.title,
         newBook.author || '',
         newBook.cover_url || null,
-        readingStatus
+        readingStatus,
+        newBook.summary || null
       );
 
       // If status is "read_it", integrate the new book into the merge sort game
@@ -9917,6 +9973,13 @@ export default function App() {
         minHeight: '-webkit-fill-available', // iOS Safari fallback
       } as React.CSSProperties}
     >
+      {/* Tap zone for scroll-to-top (iOS status bar pattern) */}
+      <div
+        className="fixed top-0 left-0 right-0 h-[44px] z-[9999]"
+        onClick={scrollToTop}
+        style={{ WebkitTapHighlightColor: 'transparent' }}
+      />
+
       {/* Gradient background - new gradient fades in first, then old fades out (only for book pages) */}
       {!shouldUseBackgroundImage && (
         <>
@@ -10128,6 +10191,7 @@ export default function App() {
         {showAccountPage ? (
           <motion.main
             key="account"
+            ref={(el) => { scrollContainerRef.current = el; }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -10323,6 +10387,7 @@ export default function App() {
         ) : showFollowingPage ? (
           <motion.main
             key="following"
+            ref={(el) => { scrollContainerRef.current = el; }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -10442,6 +10507,7 @@ export default function App() {
         ) : showFeedPage ? (
           <motion.main
             key="feed"
+            ref={(el) => { scrollContainerRef.current = el; }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -10472,24 +10538,116 @@ export default function App() {
             {/* Feed Page */}
             <div className="w-full flex flex-col gap-4 px-3 pt-8">
               {/* Feed filter pills */}
-              <div className="flex gap-2 mb-1">
-                {(['all', 'unread', 'read'] as const).map((filter) => (
+              <div className="flex items-center gap-2 mb-1">
+                {/* Read status filter */}
+                {(['all', 'unread'] as const).map((filter) => {
+                  const unreadCount = personalizedFeedItems.filter(item => !item.read).length;
+                  const isSelected = feedFilter === filter;
+                  return (
+                    <button
+                      key={`${filter}-${isSelected}`}
+                      onClick={() => {
+                        setFeedFilter(filter);
+                        setFeedDisplayCount(8);
+                      }}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
+                        isSelected ? 'text-white' : 'text-slate-600'
+                      }`}
+                      style={{
+                        background: isSelected ? '#0f172a' : 'rgba(255, 255, 255, 0.45)',
+                        boxShadow: isSelected ? 'none' : '0 4px 30px rgba(0, 0, 0, 0.1)',
+                        backdropFilter: isSelected ? 'none' : 'blur(9.4px)',
+                        WebkitBackdropFilter: isSelected ? 'none' : 'blur(9.4px)',
+                        border: isSelected ? 'none' : '1px solid rgba(255, 255, 255, 0.2)',
+                      }}
+                    >
+                      {filter === 'all' ? 'All' : (
+                        <>
+                          {unreadCount > 0 && (
+                            <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-500'}`} />
+                          )}
+                          Unread{unreadCount > 0 ? ` (${unreadCount})` : ''}
+                        </>
+                      )}
+                    </button>
+                  );
+                })}
+                {/* Type filter dropdown */}
+                <div className="relative" ref={feedTypeDropdownRef}>
                   <button
-                    key={filter}
-                    onClick={() => {
-                      setFeedFilter(filter);
-                      setFeedDisplayCount(8);
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsFeedTypeDropdownOpen(!isFeedTypeDropdownOpen);
                     }}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                      feedFilter === filter
-                        ? 'bg-slate-900 text-white'
-                        : 'text-slate-600'
-                    }`}
-                    style={feedFilter !== filter ? feedCardStyle : undefined}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all text-slate-700"
+                    style={feedCardStyle}
                   >
-                    {filter === 'all' ? 'All' : filter === 'unread' ? 'Unread' : 'Read'}
+                    <span>
+                      {feedTypeFilter === 'all' ? 'All Types' :
+                       feedTypeFilter === 'fact' ? 'Facts' :
+                       feedTypeFilter === 'context' ? 'Context' :
+                       feedTypeFilter === 'drilldown' ? 'Insights' :
+                       feedTypeFilter === 'influence' ? 'Influences' :
+                       feedTypeFilter === 'podcast' ? 'Podcasts' :
+                       feedTypeFilter === 'article' ? 'Articles' :
+                       feedTypeFilter === 'related_book' ? 'Books' :
+                       feedTypeFilter === 'video' ? 'Videos' :
+                       feedTypeFilter === 'friend_book' ? 'Friends' : 'All Types'}
+                    </span>
+                    <ChevronDown
+                      size={14}
+                      className={`transition-transform ${isFeedTypeDropdownOpen ? 'rotate-180' : ''}`}
+                    />
                   </button>
-                ))}
+                  {isFeedTypeDropdownOpen && (
+                    <>
+                      {/* Backdrop to close menu */}
+                      <div
+                        className="fixed inset-0 z-30"
+                        onClick={() => setIsFeedTypeDropdownOpen(false)}
+                      />
+                      {/* Menu */}
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                        transition={{ duration: 0.2 }}
+                        className="absolute top-full right-0 mt-1 z-40 rounded-lg min-w-[120px] overflow-hidden"
+                        style={feedCardStyle}
+                      >
+                        {[
+                          { value: 'all', label: 'All Types' },
+                          { value: 'fact', label: 'Facts' },
+                          { value: 'context', label: 'Context' },
+                          { value: 'drilldown', label: 'Insights' },
+                          { value: 'influence', label: 'Influences' },
+                          { value: 'podcast', label: 'Podcasts' },
+                          { value: 'article', label: 'Articles' },
+                          { value: 'related_book', label: 'Books' },
+                          { value: 'video', label: 'Videos' },
+                          { value: 'friend_book', label: 'Friends' },
+                        ].map((option, idx) => (
+                          <button
+                            key={option.value}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFeedTypeFilter(option.value as typeof feedTypeFilter);
+                              setFeedDisplayCount(8);
+                              setIsFeedTypeDropdownOpen(false);
+                            }}
+                            className={`w-full px-3 py-2 text-left text-xs font-medium transition-colors ${
+                              feedTypeFilter === option.value
+                                ? 'bg-slate-900 text-white'
+                                : 'text-slate-700 hover:bg-white/30'
+                            } ${idx === 0 ? 'rounded-t-lg' : ''} ${idx === 9 ? 'rounded-b-lg' : ''}`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </motion.div>
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* Loading skeleton */}
@@ -10533,7 +10691,7 @@ export default function App() {
                 </>
               )}
 
-              {/* Empty state */}
+              {/* Empty state - no feed items at all */}
               {!isLoadingPersonalizedFeed && personalizedFeedItems.length === 0 && (
                 <div
                   className="w-full rounded-2xl overflow-hidden p-8 text-center"
@@ -10551,9 +10709,28 @@ export default function App() {
                 </div>
               )}
 
+              {/* Empty state - filters resulted in no items */}
+              {!isLoadingPersonalizedFeed && personalizedFeedItems.length > 0 && filteredFeedItems.length === 0 && (
+                <div
+                  className="w-full rounded-2xl overflow-hidden p-8 text-center"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.45)',
+                    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                    backdropFilter: 'blur(9.4px)',
+                    WebkitBackdropFilter: 'blur(9.4px)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                  }}
+                >
+                  <Rss size={32} className="mx-auto mb-3 text-slate-400" />
+                  <p className="text-slate-800 font-medium mb-2">No matching items</p>
+                  <p className="text-sm text-slate-500">Try adjusting your filters to see more content.</p>
+                </div>
+              )}
+
               {/* Dynamic Feed Items */}
               {!isLoadingPersonalizedFeed && displayedFeedItems.map((item) => {
                 // Helper to render read toggle button
+                // Unread = blue dot, Read = empty circle
                 const ReadToggle = () => (
                   <button
                     onClick={(e) => {
@@ -10564,13 +10741,13 @@ export default function App() {
                         prev.map(fi => fi.id === item.id ? { ...fi, read: newRead } : fi)
                       );
                     }}
-                    className="ml-1 p-1 rounded-full hover:bg-white/30 transition-colors"
+                    className="ml-1 p-1.5 rounded-full hover:bg-white/30 transition-colors flex items-center justify-center"
                     title={item.read ? 'Mark as unread' : 'Mark as read'}
                   >
                     {item.read ? (
-                      <CheckCircle2 size={16} className="text-green-500" />
+                      <Circle size={14} className="text-slate-400" />
                     ) : (
-                      <Circle size={16} className="text-slate-300" />
+                      <div className="w-3 h-3 rounded-full bg-blue-500" />
                     )}
                   </button>
                 );
@@ -11077,6 +11254,34 @@ export default function App() {
                         <div className="px-4 py-3">
                           <p className="font-bold text-slate-900">{item.source_book_title}</p>
                           <p className="text-sm text-slate-600">{item.source_book_author}</p>
+                          {item.content.description && (
+                            <div className="mt-2">
+                              <p className={`text-sm text-slate-700 leading-relaxed ${
+                                expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-4'
+                              }`}>
+                                {item.content.description}
+                              </p>
+                              {item.content.description.length > 200 && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setExpandedFeedDescriptions(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(item.id)) {
+                                        next.delete(item.id);
+                                      } else {
+                                        next.add(item.id);
+                                      }
+                                      return next;
+                                    });
+                                  }}
+                                  className="text-blue-600 text-sm font-medium mt-1"
+                                >
+                                  {expandedFeedDescriptions.has(item.id) ? 'Show less' : 'Read more'}
+                                </button>
+                              )}
+                            </div>
+                          )}
                           {!item.source_book_cover_url && (
                             <button
                               onClick={handleFriendBookAdd}
@@ -11112,6 +11317,7 @@ export default function App() {
         ) : showSortingResults ? (
           <motion.main
             key="sorting-results"
+            ref={(el) => { scrollContainerRef.current = el; }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -11223,6 +11429,7 @@ export default function App() {
         ) : showNotesView ? (
           <motion.main
             key="notes"
+            ref={(el) => { scrollContainerRef.current = el; }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -11359,6 +11566,7 @@ export default function App() {
         ) : showBookshelfCovers ? (
           <motion.main
             key="bookshelf-covers"
+            ref={(el) => { scrollContainerRef.current = el; }}
             initial={{ opacity: 0 }}
             animate={{ opacity: isFadingOutViewingUser ? 0 : 1 }}
             exit={{ opacity: 0 }}
@@ -11370,8 +11578,11 @@ export default function App() {
               setScrollY(target.scrollTop);
             }}
           >
+            {/* Arrow Animation Overlay */}
+            <ArrowAnimation />
+
             {/* Bookshelf Covers View */}
-            <div 
+            <div
               className="w-full flex flex-col items-center px-4"
             >
               {isLoadingViewingUserBooks ? (
@@ -11832,6 +12043,7 @@ export default function App() {
         ) : showBookshelf ? (
           <motion.main
             key="bookshelf"
+            ref={(el) => { scrollContainerRef.current = el; }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -12252,6 +12464,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             ref={(el) => {
+              scrollContainerRef.current = el;
               if (el) {
                 // Enable rubber band bounce effect
                 el.style.overscrollBehaviorY = 'auto';
@@ -12819,13 +13032,99 @@ export default function App() {
               )}
             </div>
 
+            {/* Info box - always open, below cover and above facts */}
+            {!showRatingOverlay && (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={`info-${activeBook?.id || 'default'}`}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.3, ease: "easeInOut" }}
+                  className="w-full mt-3"
+                >
+                  <div className="rounded-2xl px-4 py-3 mx-auto" style={bookPageGlassmorphicStyle}>
+                  {/* Line 1: Title */}
+                  <h2 className="text-sm font-black text-slate-950 leading-tight line-clamp-2 mb-2">{activeBook.title}</h2>
+                  {/* Line 2: Summary/Synopsis */}
+                  {activeBook.summary && (
+                    <div className="mb-2">
+                      <p
+                        className={`text-xs text-black leading-relaxed ${!isSummaryExpanded ? 'line-clamp-5' : ''} cursor-pointer`}
+                        onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+                      >
+                        {activeBook.summary}
+                      </p>
+                      {activeBook.summary.length > 300 && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsSummaryExpanded(!isSummaryExpanded);
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+                        >
+                          {isSummaryExpanded ? 'Show less' : 'Show more'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {/* Line 3: Author */}
+                  <p className="text-xs font-bold text-slate-800 mb-2">{activeBook.author}</p>
+                  {/* Line 4: All Labels */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {activeBook.first_issue_year && (
+                      <>
+                        <span className="bg-blue-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-blue-800">
+                          First Issue: {activeBook.first_issue_year}
+                        </span>
+                      </>
+                    )}
+                    {activeBook.publish_year && !activeBook.first_issue_year && (
+                      <>
+                        <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
+                          {activeBook.publish_year}
+                        </span>
+                      </>
+                    )}
+                    {activeBook.genre && (
+                      <>
+                        <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
+                          {activeBook.genre}
+                        </span>
+                      </>
+                    )}
+                    {activeBook.isbn && (
+                      <>
+                        <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
+                          ISBN: {activeBook.isbn}
+                        </span>
+                      </>
+                    )}
+                    {(activeBook.wikipedia_url || activeBook.google_books_url) && (
+                      <>
+                        <a
+                          href={activeBook.google_books_url || activeBook.wikipedia_url || '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] text-blue-700 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline"
+                        >
+                          Source <ExternalLink size={10} />
+                        </a>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+              </AnimatePresence>
+            )}
+
             {/* Readers section - profile pictures and chat button */}
             {!showRatingOverlay && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, delay: 0.1 }}
-                className="w-full mt-3"
+                className="w-full mt-2"
               >
                 <div className="rounded-2xl px-4 py-3" style={bookPageGlassmorphicStyle}>
                   <div className="flex items-center justify-between">
@@ -12974,92 +13273,6 @@ export default function App() {
                   </div>
                 </div>
               </motion.div>
-            )}
-
-            {/* Info box - always open, below cover and above facts */}
-            {!showRatingOverlay && (
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={`info-${activeBook?.id || 'default'}`}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.3, ease: "easeInOut" }}
-                  className="w-full mt-2"
-                >
-                  <div className="rounded-2xl px-4 py-3 mx-auto" style={bookPageGlassmorphicStyle}>
-                  {/* Line 1: Title */}
-                  <h2 className="text-sm font-black text-slate-950 leading-tight line-clamp-2 mb-2">{activeBook.title}</h2>
-                  {/* Line 2: Summary/Synopsis */}
-                  {activeBook.summary && (
-                    <div className="mb-2">
-                      <p 
-                        className={`text-xs text-black leading-relaxed ${!isSummaryExpanded ? 'line-clamp-5' : ''} cursor-pointer`}
-                        onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
-                      >
-                        {activeBook.summary}
-                      </p>
-                      {activeBook.summary.length > 300 && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setIsSummaryExpanded(!isSummaryExpanded);
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
-                        >
-                          {isSummaryExpanded ? 'Show less' : 'Show more'}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {/* Line 3: Author */}
-                  <p className="text-xs font-bold text-slate-800 mb-2">{activeBook.author}</p>
-                  {/* Line 4: All Labels */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {activeBook.first_issue_year && (
-                      <>
-                        <span className="bg-blue-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-blue-800">
-                          First Issue: {activeBook.first_issue_year}
-                        </span>
-                      </>
-                    )}
-                    {activeBook.publish_year && !activeBook.first_issue_year && (
-                      <>
-                        <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
-                          {activeBook.publish_year}
-                        </span>
-                      </>
-                    )}
-                    {activeBook.genre && (
-                      <>
-                        <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
-                          {activeBook.genre}
-                        </span>
-                      </>
-                    )}
-                    {activeBook.isbn && (
-                      <>
-                        <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
-                          ISBN: {activeBook.isbn}
-                        </span>
-                      </>
-                    )}
-                    {(activeBook.wikipedia_url || activeBook.google_books_url) && (
-                      <>
-                        <a 
-                          href={activeBook.google_books_url || activeBook.wikipedia_url || '#'} 
-                          target="_blank" 
-                          rel="noopener noreferrer" 
-                          className="text-[10px] text-blue-700 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline"
-                        >
-                          Source <ExternalLink size={10} />
-                        </a>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </motion.div>
-              </AnimatePresence>
             )}
             
             {/* Insights Section - Show below cover with spacing */}
@@ -15028,7 +15241,7 @@ export default function App() {
                 setShowAboutScreen(false);
                 localStorage.setItem('hasSeenIntro', 'true');
               }}
-              className="absolute top-5 right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+              className="absolute top-[65px] right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
               style={standardGlassmorphicStyle}
             >
               <X size={18} className="text-slate-950" />
