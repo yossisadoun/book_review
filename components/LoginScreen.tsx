@@ -1,8 +1,12 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import Lottie from 'lottie-react';
 import { useAuth } from '@/contexts/AuthContext';
 import HelloAnimation from './HelloAnimation';
+import heartAnimation from '@/public/heart_anim.json';
+import heartInsideAnimation from '@/public/heart_inside.json';
 
 // Helper function to get the correct path for static assets (handles basePath)
 function getAssetPath(path: string): string {
@@ -20,12 +24,26 @@ function getAssetPath(path: string): string {
 
 export function LoginScreen() {
   const { signInWithGoogle, loading } = useAuth();
+  const [showHearts, setShowHearts] = useState(false);
+  const [showHeartInside, setShowHeartInside] = useState(false);
+
+  // Start heart animation after HelloAnimation finishes (3s)
+  useEffect(() => {
+    const timer = setTimeout(() => setShowHearts(true), 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Start heart inside animation after heart animation finishes (4s total)
+  useEffect(() => {
+    const timer = setTimeout(() => setShowHeartInside(true), 4000);
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <div
       className="fixed inset-0 flex flex-col items-center justify-center p-4"
       style={{
-        backgroundImage: `url(${getAssetPath('/bg.webp')})`,
+        backgroundImage: `url(${getAssetPath('/bg.png')})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
@@ -38,16 +56,72 @@ export function LoginScreen() {
       >
         {/* Animation - 30% smaller */}
         <div className="w-full max-w-md mb-8" style={{ transform: 'scale(0.7)' }}>
-          <HelloAnimation 
-            color="#ffffff" 
-            strokeWidth={40} 
-            duration={3} 
+          <HelloAnimation
+            color="#ffffff"
+            strokeWidth={40}
+            duration={3}
+            delay={0}
             className="w-full h-auto"
           />
         </div>
 
-        {/* Logo */}
-        <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
+        {/* Logo with Heart Animation */}
+        <div className="relative mb-4" style={{ marginTop: '-15px' }}>
+          <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto" />
+          {showHearts && (
+            <>
+              <div className="absolute top-[18px] left-1/2 pointer-events-none" style={{ transform: 'translateX(calc(-50% - 6px)) scale(0.8)', opacity: 1, mixBlendMode: 'overlay' }}>
+                <Lottie
+                  animationData={heartAnimation}
+                  loop={false}
+                  speed={1.3}
+                  className="w-24 h-24"
+                />
+              </div>
+              <div className="absolute top-[18px] left-1/2 pointer-events-none" style={{ transform: 'translateX(calc(-50% - 6px)) scale(0.8)', opacity: 1, mixBlendMode: 'overlay' }}>
+                <Lottie
+                  animationData={heartAnimation}
+                  loop={false}
+                  speed={1.3}
+                  className="w-24 h-24"
+                />
+              </div>
+              <div className="absolute top-[18px] left-1/2 pointer-events-none" style={{ transform: 'translateX(calc(-50% - 6px)) scale(0.8)', opacity: 1, mixBlendMode: 'overlay' }}>
+                <Lottie
+                  animationData={heartAnimation}
+                  loop={false}
+                  speed={1.3}
+                  className="w-24 h-24"
+                />
+              </div>
+            </>
+          )}
+          {/* Heart inside animations - play once after heart animation */}
+          {showHeartInside && (
+            <>
+              <div
+                className="absolute top-[44px] left-1/2 pointer-events-none w-12 h-12"
+                style={{ transform: 'translateX(calc(-50% - 3px)) scale(1.26)', mixBlendMode: 'overlay', opacity: 1 }}
+              >
+                <Lottie
+                  animationData={heartInsideAnimation}
+                  loop={false}
+                  className="w-full h-full"
+                />
+              </div>
+              <div
+                className="absolute top-[44px] left-1/2 pointer-events-none w-12 h-12"
+                style={{ transform: 'translateX(calc(-50% - 3px)) scale(1.26)', mixBlendMode: 'overlay', opacity: 1 }}
+              >
+                <Lottie
+                  animationData={heartInsideAnimation}
+                  loop={false}
+                  className="w-full h-full"
+                />
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Google Sign-In Button - Standard Design */}
         <motion.button

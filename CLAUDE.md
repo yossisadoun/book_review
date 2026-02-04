@@ -160,6 +160,24 @@ npx cap sync ios
 # Then in Xcode: Product → Clean Build Folder (Shift+Cmd+K) and rebuild
 ```
 
+## Feature Flags
+
+Feature flags are configured in `/lib/feature-flags.ts`.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `hand_drawn_icons` | `false` | When `true`, uses hand-drawn SVG icons from `/public/`. When `false`, uses Lucide icons. |
+
+### Icon Mapping (hand_drawn_icons)
+
+| Hand-drawn SVG | Lucide Icon | Used in |
+|----------------|-------------|---------|
+| `/public/library.svg` | `Library` | Header, bottom nav (bookshelf) |
+| `/public/Trophy.svg` | `Trophy` | Bottom nav (trivia) |
+| `/public/shield.svg` | `ShieldUser` | Bottom nav (clubs) |
+| `/public/feed.svg` | `Rss` | Header, bottom nav (feed) |
+| `/public/search.svg` | `Search` | AddBookSheet, feed drilldown, bottom nav |
+
 ## Design Guidelines
 
 See `DESIGN_GUIDELINES.md` for:

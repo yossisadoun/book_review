@@ -44,6 +44,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Lottie from 'lottie-react';
 import arrowAnimation from '@/public/arrow_anim.json';
 import lightbulbAnimation from '@/public/lightbulb_anim.json';
+import spinnerAnimation from '@/public/spinner.json';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginScreen } from '@/components/LoginScreen';
 import { BookLoading } from '@/components/BookLoading';
@@ -51,6 +52,7 @@ import { CachedImage } from '@/components/CachedImage';
 import { supabase } from '@/lib/supabase';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerErrorHaptic } from '@/lib/capacitor';
+import { featureFlags } from '@/lib/feature-flags';
 
 // Helper function to get the correct path for static assets (handles basePath)
 function getAssetPath(path: string): string {
@@ -4957,15 +4959,59 @@ function ResearchSection({ research, bookId, isLoading = false }: ResearchSectio
 }
 
 // Memoized arrow animation to prevent re-renders from restarting animation
-const ArrowAnimation = React.memo(function ArrowAnimation() {
+const ArrowAnimation = React.memo(function ArrowAnimation({ isBookshelfEmpty = false }: { isBookshelfEmpty?: boolean }) {
   return (
-    <div className="absolute top-0 left-0 right-0 pointer-events-none z-10 flex justify-start pt-32 pl-4 ml-[120px] mt-[120px]">
+    <div className={`absolute top-0 left-0 right-0 pointer-events-none z-10 flex justify-start pt-32 pl-4 ${isBookshelfEmpty ? 'ml-[170px] mt-[150px]' : 'ml-[70px] mt-[70px]'}`}>
       <Lottie
         animationData={arrowAnimation}
         loop={false}
         className="w-44 h-44 -scale-x-100 rotate-[140deg]"
       />
     </div>
+  );
+});
+
+// Lightbulb animation that plays forward, then reverse, then hides
+const LightbulbAnimation = React.memo(function LightbulbAnimation({ bookId }: { bookId: string }) {
+  const lottieRef = useRef<any>(null);
+  const [isVisible, setIsVisible] = useState(true);
+  const [playingReverse, setPlayingReverse] = useState(false);
+
+  // Reset state when bookId changes
+  useEffect(() => {
+    setIsVisible(true);
+    setPlayingReverse(false);
+    if (lottieRef.current) {
+      lottieRef.current.setDirection(1);
+      lottieRef.current.goToAndPlay(0);
+    }
+  }, [bookId]);
+
+  const handleComplete = () => {
+    if (!playingReverse) {
+      // First completion: play in reverse
+      setPlayingReverse(true);
+      if (lottieRef.current) {
+        lottieRef.current.setDirection(-1);
+        lottieRef.current.play();
+      }
+    } else {
+      // Second completion (reverse done): hide
+      setIsVisible(false);
+    }
+  };
+
+  if (!isVisible) return null;
+
+  return (
+    <Lottie
+      lottieRef={lottieRef}
+      animationData={lightbulbAnimation}
+      loop={false}
+      speed={1.25}
+      onComplete={handleComplete}
+      className="w-36 h-36"
+    />
   );
 });
 
@@ -5702,7 +5748,11 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   className={`absolute top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-800 active:scale-95 transition-all cursor-pointer ${isQueryHebrew ? 'right-4' : 'left-4'}`}
                   aria-label="Search"
                 >
-                  <img src={getAssetPath("/search.svg")} alt="Search" className="w-[18px] h-[18px]" />
+                  {featureFlags.hand_drawn_icons ? (
+                    <img src={getAssetPath("/search.svg")} alt="Search" className="w-[18px] h-[18px]" />
+                  ) : (
+                    <Search size={18} className="text-slate-600" />
+                  )}
                 </button>
               </div>
           </form>
@@ -7757,8 +7807,8 @@ export default function App() {
         });
       });
 
-      // Keep Reading group visible even when empty (only for own bookshelf)
-      return groups.filter(group => group.books.length > 0 || (group.label === 'Reading' && !viewingUserId));
+      // Keep Reading group visible even when empty (only for own bookshelf and only if they have at least one book)
+      return groups.filter(group => group.books.length > 0 || (group.label === 'Reading' && !viewingUserId && booksForBookshelf.length > 0));
     } else if (bookshelfGrouping === 'rating') {
       // Group by rating score ranges
       const groups: { label: string; books: BookWithRatings[] }[] = [
@@ -9879,7 +9929,7 @@ export default function App() {
     }
   }
 
-  // Show book loading animation during initial auth check
+  // Show loading animation during initial auth check
   if (authLoading) {
     return <BookLoading />;
   }
@@ -9888,7 +9938,7 @@ export default function App() {
     return <LoginScreen />;
   }
 
-  // Show book loading animation while loading books (only if user is authenticated)
+  // Show loading animation while loading books (only if user is authenticated)
   if (!isLoaded) {
     return <BookLoading />;
   }
@@ -10140,15 +10190,27 @@ export default function App() {
                 ) : showFollowingPage ? (
                   <Users size={24} className="text-slate-950" />
                 ) : showFeedPage ? (
-                  <img src={getAssetPath("/feed.svg")} alt="Feed" className="w-[24px] h-[24px]" />
+                  featureFlags.hand_drawn_icons ? (
+                    <img src={getAssetPath("/feed.svg")} alt="Feed" className="w-[24px] h-[24px]" />
+                  ) : (
+                    <Rss size={24} className="text-slate-950" />
+                  )
                 ) : showSortingResults ? (
                   <Star size={24} className="text-slate-950" />
                 ) : showNotesView ? (
                   <Pencil size={24} className="text-slate-950" />
                 ) : showBookshelfCovers ? (
-                  <img src={getAssetPath("/library.svg")} alt="Library" className="w-[24px] h-[24px]" />
+                  featureFlags.hand_drawn_icons ? (
+                    <img src={getAssetPath("/library.svg")} alt="Library" className="w-[24px] h-[24px]" />
+                  ) : (
+                    <Library size={24} className="text-slate-950" />
+                  )
                 ) : showBookshelf ? (
-                  <img src={getAssetPath("/library.svg")} alt="Library" className="w-[24px] h-[24px]" />
+                  featureFlags.hand_drawn_icons ? (
+                    <img src={getAssetPath("/library.svg")} alt="Library" className="w-[24px] h-[24px]" />
+                  ) : (
+                    <Library size={24} className="text-slate-950" />
+                  )
                 ) : (
                   <BookOpen size={24} className="text-slate-950" />
                 )}
@@ -10880,7 +10942,11 @@ export default function App() {
                       <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center">
-                            <img src={getAssetPath("/search.svg")} alt="Search" className="w-[20px] h-[20px] invert" />
+                            {featureFlags.hand_drawn_icons ? (
+                              <img src={getAssetPath("/search.svg")} alt="Search" className="w-[20px] h-[20px] invert" />
+                            ) : (
+                              <Search size={20} className="text-white" />
+                            )}
                           </div>
                           <div className="flex-1">
                             <p className="font-semibold text-slate-900 text-sm">Deep Dive</p>
@@ -11601,7 +11667,7 @@ export default function App() {
             }}
           >
             {/* Arrow Animation Overlay - only show on own bookshelf when grouped by status and no books in Reading */}
-            {!viewingUserId && bookshelfGrouping === 'reading_status' && books.filter(b => b.reading_status === 'reading').length === 0 && <ArrowAnimation />}
+            {!viewingUserId && bookshelfGrouping === 'reading_status' && books.filter(b => b.reading_status === 'reading').length === 0 && <ArrowAnimation isBookshelfEmpty={booksForBookshelf.length === 0} />}
 
             {/* Bookshelf Covers View */}
             <div
@@ -11805,7 +11871,8 @@ export default function App() {
                     </div>
                   </div>
                 )}
-                {/* Grouping Selector - Dropdown and Play Button */}
+                {/* Grouping Selector - Dropdown and Play Button (hidden when bookshelf is empty) */}
+                {booksForBookshelf.length > 0 && (
                 <div className="flex items-center justify-between px-4 mb-1.5">
                   <div className="relative" ref={bookshelfGroupingDropdownRef}>
                     <button
@@ -11931,11 +11998,12 @@ export default function App() {
                     );
                   })()}
                 </div>
+                )}
 
                 {/* Empty state - show when no books */}
                 {booksForBookshelf.length === 0 && !viewingUserId ? (
                   <div
-                    className="flex flex-col items-center justify-center text-center space-y-6 py-12 rounded-2xl"
+                    className="flex flex-col items-center justify-center text-center py-[30px] rounded-2xl"
                     style={glassmorphicStyle}
                   >
                     <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto" />
@@ -11954,7 +12022,7 @@ export default function App() {
                   </div>
                 ) : booksForBookshelf.length === 0 && viewingUserId ? (
                   <div
-                    className="flex flex-col items-center justify-center text-center space-y-6 py-12 rounded-2xl"
+                    className="flex flex-col items-center justify-center text-center space-y-6 py-[30px] rounded-2xl"
                     style={glassmorphicStyle}
                   >
                     <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto" />
@@ -12017,10 +12085,6 @@ export default function App() {
                           >
                             <Plus size={32} className="text-slate-400 group-hover:text-blue-600 transition-colors" />
                           </div>
-                          {/* Placeholder Text */}
-                          <p className="text-xs font-medium text-slate-600 text-center px-1">
-                            Start reading
-                          </p>
                         </motion.div>
                       )}
                       {group.books.map((book, idx) => {
@@ -12603,24 +12667,11 @@ export default function App() {
         ) : (
           <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">
             {/* Lightbulb animation - positioned above book cover */}
-            <AnimatePresence mode="wait">
-              {!isShowingNotes && activeBook && (
-                <motion.div
-                  key={`lightbulb-${activeBook.id}`}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="absolute top-[30px] left-4 z-40 pointer-events-none"
-                >
-                  <Lottie
-                    animationData={lightbulbAnimation}
-                    loop={false}
-                    className="w-36 h-36"
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {!isShowingNotes && activeBook && (
+              <div className="absolute top-[30px] left-4 z-40 pointer-events-none">
+                <LightbulbAnimation key={activeBook.id} bookId={activeBook.id} />
+              </div>
+            )}
             <div
               className="relative w-[340px] aspect-[2/3] overflow-hidden group rounded-lg"
               style={{
@@ -13929,12 +13980,16 @@ export default function App() {
               setShowFeedPage(false);
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
-              showBookshelfCovers 
-                ? 'bg-white/40 hover:bg-white/50' 
+              showBookshelfCovers
+                ? 'bg-white/40 hover:bg-white/50'
                 : 'bg-white/20 hover:bg-white/30'
             }`}
           >
-            <img src={getAssetPath("/library.svg")} alt="Library" className="w-[18px] h-[18px]" />
+            {featureFlags.hand_drawn_icons ? (
+              <img src={getAssetPath("/library.svg")} alt="Library" className="w-[18px] h-[18px]" />
+            ) : (
+              <Library size={18} className="text-slate-700" />
+            )}
           </button>
 
           {/* Game button - trivia game */}
@@ -13982,12 +14037,16 @@ export default function App() {
                     className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
                       isDisabled
                         ? 'bg-white/10 opacity-50 cursor-not-allowed'
-                        : isPlayingTrivia 
-                          ? 'bg-white/40 hover:bg-white/50' 
+                        : isPlayingTrivia
+                          ? 'bg-white/40 hover:bg-white/50'
                           : 'bg-white/20 hover:bg-white/30'
                     }`}
                   >
-                    <img src={getAssetPath("/Trophy.svg")} alt="Trivia" className="w-[18px] h-[18px]" />
+                    {featureFlags.hand_drawn_icons ? (
+                      <img src={getAssetPath("/Trophy.svg")} alt="Trivia" className="w-[18px] h-[18px]" />
+                    ) : (
+                      <Trophy size={18} className="text-slate-700" />
+                    )}
                   </button>
                   {isDisabled && (
                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50"
@@ -14024,7 +14083,11 @@ export default function App() {
               onClick={() => {}}
               className="w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center bg-white/20 hover:bg-white/30"
             >
-              <img src={getAssetPath("/shield.svg")} alt="Clubs" className="w-[18px] h-[18px]" />
+              {featureFlags.hand_drawn_icons ? (
+                <img src={getAssetPath("/shield.svg")} alt="Clubs" className="w-[18px] h-[18px]" />
+              ) : (
+                <ShieldUser size={18} className="text-slate-700" />
+              )}
             </button>
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50"
               style={{
@@ -14073,7 +14136,11 @@ export default function App() {
                 : 'bg-white/20 hover:bg-white/30'
             }`}
           >
-            <img src={getAssetPath("/feed.svg")} alt="Feed" className="w-[18px] h-[18px]" />
+            {featureFlags.hand_drawn_icons ? (
+              <img src={getAssetPath("/feed.svg")} alt="Feed" className="w-[18px] h-[18px]" />
+            ) : (
+              <Rss size={18} className="text-slate-700" />
+            )}
           </button>
 
           {/* Search button - right (circular) */}
@@ -14081,7 +14148,11 @@ export default function App() {
             onClick={() => setIsAdding(true)}
             className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:scale-95 transition-all flex items-center justify-center ml-auto"
           >
-            <img src={getAssetPath("/search.svg")} alt="Search" className="w-[18px] h-[18px]" />
+            {featureFlags.hand_drawn_icons ? (
+              <img src={getAssetPath("/search.svg")} alt="Search" className="w-[18px] h-[18px]" />
+            ) : (
+              <Search size={18} className="text-slate-700" />
+            )}
           </button>
         </div>
       </div>
@@ -14283,7 +14354,7 @@ export default function App() {
                       className="flex items-center justify-center min-h-[400px] rounded-3xl"
                     >
                       <div className="text-center">
-                        <BookLoading />
+                        <Lottie animationData={spinnerAnimation} loop={true} className="w-24 h-24 mx-auto" />
                       </div>
                     </motion.div>
                   )}
