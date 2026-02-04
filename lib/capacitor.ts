@@ -1,7 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
-import { Haptics, ImpactStyle } from '@capacitor/haptics';
+import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { Preferences } from '@capacitor/preferences';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { SecureStoragePlugin } from 'capacitor-secure-storage-plugin';
@@ -38,7 +38,69 @@ export async function closeSystemBrowser(): Promise<void> {
 
 export async function triggerLightHaptic(): Promise<void> {
   if (!isNativePlatform) return;
-  await Haptics.impact({ style: ImpactStyle.Light });
+  try {
+    await Haptics.selectionStart();
+    await Haptics.selectionChanged();
+    await Haptics.selectionEnd();
+  } catch (e) {
+    // Fallback silently
+  }
+}
+
+export async function triggerMediumHaptic(): Promise<void> {
+  if (!isNativePlatform) return;
+  try {
+    await Haptics.impact({ style: ImpactStyle.Medium });
+  } catch (e) {
+    // Fallback to vibrate
+    try {
+      await Haptics.vibrate({ duration: 50 });
+    } catch (e2) {
+      // Fallback silently
+    }
+  }
+}
+
+export async function triggerHeavyHaptic(): Promise<void> {
+  if (!isNativePlatform) return;
+  try {
+    await Haptics.impact({ style: ImpactStyle.Heavy });
+  } catch (e) {
+    // Fallback to vibrate
+    try {
+      await Haptics.vibrate({ duration: 100 });
+    } catch (e2) {
+      // Fallback silently
+    }
+  }
+}
+
+export async function triggerSuccessHaptic(): Promise<void> {
+  if (!isNativePlatform) return;
+  try {
+    await Haptics.notification({ type: NotificationType.Success });
+  } catch (e) {
+    // Fallback to vibrate
+    try {
+      await Haptics.vibrate({ duration: 50 });
+    } catch (e2) {
+      // Fallback silently
+    }
+  }
+}
+
+export async function triggerErrorHaptic(): Promise<void> {
+  if (!isNativePlatform) return;
+  try {
+    await Haptics.notification({ type: NotificationType.Error });
+  } catch (e) {
+    // Fallback to vibrate
+    try {
+      await Haptics.vibrate({ duration: 100 });
+    } catch (e2) {
+      // Fallback silently
+    }
+  }
 }
 
 export async function registerForPushNotifications(): Promise<void> {

@@ -36,16 +36,21 @@ import {
   X,
   MessageCircle,
   Lightbulb,
+  ShieldUser,
+  PlusCircle,
+  Plus,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Lottie from 'lottie-react';
 import arrowAnimation from '@/public/arrow_anim.json';
+import lightbulbAnimation from '@/public/lightbulb_anim.json';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginScreen } from '@/components/LoginScreen';
 import { BookLoading } from '@/components/BookLoading';
 import { CachedImage } from '@/components/CachedImage';
 import { supabase } from '@/lib/supabase';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
+import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerErrorHaptic } from '@/lib/capacitor';
 
 // Helper function to get the correct path for static assets (handles basePath)
 function getAssetPath(path: string): string {
@@ -4954,11 +4959,11 @@ function ResearchSection({ research, bookId, isLoading = false }: ResearchSectio
 // Memoized arrow animation to prevent re-renders from restarting animation
 const ArrowAnimation = React.memo(function ArrowAnimation() {
   return (
-    <div className="absolute top-0 left-0 right-0 pointer-events-none z-10 flex justify-end pt-32 pr-4">
+    <div className="absolute top-0 left-0 right-0 pointer-events-none z-10 flex justify-start pt-32 pl-4 ml-[120px] mt-[120px]">
       <Lottie
         animationData={arrowAnimation}
         loop={false}
-        className="w-44 h-44"
+        className="w-44 h-44 -scale-x-100 rotate-[140deg]"
       />
     </div>
   );
@@ -5119,7 +5124,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
         .limit(10);
       
       if (error) {
-        console.error('Error searching users:', error);
+        console.error('Error searching users:', error.message, error.code, error.details, error.hint);
         return [];
       }
       
@@ -5169,7 +5174,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
         .limit(10);
 
       if (error) {
-        console.error('Error searching books:', error);
+        console.error('Error searching books:', error.message, error.code, error.details, error.hint);
         return [];
       }
 
@@ -5697,7 +5702,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   className={`absolute top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-800 active:scale-95 transition-all cursor-pointer ${isQueryHebrew ? 'right-4' : 'left-4'}`}
                   aria-label="Search"
                 >
-                  <Search size={18} />
+                  <img src={getAssetPath("/search.svg")} alt="Search" className="w-[18px] h-[18px]" />
                 </button>
               </div>
           </form>
@@ -6154,6 +6159,7 @@ export default function App() {
     
     // Only handle horizontal swipes (ignore if vertical scroll is more dominant)
     if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
+      triggerMediumHaptic();
       if (distanceX > 0) {
         // Swipe left = next book
         setSelectedIndex(prev => (prev < books.length - 1 ? prev + 1 : 0));
@@ -6285,6 +6291,9 @@ export default function App() {
   }
   const [telegramTopics, setTelegramTopics] = useState<Map<string, TelegramTopic>>(new Map());
   const [isLoadingTelegramTopic, setIsLoadingTelegramTopic] = useState(false);
+
+  // Reading book picker state (for empty Reading group)
+  const [showReadingBookPicker, setShowReadingBookPicker] = useState(false);
 
   // Book readers state (users who have the same book)
   interface BookReader {
@@ -7747,8 +7756,9 @@ export default function App() {
           return scoreB - scoreA;
         });
       });
-      
-      return groups.filter(group => group.books.length > 0);
+
+      // Keep Reading group visible even when empty (only for own bookshelf)
+      return groups.filter(group => group.books.length > 0 || (group.label === 'Reading' && !viewingUserId));
     } else if (bookshelfGrouping === 'rating') {
       // Group by rating score ranges
       const groups: { label: string; books: BookWithRatings[] }[] = [
@@ -7974,7 +7984,7 @@ export default function App() {
     }
     // Default fallback (should never happen)
     return [];
-  }, [booksForBookshelf, bookshelfGrouping]);
+  }, [booksForBookshelf, bookshelfGrouping, viewingUserId]);
   
   // When editing, show the first dimension that needs rating, or first dimension if all are rated
   const currentEditingDimension = useMemo((): typeof RATING_DIMENSIONS[number] | null => {
@@ -9564,6 +9574,7 @@ export default function App() {
       }
 
       const newBook = convertBookToApp(data);
+      triggerSuccessHaptic();
       setBooks(prev => [newBook, ...prev]);
       setSelectedIndex(0);
       setIsAdding(false);
@@ -9735,6 +9746,7 @@ export default function App() {
 
       if (error) throw error;
 
+      triggerHeavyHaptic();
       const newBooks = books.filter(b => b.id !== activeBook.id);
       const nextIndex = selectedIndex > 0 ? selectedIndex - 1 : 0;
       setIsConfirmingDelete(false);
@@ -9939,6 +9951,16 @@ export default function App() {
     border: '1px solid rgba(59, 130, 246, 0.3)',
   };
 
+  // Yellow glassmorphism for profile section
+  const yellowGlassmorphicStyle: React.CSSProperties = {
+    background: 'rgba(250, 204, 21, 0.25)',
+    borderRadius: '16px',
+    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(250, 204, 21, 0.2)',
+  };
+
   // Consistent glassmorphism style (less transparent for book page info cards)
   const glassmorphicStyle: React.CSSProperties = {
     background: 'rgba(255, 255, 255, 0.45)',
@@ -10118,15 +10140,15 @@ export default function App() {
                 ) : showFollowingPage ? (
                   <Users size={24} className="text-slate-950" />
                 ) : showFeedPage ? (
-                  <Rss size={24} className="text-slate-950" />
+                  <img src={getAssetPath("/feed.svg")} alt="Feed" className="w-[24px] h-[24px]" />
                 ) : showSortingResults ? (
                   <Star size={24} className="text-slate-950" />
                 ) : showNotesView ? (
                   <Pencil size={24} className="text-slate-950" />
                 ) : showBookshelfCovers ? (
-                  <Library size={24} className="text-slate-950" />
+                  <img src={getAssetPath("/library.svg")} alt="Library" className="w-[24px] h-[24px]" />
                 ) : showBookshelf ? (
-                  <Library size={24} className="text-slate-950" />
+                  <img src={getAssetPath("/library.svg")} alt="Library" className="w-[24px] h-[24px]" />
                 ) : (
                   <BookOpen size={24} className="text-slate-950" />
                 )}
@@ -10858,7 +10880,7 @@ export default function App() {
                       <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center">
-                            <Search size={20} className="text-white" />
+                            <img src={getAssetPath("/search.svg")} alt="Search" className="w-[20px] h-[20px] invert" />
                           </div>
                           <div className="flex-1">
                             <p className="font-semibold text-slate-900 text-sm">Deep Dive</p>
@@ -11578,8 +11600,8 @@ export default function App() {
               setScrollY(target.scrollTop);
             }}
           >
-            {/* Arrow Animation Overlay */}
-            <ArrowAnimation />
+            {/* Arrow Animation Overlay - only show on own bookshelf when grouped by status and no books in Reading */}
+            {!viewingUserId && bookshelfGrouping === 'reading_status' && books.filter(b => b.reading_status === 'reading').length === 0 && <ArrowAnimation />}
 
             {/* Bookshelf Covers View */}
             <div
@@ -11661,7 +11683,7 @@ export default function App() {
               <div className="w-full max-w-[1600px] flex flex-col gap-2.5 py-8">
                 {/* Profile Panel */}
                 {!viewingUserId ? (
-                  <div 
+                  <div
                     className="rounded-2xl p-4 mb-4"
                     style={glassmorphicStyle}
                   >
@@ -11969,10 +11991,42 @@ export default function App() {
                     
                     {/* Covers Grid */}
                     <div className="px-[4vw] grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-4">
+                      {/* Empty Reading group placeholder */}
+                      {group.label === 'Reading' && group.books.length === 0 && !viewingUserId && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ duration: 0.3 }}
+                          whileTap={{ scale: 0.95 }}
+                          className="flex flex-col items-center cursor-pointer group"
+                          onClick={() => {
+                            // Check if there are "Want to read" books
+                            const wantToReadBooks = books.filter(b => b.reading_status === 'want_to_read');
+                            if (wantToReadBooks.length > 0) {
+                              setShowReadingBookPicker(true);
+                            } else {
+                              // No want to read books, open search
+                              setIsAdding(true);
+                            }
+                          }}
+                        >
+                          {/* Placeholder Cover */}
+                          <div
+                            className="relative w-full aspect-[2/3] rounded-lg overflow-hidden shadow-lg mb-2 group-hover:scale-105 transition-all flex items-center justify-center"
+                            style={glassmorphicStyle}
+                          >
+                            <Plus size={32} className="text-slate-400 group-hover:text-blue-600 transition-colors" />
+                          </div>
+                          {/* Placeholder Text */}
+                          <p className="text-xs font-medium text-slate-600 text-center px-1">
+                            Start reading
+                          </p>
+                        </motion.div>
+                      )}
                       {group.books.map((book, idx) => {
                                   const bookIndex = booksForBookshelf.findIndex(b => b.id === book.id);
                         const avgScore = calculateAvg(book.ratings);
-                        
+
                         return (
                           <motion.div
                             key={book.id || `book-${groupIdx}-${idx}`}
@@ -12548,6 +12602,25 @@ export default function App() {
           </div>
         ) : (
           <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">
+            {/* Lightbulb animation - positioned above book cover */}
+            <AnimatePresence mode="wait">
+              {!isShowingNotes && activeBook && (
+                <motion.div
+                  key={`lightbulb-${activeBook.id}`}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="absolute top-[30px] left-4 z-40 pointer-events-none"
+                >
+                  <Lottie
+                    animationData={lightbulbAnimation}
+                    loop={false}
+                    className="w-36 h-36"
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
             <div
               className="relative w-[340px] aspect-[2/3] overflow-hidden group rounded-lg"
               style={{
@@ -12938,61 +13011,15 @@ export default function App() {
               )}
 
 
-              {/* Reading Status Indicator Button - top left */}
-              <AnimatePresence>
-                {!isShowingNotes && activeBook && (
-                  <motion.button 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3, delay: 0.3 }}
-                    onClick={() => {
-                      // Open reading status selection interface
-                      setSelectingReadingStatusForExisting(true);
-                      setIsEditing(true);
-                    }}
-                    className="absolute top-4 left-4 z-30 w-11 h-11 rounded-full shadow-lg text-black hover:text-blue-600 active:scale-95 transition-all flex items-center justify-center"
-                    style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
-                  >
-                    {activeBook.reading_status === 'read_it' ? (
-                      <CheckCircle2 size={18} className="text-slate-950" />
-                    ) : activeBook.reading_status === 'reading' ? (
-                      <BookOpen size={18} className="text-slate-950" />
-                    ) : activeBook.reading_status === 'want_to_read' ? (
-                      <BookMarked size={18} className="text-slate-950" />
-                    ) : (
-                      <BookOpen size={18} className="text-slate-950 opacity-50" />
-                    )}
-                  </motion.button>
-                )}
-              </AnimatePresence>
-
-              {/* Pencil button - top right */}
-              <AnimatePresence>
-                {!isShowingNotes && (
-                  <motion.button 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3, delay: 0.3 }}
-                    onClick={() => setIsShowingNotes(true)}
-                    className="absolute top-4 right-4 z-30 p-2.5 rounded-full shadow-lg text-black hover:text-blue-600 active:scale-90 transition-all"
-                    style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
-                  >
-                    <Pencil size={20} />
-                  </motion.button>
-                )}
-              </AnimatePresence>
-
               {/* Delete button - bottom right */}
               <AnimatePresence>
                 {!isShowingNotes && (
-                  <motion.button 
+                  <motion.button
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3, delay: 0.3 }}
-                    onClick={() => setIsConfirmingDelete(true)} 
+                    onClick={() => setIsConfirmingDelete(true)}
                     className="absolute bottom-4 right-4 z-30 p-2.5 rounded-full shadow-lg text-black hover:text-red-600 active:scale-90 transition-all"
                     style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
                   >
@@ -13001,33 +13028,68 @@ export default function App() {
                 )}
               </AnimatePresence>
 
-              {/* Rating button - bottom left */}
+              {/* Bottom left button row: Rate | Read Status | Notes */}
               <AnimatePresence>
-                {!isShowingNotes && (
-                  <motion.button 
+                {!isShowingNotes && activeBook && (
+                  <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3, delay: 0.3 }}
-                    onClick={() => {
-                      setIsEditing(true);
-                      setEditingDimension(null); // Will default to first unrated or first dimension
-                    }} 
-                    className="absolute bottom-4 left-4 z-30 px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1 active:scale-90 transition-transform"
-                    style={coverButtonGlassmorphicStyle}
+                    className="absolute bottom-4 left-4 z-30 flex items-center gap-2"
                   >
-                    <Star size={14} className="fill-amber-400 text-amber-400" />
-                    <span className="font-black text-sm text-slate-950">
-                      {calculateAvg(activeBook.ratings) || 'Rate'}
-                    </span>
-                  </motion.button>
+                    {/* Rating button */}
+                    <button
+                      onClick={() => {
+                        setIsEditing(true);
+                        setEditingDimension(null); // Will default to first unrated or first dimension
+                      }}
+                      className="px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1 active:scale-90 transition-transform"
+                      style={coverButtonGlassmorphicStyle}
+                    >
+                      <Star size={14} className="fill-amber-400 text-amber-400" />
+                      <span className="font-black text-sm text-slate-950">
+                        {calculateAvg(activeBook.ratings) || 'Rate'}
+                      </span>
+                    </button>
+
+                    {/* Reading Status button */}
+                    <button
+                      onClick={() => {
+                        // Open reading status selection interface
+                        setSelectingReadingStatusForExisting(true);
+                        setIsEditing(true);
+                      }}
+                      className="w-10 h-10 rounded-full shadow-lg text-black hover:text-blue-600 active:scale-95 transition-all flex items-center justify-center"
+                      style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
+                    >
+                      {activeBook.reading_status === 'read_it' ? (
+                        <CheckCircle2 size={18} className="text-slate-950" />
+                      ) : activeBook.reading_status === 'reading' ? (
+                        <BookOpen size={18} className="text-slate-950" />
+                      ) : activeBook.reading_status === 'want_to_read' ? (
+                        <BookMarked size={18} className="text-slate-950" />
+                      ) : (
+                        <BookOpen size={18} className="text-slate-950 opacity-50" />
+                      )}
+                    </button>
+
+                    {/* Notes button */}
+                    <button
+                      onClick={() => setIsShowingNotes(true)}
+                      className="w-10 h-10 rounded-full shadow-lg text-black hover:text-blue-600 active:scale-90 transition-all flex items-center justify-center"
+                      style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
+                    >
+                      <Pencil size={18} />
+                    </button>
+                  </motion.div>
                 )}
               </AnimatePresence>
 
               {books.length > 1 && !isShowingNotes && (
                 <>
-                  <button onClick={() => setSelectedIndex(prev => (prev > 0 ? prev - 1 : books.length - 1))} className="absolute left-0 top-1/2 -translate-y-1/2 p-4 text-white drop-shadow-lg z-10 opacity-0 group-hover:opacity-100 transition-opacity"><ChevronLeft size={36} /></button>
-                  <button onClick={() => setSelectedIndex(prev => (prev < books.length - 1 ? prev + 1 : 0))} className="absolute right-0 top-1/2 -translate-y-1/2 p-4 text-white drop-shadow-lg z-10 opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight size={36} /></button>
+                  <button onClick={() => { triggerMediumHaptic(); setSelectedIndex(prev => (prev > 0 ? prev - 1 : books.length - 1)); }} className="absolute left-0 top-1/2 -translate-y-1/2 p-4 text-white drop-shadow-lg z-10 opacity-0 group-hover:opacity-100 transition-opacity"><ChevronLeft size={36} /></button>
+                  <button onClick={() => { triggerMediumHaptic(); setSelectedIndex(prev => (prev < books.length - 1 ? prev + 1 : 0)); }} className="absolute right-0 top-1/2 -translate-y-1/2 p-4 text-white drop-shadow-lg z-10 opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight size={36} /></button>
                 </>
               )}
             </div>
@@ -13872,7 +13934,7 @@ export default function App() {
                 : 'bg-white/20 hover:bg-white/30'
             }`}
           >
-            <Library size={18} className="text-slate-950" />
+            <img src={getAssetPath("/library.svg")} alt="Library" className="w-[18px] h-[18px]" />
           </button>
 
           {/* Game button - trivia game */}
@@ -13925,7 +13987,7 @@ export default function App() {
                           : 'bg-white/20 hover:bg-white/30'
                     }`}
                   >
-                    <Trophy size={18} className="text-slate-950" />
+                    <img src={getAssetPath("/Trophy.svg")} alt="Trivia" className="w-[18px] h-[18px]" />
                   </button>
                   {isDisabled && (
                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50"
@@ -13962,7 +14024,7 @@ export default function App() {
               onClick={() => {}}
               className="w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center bg-white/20 hover:bg-white/30"
             >
-              <MessageSquareQuote size={18} className="text-slate-950" />
+              <img src={getAssetPath("/shield.svg")} alt="Clubs" className="w-[18px] h-[18px]" />
             </button>
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50"
               style={{
@@ -14011,7 +14073,7 @@ export default function App() {
                 : 'bg-white/20 hover:bg-white/30'
             }`}
           >
-            <Rss size={18} className="text-slate-950" />
+            <img src={getAssetPath("/feed.svg")} alt="Feed" className="w-[18px] h-[18px]" />
           </button>
 
           {/* Search button - right (circular) */}
@@ -14019,7 +14081,7 @@ export default function App() {
             onClick={() => setIsAdding(true)}
             className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:scale-95 transition-all flex items-center justify-center ml-auto"
           >
-            <Search size={18} className="text-slate-950" />
+            <img src={getAssetPath("/search.svg")} alt="Search" className="w-[18px] h-[18px]" />
           </button>
         </div>
       </div>
@@ -14859,9 +14921,12 @@ export default function App() {
                                   
                                   const wasCorrect = answer === currentQuestion.correct_answer;
                                   if (wasCorrect) {
+                                    triggerSuccessHaptic();
                                     setTriviaScore(prev => prev + 1);
+                                  } else {
+                                    triggerErrorHaptic();
                                   }
-                                  
+
                                   // Show feedback immediately
                                   setTriviaAnswerFeedback(wasCorrect ? 'correct' : 'incorrect');
                                   
@@ -15441,6 +15506,132 @@ export default function App() {
               </button>
             </motion.div>
           </>
+        )}
+      </AnimatePresence>
+
+      {/* Reading Book Picker Modal */}
+      <AnimatePresence>
+        {showReadingBookPicker && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 z-[100] flex flex-col items-center justify-end bg-black/40 backdrop-blur-sm px-4"
+            onClick={() => setShowReadingBookPicker(false)}
+          >
+            {/* Bottom Sheet */}
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300, duration: 0.4 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md bg-white/80 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 flex flex-col"
+              style={{ maxHeight: '70vh' }}
+            >
+              {/* Handle bar */}
+              <div className="w-full flex justify-center pt-3 pb-2 flex-shrink-0">
+                <div className="w-12 h-1 bg-slate-400 rounded-full" />
+              </div>
+
+              {/* Header */}
+              <div className="px-4 pb-3 flex-shrink-0">
+                <h2 className="text-lg font-bold text-slate-950">Start Reading</h2>
+                <p className="text-xs text-slate-600">Pick from your "Want to read" list</p>
+              </div>
+
+              {/* Book List */}
+              <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2 ios-scroll">
+                {(() => {
+                  const wantToReadBooks = books.filter(b => b.reading_status === 'want_to_read');
+
+                  if (wantToReadBooks.length === 0) {
+                    return (
+                      <div className="text-center py-8">
+                        <BookMarked size={32} className="mx-auto mb-3 text-slate-400" />
+                        <p className="text-sm text-slate-600">No books in your "Want to read" list</p>
+                        <button
+                          onClick={() => {
+                            setShowReadingBookPicker(false);
+                            setIsAdding(true);
+                          }}
+                          className="mt-4 px-4 py-2 rounded-lg font-bold text-sm text-white active:scale-95 transition-all"
+                          style={{
+                            background: 'rgba(59, 130, 246, 0.85)',
+                            backdropFilter: 'blur(9.4px)',
+                            WebkitBackdropFilter: 'blur(9.4px)',
+                            border: '1px solid rgba(59, 130, 246, 0.3)',
+                          }}
+                        >
+                          Add a book
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  return wantToReadBooks.map((book, i) => (
+                    <motion.button
+                      key={book.id}
+                      type="button"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      className="w-full flex items-center gap-3 p-3 bg-blue-50/80 backdrop-blur-md hover:bg-blue-100/85 rounded-xl border border-blue-200/30 shadow-sm transition-all text-left"
+                      onClick={async () => {
+                        // Update book status to "reading"
+                        try {
+                          const { error } = await supabase
+                            .from('books')
+                            .update({ reading_status: 'reading' })
+                            .eq('id', book.id);
+
+                          if (!error) {
+                            // Update local state
+                            setBooks(prev => prev.map(b =>
+                              b.id === book.id ? { ...b, reading_status: 'reading' } : b
+                            ));
+                            triggerSuccessHaptic();
+                          }
+                        } catch (err) {
+                          console.error('Error updating book status:', err);
+                        }
+                        setShowReadingBookPicker(false);
+                      }}
+                    >
+                      {/* Book Cover */}
+                      {book.cover_url ? (
+                        <img
+                          src={book.cover_url}
+                          alt={book.title}
+                          className="w-12 h-16 object-cover rounded flex-shrink-0"
+                        />
+                      ) : (
+                        <div className={`w-12 h-16 rounded flex-shrink-0 flex items-center justify-center bg-gradient-to-br ${getGradient(book.id)}`}>
+                          <BookOpen size={20} className="text-white opacity-50" />
+                        </div>
+                      )}
+
+                      {/* Book Info */}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-bold text-slate-950 truncate">{book.title}</h3>
+                        <p className="text-xs text-slate-800 truncate">{book.author}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          {book.publish_year && (
+                            <p className="text-[10px] text-slate-600">{book.publish_year}</p>
+                          )}
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-blue-700 bg-blue-100">
+                            Your Book
+                          </span>
+                        </div>
+                      </div>
+                    </motion.button>
+                  ));
+                })()}
+              </div>
+
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
