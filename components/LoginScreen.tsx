@@ -1,12 +1,32 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import Lottie from 'lottie-react';
 import { useAuth } from '@/contexts/AuthContext';
 import HelloAnimation from './HelloAnimation';
 import heartAnimation from '@/public/heart_anim.json';
 import heartInsideAnimation from '@/public/heart_inside.json';
+
+// Heart animation with speed control via ref
+function FastHeartAnimation({ className }: { className?: string }) {
+  const lottieRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (lottieRef.current) {
+      lottieRef.current.setSpeed(1.3);
+    }
+  }, []);
+
+  return (
+    <Lottie
+      lottieRef={lottieRef}
+      animationData={heartAnimation}
+      loop={false}
+      className={className}
+    />
+  );
+}
 
 // Helper function to get the correct path for static assets (handles basePath)
 function getAssetPath(path: string): string {
@@ -71,28 +91,13 @@ export function LoginScreen() {
           {showHearts && (
             <>
               <div className="absolute top-[18px] left-1/2 pointer-events-none" style={{ transform: 'translateX(calc(-50% - 6px)) scale(0.8)', opacity: 1, mixBlendMode: 'overlay' }}>
-                <Lottie
-                  animationData={heartAnimation}
-                  loop={false}
-                  speed={1.3}
-                  className="w-24 h-24"
-                />
+                <FastHeartAnimation className="w-24 h-24" />
               </div>
               <div className="absolute top-[18px] left-1/2 pointer-events-none" style={{ transform: 'translateX(calc(-50% - 6px)) scale(0.8)', opacity: 1, mixBlendMode: 'overlay' }}>
-                <Lottie
-                  animationData={heartAnimation}
-                  loop={false}
-                  speed={1.3}
-                  className="w-24 h-24"
-                />
+                <FastHeartAnimation className="w-24 h-24" />
               </div>
               <div className="absolute top-[18px] left-1/2 pointer-events-none" style={{ transform: 'translateX(calc(-50% - 6px)) scale(0.8)', opacity: 1, mixBlendMode: 'overlay' }}>
-                <Lottie
-                  animationData={heartAnimation}
-                  loop={false}
-                  speed={1.3}
-                  className="w-24 h-24"
-                />
+                <FastHeartAnimation className="w-24 h-24" />
               </div>
             </>
           )}

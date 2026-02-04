@@ -4977,12 +4977,20 @@ const LightbulbAnimation = React.memo(function LightbulbAnimation({ bookId }: { 
   const [isVisible, setIsVisible] = useState(true);
   const [playingReverse, setPlayingReverse] = useState(false);
 
+  // Set speed on mount
+  useEffect(() => {
+    if (lottieRef.current) {
+      lottieRef.current.setSpeed(1.25);
+    }
+  }, []);
+
   // Reset state when bookId changes
   useEffect(() => {
     setIsVisible(true);
     setPlayingReverse(false);
     if (lottieRef.current) {
       lottieRef.current.setDirection(1);
+      lottieRef.current.setSpeed(1.25);
       lottieRef.current.goToAndPlay(0);
     }
   }, [bookId]);
@@ -5008,7 +5016,6 @@ const LightbulbAnimation = React.memo(function LightbulbAnimation({ bookId }: { 
       lottieRef={lottieRef}
       animationData={lightbulbAnimation}
       loop={false}
-      speed={1.25}
       onComplete={handleComplete}
       className="w-36 h-36"
     />
