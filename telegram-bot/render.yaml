@@ -1,0 +1,14 @@
+# Render.com deployment configuration
+services:
+  - type: web
+    name: bookluv-telegram-bot
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: NODE_ENV
+        value: production

@@ -23,9 +23,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
+    // Add timeout to prevent infinite hang on iOS
+    const timeoutId = setTimeout(() => {
+      if (mounted) {
+        console.warn('Auth getSession timed out after 10s, proceeding without session');
+        setLoading(false);
+      }
+    }, 10000);
+
     // Get initial session
     supabase.auth.getSession()
       .then(({ data: { session }, error }) => {
+        clearTimeout(timeoutId);
         if (!mounted) return;
         if (error) {
           console.error('Error getting session:', error);
@@ -35,6 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
       })
       .catch((error) => {
+        clearTimeout(timeoutId);
         if (!mounted) return;
         console.error('Error getting session:', error);
         setLoading(false);
@@ -52,6 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false;
+      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, []);

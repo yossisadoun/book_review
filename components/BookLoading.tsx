@@ -256,7 +256,7 @@ export function BookLoading() {
       <div
         className="fixed inset-0 flex items-center justify-center z-50"
         style={{
-          backgroundImage: `url(${getAssetPath('/bg.webp')})`,
+          backgroundImage: `url(${getAssetPath('/bg.png')})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat',

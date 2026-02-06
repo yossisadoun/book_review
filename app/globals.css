@@ -126,3 +126,45 @@ input[type="text"][inputmode="search"].search-input-glassmorphic {
   -webkit-background-clip: unset !important;
   background-clip: unset !important;
 }
+
+/* Fix iOS double-tap issue - disable hover effects on touch devices */
+@media (hover: none) and (pointer: coarse) {
+  button, a, [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  /* Remove hover effects that cause double-tap on iOS */
+  button:hover,
+  a:hover,
+  [role="button"]:hover {
+    opacity: inherit !important;
+    background-color: inherit !important;
+    color: inherit !important;
+  }
+}
+
+/* Ensure all buttons are touch-optimized */
+button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+/* Prevent iOS auto-zoom on input focus - requires 16px minimum */
+input, textarea, select {
+  font-size: 16px !important;
+  -webkit-text-size-adjust: 100%;
+  touch-action: manipulation;
+}
+
+/* Prevent all zooming on the page */
+* {
+  -webkit-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+}
+
+/* Disable double-tap zoom */
+* {
+  touch-action: manipulation;
+}
