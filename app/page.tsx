@@ -39,12 +39,14 @@ import {
   ShieldUser,
   PlusCircle,
   Plus,
+  Bot,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Lottie from 'lottie-react';
 import arrowAnimation from '@/public/arrow_anim.json';
 import lightbulbAnimation from '@/public/lightbulb_anim.json';
 import spinnerAnimation from '@/public/spinner.json';
+import heartAnimation from '@/public/heart_anim.json';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginScreen } from '@/components/LoginScreen';
 import { BookLoading } from '@/components/BookLoading';
@@ -1761,11 +1763,64 @@ async function markFeedItemsAsShown(itemIds: string[]): Promise<void> {
 }
 
 // Mark a feed item as read/unread
-async function markFeedItemRead(itemId: string, read: boolean): Promise<void> {
-  await supabase
-    .from('feed_items')
-    .update({ read })
-    .eq('id', itemId);
+// Store read status in localStorage
+const FEED_READ_STORAGE_KEY = 'feed_items_read';
+
+function getReadFeedItems(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const stored = localStorage.getItem(FEED_READ_STORAGE_KEY);
+    return stored ? new Set(JSON.parse(stored)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function setFeedItemReadStatus(itemId: string, read: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const readItems = getReadFeedItems();
+    if (read) {
+      readItems.add(itemId);
+    } else {
+      readItems.delete(itemId);
+    }
+    localStorage.setItem(FEED_READ_STORAGE_KEY, JSON.stringify([...readItems]));
+  } catch (e) {
+    console.error('[setFeedItemReadStatus] Error saving to localStorage:', e);
+  }
+}
+
+// Spoiler revealed status storage (per book)
+const SPOILER_REVEALED_STORAGE_KEY = 'spoiler_revealed_status';
+
+function getSpoilerRevealedFromStorage(): Map<string, Set<string>> {
+  if (typeof window === 'undefined') return new Map();
+  try {
+    const stored = localStorage.getItem(SPOILER_REVEALED_STORAGE_KEY);
+    if (!stored) return new Map();
+    const parsed = JSON.parse(stored) as Record<string, string[]>;
+    const map = new Map<string, Set<string>>();
+    for (const [bookId, sections] of Object.entries(parsed)) {
+      map.set(bookId, new Set(sections));
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+function saveSpoilerRevealedToStorage(revealed: Map<string, Set<string>>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const obj: Record<string, string[]> = {};
+    revealed.forEach((sections, bookId) => {
+      obj[bookId] = [...sections];
+    });
+    localStorage.setItem(SPOILER_REVEALED_STORAGE_KEY, JSON.stringify(obj));
+  } catch (e) {
+    console.error('[saveSpoilerRevealedToStorage] Error saving to localStorage:', e);
+  }
 }
 
 // Get podcast episodes from Grok
@@ -4054,6 +4109,8 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
   if (episodes.length === 0 || currentIndex >= episodes.length) return null;
 
   const currentEpisode = episodes[currentIndex];
+  const audioUrl = currentEpisode.audioUrl || (currentEpisode.url && currentEpisode.url.match(/\.(mp3|m4a|wav|ogg|aac)(\?|$)/i) ? currentEpisode.url : null);
+  const isPlaying = playingAudioUrl === (audioUrl || currentEpisode.url);
 
   return (
     <div
@@ -4080,114 +4137,75 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
             className="rounded-xl p-4"
-          style={glassmorphicStyle}
+            style={glassmorphicStyle}
           >
-            <div className="flex items-start gap-3 mb-2">
-              {/* Thumbnail - show for Apple Podcasts */}
-              {currentEpisode.thumbnail ? (
-                <img 
-                  src={currentEpisode.thumbnail} 
-                  alt={currentEpisode.podcast_name || currentEpisode.title}
-                  className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
-                />
-              ) : (
-                <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                  <Headphones size={20} className="text-slate-600" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <a 
-                  href={currentEpisode.url} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="text-xs font-bold text-blue-700 hover:text-blue-800 hover:underline block"
+            <div className="flex gap-3 mb-3">
+              {/* Podcast thumbnail with play button overlay */}
+              <div className="relative w-20 h-20 flex-shrink-0">
+                {currentEpisode.thumbnail ? (
+                  <img src={currentEpisode.thumbnail} alt={currentEpisode.title} className="w-full h-full rounded-xl object-cover" />
+                ) : (
+                  <div className="w-full h-full rounded-xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center">
+                    <Headphones size={28} className="text-white" />
+                  </div>
+                )}
+                {/* Play/Pause overlay button */}
+                <button
+                  onClick={(e) => handlePlay(e, currentEpisode)}
+                  className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl active:scale-95 transition-transform"
                 >
-                  {currentEpisode.title}
-                </a>
+                  {isPlaying ? (
+                    <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                      <div className="flex gap-1">
+                        <div className="w-1 h-4 bg-emerald-600 rounded-full" />
+                        <div className="w-1 h-4 bg-emerald-600 rounded-full" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                      <Play size={18} className="text-emerald-600 ml-0.5" fill="currentColor" />
+                    </div>
+                  )}
+                </button>
               </div>
-              {/* Play button - show for all podcast episodes */}
-              {(() => {
-                const audioUrl = currentEpisode.audioUrl || (currentEpisode.url && currentEpisode.url.match(/\.(mp3|m4a|wav|ogg|aac)(\?|$)/i) ? currentEpisode.url : null);
-                const isPlaying = playingAudioUrl === (audioUrl || currentEpisode.url);
-                return (
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-slate-900 text-sm line-clamp-2">{currentEpisode.title}</p>
+                <p className="text-xs text-slate-500 mt-1">{currentEpisode.podcast_name || 'Podcast'}</p>
+                <div className="flex items-center gap-3 mt-2">
                   <button
                     onClick={(e) => handlePlay(e, currentEpisode)}
-                    className="flex-shrink-0 p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-full transition-all active:scale-95 shadow-lg"
-                    aria-label="Play episode"
+                    className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium active:scale-95 transition-transform"
                   >
-                    <Play 
-                      size={14} 
-                      className={isPlaying ? 'hidden' : 'block'} 
-                      fill="currentColor"
-                    />
-                    {isPlaying && (
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                        <rect x="6" y="4" width="4" height="16" />
-                        <rect x="14" y="4" width="4" height="16" />
-                      </svg>
+                    {isPlaying ? (
+                      <>
+                        <VolumeX size={12} />
+                        Stop
+                      </>
+                    ) : (
+                      <>
+                        <Play size={12} />
+                        Preview
+                      </>
                     )}
                   </button>
-                );
-              })()}
-            </div>
-            <div className="text-xs text-slate-700 space-y-1 mb-2">
-              {currentEpisode.podcast_name && (
-                <div className="font-bold text-slate-900">{currentEpisode.podcast_name}</div>
-              )}
-              {currentEpisode.platform && (
-                <div className="font-semibold">{currentEpisode.platform}</div>
-              )}
-              {(currentEpisode.length || currentEpisode.air_date) && (
-                <div className="flex gap-2">
-                  {currentEpisode.length && <span>{currentEpisode.length}</span>}
-                  {currentEpisode.air_date && <span>• {currentEpisode.air_date}</span>}
-                </div>
-              )}
-            </div>
-            {(() => {
-              const combinedText = `${currentEpisode.episode_summary || ''}${currentEpisode.podcast_summary ? ` ${currentEpisode.podcast_summary}` : ''}`;
-              const needsShowMore = combinedText.length > 150;
-              return (
-                <div>
-                  <p
-                    className={`text-xs font-medium text-slate-800 leading-relaxed mb-1 ${!isTextExpanded && needsShowMore ? 'line-clamp-3' : ''}`}
-                    onClick={(e) => {
-                      if (needsShowMore) {
-                        e.stopPropagation();
-                        setIsTextExpanded(!isTextExpanded);
-                      }
-                    }}
-                  >
-                    {currentEpisode.episode_summary}
-                  </p>
-                  {currentEpisode.podcast_summary && (
-                    <p
-                      className={`text-xs text-slate-600 italic ${!isTextExpanded && needsShowMore ? 'line-clamp-2' : ''}`}
-                      onClick={(e) => {
-                        if (needsShowMore) {
-                          e.stopPropagation();
-                          setIsTextExpanded(!isTextExpanded);
-                        }
-                      }}
-                    >
-                      {currentEpisode.podcast_summary}
-                    </p>
-                  )}
-                  {needsShowMore && (
+                  {currentEpisode.url && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setIsTextExpanded(!isTextExpanded);
+                        window.open(currentEpisode.url, '_blank');
                       }}
-                      className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+                      className="inline-flex items-center gap-1 text-xs text-violet-600 font-medium active:scale-95 transition-transform"
                     >
-                      {isTextExpanded ? 'Show less' : 'Show more'}
+                      <ExternalLink size={12} />
+                      Link
                     </button>
                   )}
+                  {currentEpisode.length && (
+                    <span className="text-xs text-slate-400">{currentEpisode.length}</span>
+                  )}
                 </div>
-              );
-            })()}
+              </div>
+            </div>
             <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
               Tap for next ({currentIndex + 1}/{episodes.length})
             </p>
@@ -4525,6 +4543,18 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
             <p className="text-xs font-medium text-slate-800 leading-relaxed mb-1">
               {currentArticle.snippet}
             </p>
+            {currentArticle.url && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(currentArticle.url, '_blank');
+                }}
+                className="inline-flex items-center gap-1 text-xs text-violet-600 font-medium active:scale-95 transition-transform mt-2"
+              >
+                <ExternalLink size={12} />
+                Read article
+              </button>
+            )}
             <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
               Tap for next ({currentIndex + 1}/{articles.length})
             </p>
@@ -5019,6 +5049,132 @@ const LightbulbAnimation = React.memo(function LightbulbAnimation({ bookId }: { 
       onComplete={handleComplete}
       className="w-36 h-36"
     />
+  );
+});
+
+// Info Page Variant B - Rotating tooltips component
+const InfoPageTooltips = React.memo(function InfoPageTooltips() {
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  const tooltips = [
+    {
+      type: 'youtube',
+      thumbnail: 'https://img.youtube.com/vi/dQw4w9WgXcQ/mqdefault.jpg',
+      label: 'YouTube',
+      title: 'Brandon Sanderson on World Building',
+      subtitle: 'The Author\'s Corner • 1.2M views',
+      content: 'Exclusive interview where the author discusses the intricate magic system and its real-world inspirations',
+    },
+    {
+      type: 'podcast',
+      thumbnail: 'https://images.unsplash.com/photo-1478737270239-2f02b77fc618?w=200&h=200&fit=crop',
+      label: 'Podcast',
+      title: 'The Literary Deep Dive',
+      subtitle: 'Episode 142 • 58 min',
+      content: 'Historical accuracy explored: How the author researched medieval warfare for authentic battle scenes',
+    },
+    {
+      type: 'icon',
+      icon: <Lightbulb size={24} className="text-white" />,
+      color: 'rgba(234, 179, 8, 0.9)',
+      borderColor: 'rgba(234, 179, 8, 0.3)',
+      label: 'Fun Fact',
+      content: 'The manuscript was rejected by 12 major publishers over 3 years before becoming a #1 bestseller that stayed on the charts for 47 weeks',
+    },
+    {
+      type: 'icon',
+      icon: <FileText size={24} className="text-white" />,
+      color: 'rgba(59, 130, 246, 0.9)',
+      borderColor: 'rgba(59, 130, 246, 0.3)',
+      label: 'Article',
+      content: 'The Guardian explores how this novel redefined the fantasy genre and influenced a generation of writers',
+    },
+  ];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % tooltips.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [tooltips.length]);
+
+  const currentTooltip = tooltips[currentIndex];
+
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={currentIndex}
+        initial={{ opacity: 0, y: 20, scale: 0.9 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: -20, scale: 0.9 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        className="w-full flex justify-center"
+      >
+        <div
+          className="px-5 py-5 rounded-2xl w-[340px]"
+          style={{
+            background: 'rgba(255, 255, 255, 0.35)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: '1px solid rgba(255, 255, 255, 0.4)',
+          }}
+        >
+          {(currentTooltip.type === 'youtube' || currentTooltip.type === 'podcast') ? (
+            <div>
+              <div className="w-28 h-28 rounded-xl overflow-hidden relative float-left mr-4 mb-2">
+                <img
+                  src={currentTooltip.thumbnail}
+                  alt="Thumbnail"
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                  <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center">
+                    <Play size={22} className={currentTooltip.type === 'youtube' ? 'text-red-600 ml-0.5' : 'text-purple-600 ml-0.5'} fill="currentColor" />
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                {currentTooltip.label}
+              </p>
+              {currentTooltip.title && (
+                <p className="text-base font-bold text-slate-900 leading-tight mb-1">
+                  {currentTooltip.title}
+                </p>
+              )}
+              {currentTooltip.subtitle && (
+                <p className="text-sm text-slate-500 mb-1">
+                  {currentTooltip.subtitle}
+                </p>
+              )}
+              <p className="text-sm text-slate-700 leading-snug">
+                {currentTooltip.content}
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-start gap-4">
+              <div
+                className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{
+                  background: currentTooltip.color,
+                  border: `1px solid ${currentTooltip.borderColor}`,
+                }}
+              >
+                {React.cloneElement(currentTooltip.icon as React.ReactElement, { size: 24 })}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
+                  {currentTooltip.label}
+                </p>
+                <p className="text-sm text-slate-700 leading-snug">
+                  {currentTooltip.content}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </AnimatePresence>
   );
 });
 
@@ -6319,6 +6475,10 @@ export default function App() {
   const [showFollowingPage, setShowFollowingPage] = useState(() => getLastPageState().showFollowingPage);
   const [showFeedPage, setShowFeedPage] = useState(() => getLastPageState().showFeedPage);
   const [showAboutScreen, setShowAboutScreen] = useState(false);
+  const [aboutPageIndex, setAboutPageIndex] = useState(0);
+  const [aboutSwipeDirection, setAboutSwipeDirection] = useState<'forward' | 'backward'>('forward');
+  const [aboutTouchStart, setAboutTouchStart] = useState<{ x: number; y: number } | null>(null);
+  const [aboutTouchEnd, setAboutTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const [feedView, setFeedView] = useState<'following' | 'community'>('following');
   const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
   const [isLoadingFeed, setIsLoadingFeed] = useState(false);
@@ -6417,7 +6577,7 @@ export default function App() {
   const [nextQuestionsCountdown, setNextQuestionsCountdown] = useState<{hours: number; minutes: number; seconds: number} | null>(null);
   const triviaAudioRef = useRef<HTMLAudioElement | null>(null);
   const prevTriviaGameCompleteRef = useRef(false);
-  const [spoilerRevealed, setSpoilerRevealed] = useState<Map<string, Set<string>>>(new Map());
+  const [spoilerRevealed, setSpoilerRevealed] = useState<Map<string, Set<string>>>(() => getSpoilerRevealedFromStorage());
   
   // Merge Sort Implementation - O(n log n) comparisons
   // Uses a queue-based state machine to track merge operations
@@ -7152,6 +7312,11 @@ export default function App() {
     return false; // All books are ranked
   };
   // Podcast source selector removed - now always fetches from both sources
+
+  // Persist spoiler revealed status to localStorage
+  useEffect(() => {
+    saveSpoilerRevealedToStorage(spoilerRevealed);
+  }, [spoilerRevealed]);
 
   // Load books from Supabase
   useEffect(() => {
@@ -9263,8 +9428,16 @@ export default function App() {
       try {
         console.log('[Feed] 🔄 Loading personalized feed...');
         const items = await getPersonalizedFeed(user!.id);
-        setPersonalizedFeedItems(items as PersonalizedFeedItem[]);
-        console.log(`[Feed] ✅ Loaded ${items.length} feed items`);
+
+        // Merge read status from localStorage
+        const readItems = getReadFeedItems();
+        const itemsWithReadStatus = items.map(item => ({
+          ...item,
+          read: readItems.has(item.id)
+        }));
+
+        setPersonalizedFeedItems(itemsWithReadStatus as PersonalizedFeedItem[]);
+        console.log(`[Feed] ✅ Loaded ${items.length} feed items (${readItems.size} marked as read)`);
 
         // Mark only first 8 items as shown
         const initialItems = items.slice(0, 8);
@@ -10130,13 +10303,30 @@ export default function App() {
           />
         </>
       )}
+      {/* Logo text header - shows on bookshelf views */}
+      {(showBookshelf || showBookshelfCovers) && !showAccountPage && !showSortingResults && !showFollowingPage && !showNotesView && !showFeedPage && !viewingUserId && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{
+            opacity: scrollY > 20 ? Math.max(0, 1 - (scrollY - 20) / 40) : 1,
+          }}
+          className="fixed top-[20px] left-0 right-0 flex justify-center z-40 pointer-events-none"
+        >
+          <img
+            src={getAssetPath('/logo_text.png')}
+            alt="Logo"
+            className="h-[20px] object-contain"
+          />
+        </motion.div>
+      )}
+
       {/* Simple header - fades on scroll and during transitions (hidden on book pages) */}
       {!(!showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults && !showFollowingPage && !showFeedPage) && (
       <AnimatePresence mode="wait">
-        <motion.div 
+        <motion.div
           key={showSortingResults ? 'sorting-results-header' : showNotesView ? 'notes-header' : showBookshelf ? 'bookshelf-header' : 'books-header'}
           initial={{ opacity: 0 }}
-          animate={{ 
+          animate={{
             opacity: scrollY > 20 ? Math.max(0, 1 - (scrollY - 20) / 40) : 1,
             pointerEvents: scrollY > 60 ? 'none' : 'auto'
           }}
@@ -10149,7 +10339,7 @@ export default function App() {
         >
           {/* BOOKS/BOOKSHELF/NOTES text on left with icon */}
           <div className="flex items-center gap-3">
-            {viewingUserId && (
+            {viewingUserId ? (
               <motion.button
                 initial={{ opacity: 1 }}
                 animate={{ opacity: isFadingOutViewingUser ? 0 : 1 }}
@@ -10169,6 +10359,19 @@ export default function App() {
               >
                 <ChevronLeft size={18} className="text-slate-950" />
               </motion.button>
+            ) : (showNotesView || showFollowingPage) && (
+              <button
+                onClick={() => {
+                  setScrollY(0);
+                  setShowBookshelfCovers(true);
+                  setShowNotesView(false);
+                  setShowFollowingPage(false);
+                }}
+                className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                style={{ ...standardGlassmorphicStyle, borderRadius: '50%' }}
+              >
+                <ChevronLeft size={18} className="text-slate-950" />
+              </button>
             )}
             <AnimatePresence mode="wait">
               <motion.div
@@ -10244,18 +10447,12 @@ export default function App() {
             </AnimatePresence>
           </div>
         
-        {/* Back button when on account page, sorting results, following page, or notes view */}
-        {(showAccountPage || showSortingResults || showFollowingPage || showNotesView) && (
+        {/* Back button when on account page or sorting results */}
+        {(showAccountPage || showSortingResults) && (
           <button
             onClick={() => {
               setShowAccountPage(false);
               setShowSortingResults(false);
-              setShowFollowingPage(false);
-              if (showNotesView) {
-                setScrollY(0);
-                setShowBookshelfCovers(true);
-                setShowNotesView(false);
-              }
             }}
             className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
             style={{ ...glassmorphicStyle, borderRadius: '50%' }}
@@ -10629,40 +10826,55 @@ export default function App() {
             {/* Feed Page */}
             <div className="w-full flex flex-col gap-4 px-3 pt-8">
               {/* Feed filter pills */}
-              <div className="flex items-center gap-2 mb-1">
+              <div key={`filters-${feedFilter}`} className="flex items-center gap-2 mb-1">
                 {/* Read status filter */}
-                {(['all', 'unread'] as const).map((filter) => {
+                {/* All button */}
+                <button
+                  onClick={() => setFeedFilter('all')}
+                  className="px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5"
+                  style={feedFilter === 'all' ? {
+                    background: '#0f172a',
+                    color: 'white',
+                  } : {
+                    background: 'rgba(255, 255, 255, 0.45)',
+                    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                    backdropFilter: 'blur(9.4px)',
+                    WebkitBackdropFilter: 'blur(9.4px)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    color: '#475569',
+                  }}
+                >
+                  All
+                </button>
+                {/* Unread button */}
+                {(() => {
                   const unreadCount = personalizedFeedItems.filter(item => !item.read).length;
-                  const isSelected = feedFilter === filter;
                   return (
                     <button
-                      key={`${filter}-${isSelected}`}
-                      onClick={() => {
-                        setFeedFilter(filter);
-                        setFeedDisplayCount(8);
-                      }}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
-                        isSelected ? 'text-white' : 'text-slate-600'
-                      }`}
-                      style={{
-                        background: isSelected ? '#0f172a' : 'rgba(255, 255, 255, 0.45)',
-                        boxShadow: isSelected ? 'none' : '0 4px 30px rgba(0, 0, 0, 0.1)',
-                        backdropFilter: isSelected ? 'none' : 'blur(9.4px)',
-                        WebkitBackdropFilter: isSelected ? 'none' : 'blur(9.4px)',
-                        border: isSelected ? 'none' : '1px solid rgba(255, 255, 255, 0.2)',
+                      onClick={() => setFeedFilter('unread')}
+                      className="px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5"
+                      style={feedFilter === 'unread' ? {
+                        background: '#0f172a',
+                        color: 'white',
+                      } : {
+                        background: 'rgba(255, 255, 255, 0.45)',
+                        boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                        backdropFilter: 'blur(9.4px)',
+                        WebkitBackdropFilter: 'blur(9.4px)',
+                        border: '1px solid rgba(255, 255, 255, 0.2)',
+                        color: '#475569',
                       }}
                     >
-                      {filter === 'all' ? 'All' : (
-                        <>
-                          {unreadCount > 0 && (
-                            <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-500'}`} />
-                          )}
-                          Unread{unreadCount > 0 ? ` (${unreadCount})` : ''}
-                        </>
+                      {unreadCount > 0 && (
+                        <span
+                          className="w-2 h-2 rounded-full"
+                          style={{ background: feedFilter === 'unread' ? 'white' : '#3b82f6' }}
+                        />
                       )}
+                      Unread{unreadCount > 0 ? ` (${unreadCount})` : ''}
                     </button>
                   );
-                })}
+                })()}
                 {/* Type filter dropdown */}
                 <div className="relative" ref={feedTypeDropdownRef}>
                   <button
@@ -10819,6 +11031,7 @@ export default function App() {
               )}
 
               {/* Dynamic Feed Items */}
+              <AnimatePresence mode="popLayout">
               {!isLoadingPersonalizedFeed && displayedFeedItems.map((item) => {
                 // Helper to render read toggle button
                 // Unread = blue dot, Read = empty circle
@@ -10827,7 +11040,7 @@ export default function App() {
                     onClick={(e) => {
                       e.stopPropagation();
                       const newRead = !item.read;
-                      markFeedItemRead(item.id, newRead);
+                      setFeedItemReadStatus(item.id, newRead);
                       setPersonalizedFeedItems(prev =>
                         prev.map(fi => fi.id === item.id ? { ...fi, read: newRead } : fi)
                       );
@@ -10867,7 +11080,7 @@ export default function App() {
                 switch (item.type) {
                   case 'fact':
                     return (
-                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-400 flex items-center justify-center">
                             <Sparkles size={20} className="text-white" />
@@ -10899,13 +11112,13 @@ export default function App() {
                             </div>
                           </button>
                         </div>
-                      </div>
+                      </motion.div>
                     );
 
                   case 'context':
                     const contextData = item.content.insight;
                     return (
-                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-400 to-emerald-500 flex items-center justify-center">
                             <Info size={20} className="text-white" />
@@ -10939,14 +11152,14 @@ export default function App() {
                             </div>
                           </button>
                         </div>
-                      </div>
+                      </motion.div>
                     );
 
                   case 'drilldown':
                     const drilldownData = item.content.insight;
                     const domainLabel = item.content.domain_label || 'Domain';
                     return (
-                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center">
                             {featureFlags.hand_drawn_icons ? (
@@ -10984,13 +11197,13 @@ export default function App() {
                             </div>
                           </button>
                         </div>
-                      </div>
+                      </motion.div>
                     );
 
                   case 'influence':
                     const influenceData = item.content.influence;
                     return (
-                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-blue-500 flex items-center justify-center">
                             <BookMarked size={20} className="text-white" />
@@ -11024,7 +11237,7 @@ export default function App() {
                             </div>
                           </button>
                         </div>
-                      </div>
+                      </motion.div>
                     );
 
                   case 'podcast':
@@ -11032,7 +11245,7 @@ export default function App() {
                     const podcastAudioUrl = episode?.audioUrl || (episode?.url && episode.url.match(/\.(mp3|m4a|wav|ogg|aac)(\?|$)/i) ? episode.url : null);
                     const isPodcastPlaying = feedPlayingAudioUrl === (podcastAudioUrl || episode?.url);
                     return (
-                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-400 to-purple-500 flex items-center justify-center">
                             <Headphones size={20} className="text-white" />
@@ -11080,7 +11293,7 @@ export default function App() {
                             <div className="flex-1 min-w-0">
                               <p className="font-bold text-slate-900 text-sm line-clamp-2">{episode?.title || 'Podcast Episode'}</p>
                               <p className="text-xs text-slate-500 mt-1">{episode?.podcast_name || 'Podcast'}</p>
-                              <div className="flex items-center gap-2 mt-2">
+                              <div className="flex items-center gap-3 mt-2">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -11096,10 +11309,22 @@ export default function App() {
                                   ) : (
                                     <>
                                       <Play size={12} />
-                                      Play
+                                      Preview
                                     </>
                                   )}
                                 </button>
+                                {episode?.url && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      window.open(episode.url, '_blank');
+                                    }}
+                                    className="inline-flex items-center gap-1 text-xs text-violet-600 font-medium active:scale-95 transition-transform"
+                                  >
+                                    <ExternalLink size={12} />
+                                    Link
+                                  </button>
+                                )}
                                 {episode?.length && (
                                   <span className="text-xs text-slate-400">{episode.length}</span>
                                 )}
@@ -11122,7 +11347,7 @@ export default function App() {
                             </div>
                           </button>
                         </div>
-                      </div>
+                      </motion.div>
                     );
 
                   case 'video':
@@ -11130,7 +11355,7 @@ export default function App() {
                     const videoId = video?.videoId || video?.id;
                     const isVideoPlaying = feedPlayingVideoId === videoId;
                     return (
-                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center">
                             <Play size={20} className="text-white ml-0.5" fill="white" />
@@ -11189,7 +11414,7 @@ export default function App() {
                             </div>
                           </button>
                         </div>
-                      </div>
+                      </motion.div>
                     );
 
                   case 'related_book':
@@ -11216,7 +11441,7 @@ export default function App() {
                       setViewingBookFromOtherUser(bookForModal);
                     };
                     return (
-                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-yellow-500 flex items-center justify-center">
                             <Sparkles size={20} className="text-white" />
@@ -11251,13 +11476,13 @@ export default function App() {
                             </div>
                           </button>
                         </div>
-                      </div>
+                      </motion.div>
                     );
 
                   case 'article':
                     const article = item.content.article;
                     return (
-                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-500 to-slate-600 flex items-center justify-center">
                             <FileText size={20} className="text-white" />
@@ -11298,7 +11523,7 @@ export default function App() {
                             </div>
                           </button>
                         </div>
-                      </div>
+                      </motion.div>
                     );
 
                   case 'friend_book':
@@ -11322,7 +11547,7 @@ export default function App() {
                       setViewingBookFromOtherUser(bookForModal);
                     };
                     return (
-                      <div key={item.id} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
                           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center">
                             <Users size={20} className="text-white" />
@@ -11387,13 +11612,14 @@ export default function App() {
                             </button>
                           )}
                         </div>
-                      </div>
+                      </motion.div>
                     );
 
                   default:
                     return null;
                 }
               })}
+              </AnimatePresence>
 
               {/* Load more indicator */}
               {hasMoreFeedItems && !isLoadingPersonalizedFeed && (
@@ -12631,9 +12857,9 @@ export default function App() {
               }
             }}
           >
-          {/* Back button to bookshelf */}
+          {/* Back button and book info header */}
           <motion.div
-            className="fixed top-[62px] right-4 z-50"
+            className="fixed top-[62px] left-4 right-4 z-50 flex items-center gap-3"
             animate={{
               opacity: scrollY > 20 ? Math.max(0, 1 - (scrollY - 20) / 40) : 1,
               pointerEvents: scrollY > 60 ? 'none' : 'auto'
@@ -12649,11 +12875,17 @@ export default function App() {
                 setShowAccountPage(false);
                 setShowSortingResults(false);
               }}
-              className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
+              className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
               style={{ ...glassmorphicStyle, borderRadius: '50%' }}
             >
               <ChevronLeft size={18} className="text-slate-950" />
             </button>
+            {activeBook && (
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-slate-900 truncate uppercase">{activeBook.title}</p>
+                <p className="text-xs text-slate-900 truncate">{activeBook.author}</p>
+              </div>
+            )}
           </motion.div>
         {booksForBookshelf.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
@@ -12673,12 +12905,6 @@ export default function App() {
           </div>
         ) : (
           <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">
-            {/* Lightbulb animation - positioned above book cover */}
-            {!isShowingNotes && activeBook && (
-              <div className="absolute top-[30px] left-4 z-40 pointer-events-none">
-                <LightbulbAnimation key={activeBook.id} bookId={activeBook.id} />
-              </div>
-            )}
             <div
               className="relative w-[340px] aspect-[2/3] overflow-hidden group rounded-lg"
               style={{
@@ -12785,24 +13011,20 @@ export default function App() {
                               });
                           }
                         }}
-                        className="w-7 h-7 flex items-center justify-center text-white active:scale-95 transition-all rounded-full"
-                        style={{
-                          background: 'rgba(59, 130, 246, 0.85)',
-                          backdropFilter: 'blur(9.4px)',
-                          WebkitBackdropFilter: 'blur(9.4px)',
-                          border: '1px solid rgba(59, 130, 246, 0.3)',
-                        }}
+                        className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-all"
+                        style={{ ...glassmorphicStyle, borderRadius: '50%' }}
                       >
-                        <span className="text-base font-bold leading-none">+</span>
+                        <Plus size={16} className="text-slate-700" />
                       </button>
                       <button
                         onClick={() => {
                           setIsShowingNotes(false);
                           setNewlyAddedNoteTimestamp(null);
                         }}
-                        className="p-1.5 text-slate-600 hover:text-slate-800 active:scale-95 transition-all"
+                        className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-all"
+                        style={{ ...glassmorphicStyle, borderRadius: '50%' }}
                       >
-                        <ChevronLeft size={18} />
+                        <X size={16} className="text-slate-700" />
                       </button>
                     </div>
                   </div>
@@ -12926,13 +13148,40 @@ export default function App() {
 
               <AnimatePresence>
                 {isConfirmingDelete && !isShowingNotes && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[60] bg-red-600/20 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white">
-                    <AlertCircle size={48} className="mb-4" /><h3 className="text-xl font-bold mb-2">Delete this book?</h3>
-                    <div className="flex flex-col w-full gap-2">
-                      <button onClick={handleDelete} className="w-full py-3 bg-white text-red-600 rounded-xl font-black active:scale-95 transition-transform">Yes, Remove</button>
-                      <button onClick={() => setIsConfirmingDelete(false)} className="w-full py-3 bg-red-700 text-white rounded-xl font-bold active:scale-95 transition-transform">Cancel</button>
-                    </div>
-                  </motion.div>
+                  <>
+                    {/* Backdrop to close on click outside */}
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="absolute inset-0 z-[59]"
+                      onClick={() => setIsConfirmingDelete(false)}
+                    />
+                    {/* Tooltip menu */}
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.9, y: 10 }}
+                      transition={{ duration: 0.2 }}
+                      className="absolute bottom-16 right-4 z-[60] rounded-xl overflow-hidden"
+                      style={standardGlassmorphicStyle}
+                    >
+                      <button
+                        onClick={handleDelete}
+                        className="flex items-center gap-2 px-4 py-3 w-full text-left text-red-600 font-semibold text-sm hover:bg-white/30 active:scale-95 transition-all"
+                      >
+                        <Trash2 size={16} />
+                        Delete Book
+                      </button>
+                      <div className="h-px bg-slate-200/50" />
+                      <button
+                        onClick={() => setIsConfirmingDelete(false)}
+                        className="flex items-center gap-2 px-4 py-3 w-full text-left text-slate-700 font-medium text-sm hover:bg-white/30 active:scale-95 transition-all"
+                      >
+                        Cancel
+                      </button>
+                    </motion.div>
+                  </>
                 )}
               </AnimatePresence>
 
@@ -13262,11 +13511,31 @@ export default function App() {
                           </div>
                           <div className="w-16 h-3 bg-slate-300/50 rounded ml-1" />
                         </motion.div>
-                      ) : bookReaders.length > 0 ? (
+                      ) : (
                         <>
-                          {/* Stacked profile pictures */}
+                          {/* Stacked profile pictures - current user first */}
                           <div className="flex -space-x-2">
-                            {bookReaders.slice(0, 5).map((reader, index) => (
+                            {/* Current user always first */}
+                            {userAvatar ? (
+                              <img
+                                src={userAvatar}
+                                alt={userName}
+                                className="w-8 h-8 rounded-full border-2 border-emerald-400 object-cover"
+                                style={{ zIndex: 6 }}
+                                title={`${userName} (you)`}
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div
+                                className="w-8 h-8 rounded-full border-2 border-emerald-400 bg-emerald-100 flex items-center justify-center text-xs font-bold text-emerald-600"
+                                style={{ zIndex: 6 }}
+                                title={`${userName} (you)`}
+                              >
+                                {userName.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            {/* Other readers */}
+                            {bookReaders.slice(0, 4).map((reader, index) => (
                               reader.avatar ? (
                                 <img
                                   key={reader.id}
@@ -13275,6 +13544,7 @@ export default function App() {
                                   className="w-8 h-8 rounded-full border-2 border-white object-cover"
                                   style={{ zIndex: 5 - index }}
                                   title={reader.name}
+                                  referrerPolicy="no-referrer"
                                 />
                               ) : (
                                 <div
@@ -13287,23 +13557,19 @@ export default function App() {
                                 </div>
                               )
                             ))}
-                            {bookReaders.length > 5 && (
+                            {bookReaders.length > 4 && (
                               <div
                                 className="w-8 h-8 rounded-full border-2 border-white bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600"
                                 style={{ zIndex: 0 }}
                               >
-                                +{bookReaders.length - 5}
+                                +{bookReaders.length - 4}
                               </div>
                             )}
                           </div>
                           <span className="text-xs text-slate-600 ml-1">
-                            {bookReaders.length} {bookReaders.length === 1 ? 'reader' : 'readers'}
+                            {bookReaders.length + 1} {bookReaders.length === 0 ? 'reader' : 'readers'}
                           </span>
                         </>
-                      ) : (
-                        <span className="text-xs text-slate-500">
-                          Discussion topics for this book
-                        </span>
                       )}
                     </div>
 
@@ -13563,8 +13829,9 @@ export default function App() {
                       {/* Content with spoiler protection */}
                       <div
                         className={`relative ${shouldBlurInsights ? 'cursor-pointer' : ''}`}
-                        onClick={() => {
+                        onClick={(e) => {
                           if (shouldBlurInsights) {
+                            e.stopPropagation();
                             setSpoilerRevealed(prev => {
                               const newMap = new Map(prev);
                               const revealed = newMap.get(activeBook.id) || new Set<string>();
@@ -13575,23 +13842,15 @@ export default function App() {
                           }
                         }}
                       >
-                        <AnimatePresence>
-                          {shouldBlurInsights && (
-                            <motion.div
-                              key="spoiler-insights"
-                              initial={{ opacity: 1 }}
-                              exit={{ opacity: 0 }}
-                              transition={{ duration: 0.3, ease: "easeInOut" }}
-                              className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
-                            >
-                              <div className="text-center px-4">
-                                <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Insights.</p>
-                                <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                        <div className={`transition-[filter] duration-300 ${shouldBlurInsights ? 'blur-sm pointer-events-none select-none' : ''}`}>
+                        {shouldBlurInsights && (
+                          <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-full bg-white/80 backdrop-blur-sm shadow-sm">
+                              <Lightbulb size={14} className="text-slate-600" />
+                              <span className="text-xs font-medium text-slate-600">Spoiler alert, tap to reveal</span>
+                            </div>
+                          </div>
+                        )}
+                        <div className={`[&_p]:transition-[filter] [&_p]:duration-300 [&_span]:transition-[filter] [&_span]:duration-300 ${shouldBlurInsights ? '[&_p]:blur-[5px] [&_span]:blur-[5px] select-none pointer-events-none' : ''}`}>
                           {isLoading ? (
                             <motion.div
                               animate={{ opacity: [0.5, 0.8, 0.5] }}
@@ -13621,11 +13880,6 @@ export default function App() {
                 
                 {/* Podcast Episodes - Show below author facts */}
                 {(() => {
-                  const isNotRead = activeBook.reading_status !== 'read_it';
-                  const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
-                  const isPodcastsRevealed = revealedSections.has('podcasts');
-                  const shouldBlurPodcasts = isNotRead && !isPodcastsRevealed;
-                  
                   const episodes = combinedPodcastEpisodes;
                   const hasEpisodes = episodes.length > 0;
                   // Only show loading if we don't have episodes yet. Once loaded, always show.
@@ -13644,38 +13898,8 @@ export default function App() {
                           <span className="text-[10px] font-bold text-blue-700">Curated + Apple</span>
                         </div>
                       </div>
-                      {/* Content with spoiler protection */}
-                      <div
-                        className={`relative ${shouldBlurPodcasts ? 'cursor-pointer' : ''}`}
-                        onClick={() => {
-                          if (shouldBlurPodcasts) {
-                            setSpoilerRevealed(prev => {
-                              const newMap = new Map(prev);
-                              const revealed = newMap.get(activeBook.id) || new Set<string>();
-                              revealed.add('podcasts');
-                              newMap.set(activeBook.id, revealed);
-                              return newMap;
-                            });
-                          }
-                        }}
-                      >
-                        <AnimatePresence>
-                          {shouldBlurPodcasts && (
-                            <motion.div
-                              key="spoiler-podcasts"
-                              initial={{ opacity: 1 }}
-                              exit={{ opacity: 0 }}
-                              transition={{ duration: 0.3, ease: "easeInOut" }}
-                              className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
-                            >
-                              <div className="text-center px-4">
-                                <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Podcasts.</p>
-                                <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                        <div className={`transition-[filter] duration-300 ${shouldBlurPodcasts ? 'blur-sm pointer-events-none select-none' : ''}`}>
+                      {/* Content */}
+                      <div>
                           {isLoading ? (
                             <motion.div
                               animate={{ opacity: [0.5, 0.8, 0.5] }}
@@ -13702,19 +13926,13 @@ export default function App() {
                               isLoading={false}
                             />
                           )}
-                        </div>
                       </div>
                     </div>
                   );
                 })()}
-                
+
                 {/* YouTube Videos - Show below podcasts */}
                 {(() => {
-                  const isNotRead = activeBook.reading_status !== 'read_it';
-                  const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
-                  const isVideosRevealed = revealedSections.has('videos');
-                  const shouldBlurVideos = isNotRead && !isVideosRevealed;
-
                   const videos = youtubeVideos.get(activeBook.id) || [];
                   const hasVideos = videos.length > 0;
                   const isLoading = !bookPageSectionsResolved && loadingVideosForBookId === activeBook.id && !hasVideos;
@@ -13732,38 +13950,8 @@ export default function App() {
                           <span className="text-[10px] font-bold text-blue-700">YouTube</span>
                         </div>
                       </div>
-                      {/* Content with spoiler protection */}
-                      <div
-                        className={`relative ${shouldBlurVideos ? 'cursor-pointer' : ''}`}
-                        onClick={() => {
-                          if (shouldBlurVideos) {
-                            setSpoilerRevealed(prev => {
-                              const newMap = new Map(prev);
-                              const revealed = newMap.get(activeBook.id) || new Set<string>();
-                              revealed.add('videos');
-                              newMap.set(activeBook.id, revealed);
-                              return newMap;
-                            });
-                          }
-                        }}
-                      >
-                        <AnimatePresence>
-                          {shouldBlurVideos && (
-                            <motion.div
-                              key="spoiler-videos"
-                              initial={{ opacity: 1 }}
-                              exit={{ opacity: 0 }}
-                              transition={{ duration: 0.3, ease: "easeInOut" }}
-                              className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
-                            >
-                              <div className="text-center px-4">
-                                <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Videos.</p>
-                                <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                        <div className={`transition-[filter] duration-300 ${shouldBlurVideos ? 'blur-sm pointer-events-none select-none' : ''}`}>
+                      {/* Content */}
+                      <div>
                           {isLoading ? (
                             // Show loading placeholder
                             <motion.div
@@ -13789,7 +13977,6 @@ export default function App() {
                               isLoading={false}
                             />
                           )}
-                        </div>
                       </div>
                     </div>
                   );
@@ -13797,11 +13984,6 @@ export default function App() {
 
                 {/* Analysis Articles - Show below videos */}
                 {(() => {
-                  const isNotRead = activeBook.reading_status !== 'read_it';
-                  const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
-                  const isAnalysisRevealed = revealedSections.has('analysis');
-                  const shouldBlurAnalysis = isNotRead && !isAnalysisRevealed;
-
                   const articles = analysisArticles.get(activeBook.id) || [];
                   // Check if we have real articles (not just the fallback search URL)
                   // A fallback article has a title that starts with "Search Google Scholar" and URL contains "scholar.google.com/scholar?q="
@@ -13827,38 +14009,8 @@ export default function App() {
                           <span className="text-[10px] font-bold text-blue-700">Google Scholar</span>
                         </div>
                       </div>
-                      {/* Content with spoiler protection */}
-                      <div
-                        className={`relative ${shouldBlurAnalysis ? 'cursor-pointer' : ''}`}
-                        onClick={() => {
-                          if (shouldBlurAnalysis) {
-                            setSpoilerRevealed(prev => {
-                              const newMap = new Map(prev);
-                              const revealed = newMap.get(activeBook.id) || new Set<string>();
-                              revealed.add('analysis');
-                              newMap.set(activeBook.id, revealed);
-                              return newMap;
-                            });
-                          }
-                        }}
-                      >
-                        <AnimatePresence>
-                          {shouldBlurAnalysis && (
-                            <motion.div
-                              key="spoiler-analysis"
-                              initial={{ opacity: 1 }}
-                              exit={{ opacity: 0 }}
-                              transition={{ duration: 0.3, ease: "easeInOut" }}
-                              className="absolute inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-md rounded-xl pointer-events-none"
-                            >
-                              <div className="text-center px-4">
-                                <p className="text-xs font-bold text-slate-500 mb-1">Spoiler risk: Analysis.</p>
-                                <p className="text-xs font-medium text-slate-500">Click to reveal.</p>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                        <div className={`transition-[filter] duration-300 ${shouldBlurAnalysis ? 'blur-sm pointer-events-none select-none' : ''}`}>
+                      {/* Content */}
+                      <div>
                           {isLoading ? (
                             // Show loading placeholder
                             <motion.div
@@ -13882,7 +14034,6 @@ export default function App() {
                               isLoading={false}
                             />
                           )}
-                        </div>
                       </div>
                     </div>
                   );
@@ -14042,11 +14193,9 @@ export default function App() {
                     }}
                     disabled={isDisabled}
                     className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
-                      isDisabled
-                        ? 'bg-white/10 opacity-50 cursor-not-allowed'
-                        : isPlayingTrivia
-                          ? 'bg-white/40 hover:bg-white/50'
-                          : 'bg-white/20 hover:bg-white/30'
+                      isPlayingTrivia
+                        ? 'bg-white/40 hover:bg-white/50'
+                        : 'bg-white/20 hover:bg-white/30'
                     }`}
                   >
                     {featureFlags.hand_drawn_icons ? (
@@ -14068,15 +14217,6 @@ export default function App() {
                       }}
                     >
                       Add {remainingBooks} more {remainingBooks === 1 ? 'book' : 'books'} to unlock trivia!
-                      <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1"
-                        style={{
-                          width: 0,
-                          height: 0,
-                          borderLeft: '6px solid transparent',
-                          borderRight: '6px solid transparent',
-                          borderTop: '6px solid #1d1d1f',
-                        }}
-                      />
                     </div>
                   )}
                 </>
@@ -14108,15 +14248,6 @@ export default function App() {
               }}
             >
               Clubs coming soon
-              <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1"
-                style={{
-                  width: 0,
-                  height: 0,
-                  borderLeft: '6px solid transparent',
-                  borderRight: '6px solid transparent',
-                  borderTop: '6px solid #1d1d1f',
-                }}
-              />
             </div>
           </div>
 
@@ -15132,6 +15263,7 @@ export default function App() {
                         src={reader.avatar}
                         alt={reader.name}
                         className="w-6 h-6 rounded-full border border-white object-cover"
+                        referrerPolicy="no-referrer"
                       />
                     ) : (
                       <div
@@ -15256,7 +15388,7 @@ export default function App() {
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
-                transition={{ duration: 0.3, delay: 0.1 }}
+                transition={{ duration: 0.3, delay: 0.15 }}
                 onClick={(e) => e.stopPropagation()}
                 className="relative flex flex-col items-center pointer-events-auto z-10 p-4"
                 style={{ maxHeight: '80vh' }}
@@ -15408,138 +15540,416 @@ export default function App() {
               style={{ ...standardGlassmorphicStyle, borderRadius: 0 }}
             />
 
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ duration: 0.3, delay: 0.1 }}
-              onClick={(e) => e.stopPropagation()}
-              className="relative flex flex-col items-center pointer-events-auto z-10 p-8 max-w-md"
-            >
-              {/* Header */}
-              <motion.h1
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: 0.2 }}
-                className="text-[30px] font-bold text-slate-900 text-center mb-3 uppercase leading-tight"
-              >
-                BOOKS DON'T END<br />ON THE LAST PAGE
-              </motion.h1>
-
-              {/* Subtitle */}
-              <motion.p
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: 0.3 }}
-                className="text-[18.4px] text-slate-600 text-center mb-6 px-4"
-              >
-                There's a whole world of videos, podcasts and ideas around the books you read.
-              </motion.p>
-
-              {/* Logo and animated icons container - fixed height to prevent layout shift */}
-              <div className="relative flex items-center justify-center mb-6 mt-[100px] h-[288px]">
-                {/* Logo in center */}
-                <motion.img
-                  src={getAssetPath('/logo.png')}
-                  alt="Logo"
-                  className="w-72 h-72 object-contain"
-                  style={{
-                    filter: 'drop-shadow(0 20px 40px rgba(255, 255, 255, 0.8))',
-                  }}
-                  initial={{ scale: 0.8, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ duration: 0.4, delay: 0.4 }}
-                />
-
-                {/* Podcast icon - arc left outer - Purple */}
-                <motion.div
-                  initial={{ scale: 0, opacity: 0, x: 0, y: 0 }}
-                  animate={{ scale: 1, opacity: 1, x: -130, y: -140 }}
-                  transition={{ duration: 0.6, delay: 0.6, type: "spring", stiffness: 150 }}
-                  className="absolute"
-                >
-                  <div className="w-[60px] h-[60px] rounded-full flex items-center justify-center" style={{
-                    background: 'rgba(147, 51, 234, 0.75)',
-                    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                    backdropFilter: 'blur(9.4px)',
-                    WebkitBackdropFilter: 'blur(9.4px)',
-                    border: '1px solid rgba(147, 51, 234, 0.3)',
-                  }}>
-                    <Headphones size={30} className="text-white" />
-                  </div>
-                </motion.div>
-
-                {/* Play/Video icon - arc left inner - Red */}
-                <motion.div
-                  initial={{ scale: 0, opacity: 0, x: 0, y: 0 }}
-                  animate={{ scale: 1, opacity: 1, x: -50, y: -160 }}
-                  transition={{ duration: 0.6, delay: 0.75, type: "spring", stiffness: 150 }}
-                  className="absolute"
-                >
-                  <div className="w-[60px] h-[60px] rounded-full flex items-center justify-center" style={{
-                    background: 'rgba(239, 68, 68, 0.75)',
-                    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                    backdropFilter: 'blur(9.4px)',
-                    WebkitBackdropFilter: 'blur(9.4px)',
-                    border: '1px solid rgba(239, 68, 68, 0.3)',
-                  }}>
-                    <Play size={30} className="text-white" />
-                  </div>
-                </motion.div>
-
-                {/* Microscope icon - arc right inner - Yellow */}
-                <motion.div
-                  initial={{ scale: 0, opacity: 0, x: 0, y: 0 }}
-                  animate={{ scale: 1, opacity: 1, x: 50, y: -160 }}
-                  transition={{ duration: 0.6, delay: 0.9, type: "spring", stiffness: 150 }}
-                  className="absolute"
-                >
-                  <div className="w-[60px] h-[60px] rounded-full flex items-center justify-center" style={{
-                    background: 'rgba(234, 179, 8, 0.75)',
-                    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                    backdropFilter: 'blur(9.4px)',
-                    WebkitBackdropFilter: 'blur(9.4px)',
-                    border: '1px solid rgba(234, 179, 8, 0.3)',
-                  }}>
-                    <Microscope size={30} className="text-white" />
-                  </div>
-                </motion.div>
-
-                {/* Messages icon - arc right outer - White */}
-                <motion.div
-                  initial={{ scale: 0, opacity: 0, x: 0, y: 0 }}
-                  animate={{ scale: 1, opacity: 1, x: 130, y: -140 }}
-                  transition={{ duration: 0.6, delay: 1.05, type: "spring", stiffness: 150 }}
-                  className="absolute"
-                >
-                  <div className="w-[60px] h-[60px] rounded-full flex items-center justify-center" style={{
-                    background: 'rgba(255, 255, 255, 0.75)',
-                    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                    backdropFilter: 'blur(9.4px)',
-                    WebkitBackdropFilter: 'blur(9.4px)',
-                    border: '1px solid rgba(255, 255, 255, 0.3)',
-                  }}>
-                    <MessagesSquare size={30} className="text-slate-800" />
-                  </div>
-                </motion.div>
-              </div>
-
-              {/* Add Book Button */}
-              <motion.button
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.4, delay: 1.3 }}
-                onClick={() => {
-                  setShowAboutScreen(false);
-                  localStorage.setItem('hasSeenIntro', 'true');
-                  setIsAdding(true);
+            {/* Main container - normal flow vertical stack */}
+            {featureFlags.info_page_variant === 'c' ? (
+              /* Variant C: 3-page stepper */
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                transition={{ duration: 0.3, delay: 0.1 }}
+                onClick={(e) => e.stopPropagation()}
+                className="relative z-10 pointer-events-auto w-full h-full"
+                onTouchStart={(e) => {
+                  const touch = e.touches[0];
+                  setAboutTouchStart({ x: touch.clientX, y: touch.clientY });
                 }}
-                className="px-8 py-3 text-white font-semibold text-base active:scale-95 transition-transform"
-                style={blueGlassmorphicStyle}
+                onTouchMove={(e) => {
+                  if (aboutTouchStart) {
+                    const touch = e.touches[0];
+                    setAboutTouchEnd({ x: touch.clientX, y: touch.clientY });
+                  }
+                }}
+                onTouchEnd={() => {
+                  if (!aboutTouchStart || !aboutTouchEnd) {
+                    setAboutTouchStart(null);
+                    setAboutTouchEnd(null);
+                    return;
+                  }
+                  const distanceX = aboutTouchStart.x - aboutTouchEnd.x;
+                  const distanceY = aboutTouchStart.y - aboutTouchEnd.y;
+                  const minSwipeDistance = 50;
+                  if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
+                    if (distanceX > 0 && aboutPageIndex < 2) {
+                      setAboutSwipeDirection('forward');
+                      setAboutPageIndex(prev => prev + 1); // Swipe left = next
+                    } else if (distanceX < 0 && aboutPageIndex > 0) {
+                      setAboutSwipeDirection('backward');
+                      setAboutPageIndex(prev => prev - 1); // Swipe right = prev
+                    }
+                  }
+                  setAboutTouchStart(null);
+                  setAboutTouchEnd(null);
+                }}
               >
-                Add a book
-              </motion.button>
-            </motion.div>
+                {/* Fixed logo_text header that stays in place on all pages */}
+                <div className="absolute top-[50px] left-0 right-0 flex justify-center z-0 pointer-events-none">
+                  <img
+                    src={getAssetPath('/logo_text.png')}
+                    alt="Logo"
+                    className="h-[20px] object-contain"
+                  />
+                </div>
+
+                {/* Fixed logo that stays in place on all pages */}
+                <div className="absolute bottom-[130px] left-0 right-0 flex justify-center z-0 pointer-events-none">
+                  <img
+                    src={getAssetPath('/logo_tight.png')}
+                    alt="Logo"
+                    className="w-48 h-48 object-contain"
+                    style={{
+                      filter: 'drop-shadow(0 20px 40px rgba(255, 255, 255, 0.8))',
+                    }}
+                  />
+                </div>
+
+                {/* Full page content that swipes together */}
+                <AnimatePresence mode="popLayout">
+                  {aboutPageIndex === 0 && (
+                    <motion.div
+                      key="page-0"
+                      initial={{ opacity: 0, x: aboutSwipeDirection === 'backward' ? -100 : 0 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: aboutSwipeDirection === 'forward' ? -100 : 100 }}
+                      transition={{ duration: 0.3 }}
+                      className="absolute inset-0 flex flex-col items-center px-8"
+                    >
+                      {/* Header - anchored to top */}
+                      <div className="absolute top-[100px] left-0 right-0 flex flex-col items-center gap-3 px-8">
+                        <h1 className="text-[28px] font-bold text-slate-900 text-center uppercase leading-tight">
+                          GET MORE THAN JUST READING
+                        </h1>
+                        <p className="text-[17px] text-slate-600 text-center">
+                          Videos, podcasts, facts, and context — All in one place
+                        </p>
+                      </div>
+
+                      {/* Content - notifications anchored above logo */}
+                      <div className="absolute bottom-[330px] left-0 right-0 flex justify-center px-8 z-10">
+                        <InfoPageTooltips />
+                      </div>
+
+                    </motion.div>
+                  )}
+
+                  {aboutPageIndex === 1 && (
+                    <motion.div
+                      key="page-1"
+                      initial={{ opacity: 0, x: aboutSwipeDirection === 'forward' ? 100 : -100 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: aboutSwipeDirection === 'forward' ? -100 : 100 }}
+                      transition={{ duration: 0.3 }}
+                      className="absolute inset-0 flex flex-col items-center px-8"
+                    >
+                      {/* Header - anchored to top */}
+                      <div className="absolute top-[100px] left-0 right-0 flex flex-col items-center gap-3 px-8">
+                        <h1 className="text-[28px] font-bold text-slate-900 text-center uppercase leading-tight">
+                          TALK ABOUT<br />YOUR BOOK
+                        </h1>
+                        <p className="text-[17px] text-slate-600 text-center px-4">
+                          Join discussions and book clubs, with real people or with your private AI bot.
+                        </p>
+                      </div>
+
+                      {/* Content - anchored above pagination */}
+                      <div className="absolute bottom-[340px] left-0 right-0 flex justify-center px-8 z-10">
+                        <div className="flex flex-col gap-3 w-full max-w-[300px]">
+                          {/* Message 1 - from left */}
+                          <div className="flex items-end gap-2 self-start">
+                            <div className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center" style={{
+                              background: 'rgba(147, 51, 234, 0.75)',
+                              border: '1px solid rgba(147, 51, 234, 0.3)',
+                            }}>
+                              <User size={14} className="text-white" />
+                            </div>
+                            <div className="px-3 py-2 rounded-2xl rounded-bl-md max-w-[200px]" style={{
+                              background: 'rgba(255, 255, 255, 0.7)',
+                              backdropFilter: 'blur(10px)',
+                              border: '1px solid rgba(255, 255, 255, 0.4)',
+                            }}>
+                              <p className="text-sm text-slate-700">What did you think of the ending?</p>
+                            </div>
+                          </div>
+
+                          {/* Message 2 - from right */}
+                          <div className="flex items-end gap-2 self-end flex-row-reverse">
+                            <div className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center" style={{
+                              background: 'rgba(59, 130, 246, 0.75)',
+                              border: '1px solid rgba(59, 130, 246, 0.3)',
+                            }}>
+                              <User size={14} className="text-white" />
+                            </div>
+                            <div className="px-3 py-2 rounded-2xl rounded-br-md max-w-[200px]" style={{
+                              background: 'rgba(59, 130, 246, 0.15)',
+                              backdropFilter: 'blur(10px)',
+                              border: '1px solid rgba(59, 130, 246, 0.3)',
+                            }}>
+                              <p className="text-sm text-slate-700">I was shocked! Didn&apos;t see it coming</p>
+                            </div>
+                          </div>
+
+                          {/* Message 3 - AI bot from left */}
+                          <div className="flex items-end gap-2 self-start">
+                            <div className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center" style={{
+                              background: 'rgba(16, 185, 129, 0.75)',
+                              border: '1px solid rgba(16, 185, 129, 0.3)',
+                            }}>
+                              <Bot size={14} className="text-white" />
+                            </div>
+                            <div className="px-3 py-2 rounded-2xl rounded-bl-md max-w-[220px]" style={{
+                              background: 'rgba(16, 185, 129, 0.1)',
+                              backdropFilter: 'blur(10px)',
+                              border: '1px solid rgba(16, 185, 129, 0.3)',
+                            }}>
+                              <p className="text-sm text-slate-700">The foreshadowing in chapter 3 hinted at it!</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                    </motion.div>
+                  )}
+
+                  {aboutPageIndex === 2 && (
+                    <motion.div
+                      key="page-2"
+                      initial={{ opacity: 0, x: aboutSwipeDirection === 'forward' ? 100 : -100 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: aboutSwipeDirection === 'forward' ? -100 : 100 }}
+                      transition={{ duration: 0.3 }}
+                      className="absolute inset-0 flex flex-col items-center px-8"
+                    >
+                      {/* Header - anchored to top */}
+                      <div className="absolute top-[100px] left-0 right-0 flex flex-col items-center gap-3 px-8">
+                        <h1 className="text-[28px] font-bold text-slate-900 text-center uppercase leading-tight">
+                          START WITH<br />YOUR BOOK
+                        </h1>
+                        <p className="text-[17px] text-slate-600 text-center">
+                          Add a book you're reading to start exploring now
+                        </p>
+                      </div>
+
+                      {/* Placeholder book cover */}
+                      <div className="absolute bottom-[390px] left-0 right-0 flex justify-center px-8">
+                        <div
+                          className="w-24 aspect-[2/3] rounded-lg overflow-hidden shadow-lg flex items-center justify-center"
+                          style={glassmorphicStyle}
+                        >
+                          <Plus size={32} className="text-slate-400" />
+                        </div>
+                      </div>
+
+                      {/* CTA Button - positioned above logo_tight */}
+                      <div className="absolute bottom-[320px] left-0 right-0 flex justify-center px-8">
+                        <button
+                          onClick={() => {
+                            setShowAboutScreen(false);
+                            setAboutPageIndex(0);
+                            localStorage.setItem('hasSeenIntro', 'true');
+                            setIsAdding(true);
+                          }}
+                          className="px-8 py-3 text-white font-semibold text-base active:scale-95 transition-transform"
+                          style={blueGlassmorphicStyle}
+                        >
+                          Add a book
+                        </button>
+                      </div>
+
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Pagination dots - anchored to bottom (stays fixed) */}
+                <div className="absolute bottom-[100px] left-0 right-0 flex justify-center z-20">
+                  <div className="flex items-center gap-2">
+                    {[0, 1, 2].map((index) => (
+                      <button
+                        key={index}
+                        onClick={() => {
+                          setAboutSwipeDirection(index > aboutPageIndex ? 'forward' : 'backward');
+                          setAboutPageIndex(index);
+                        }}
+                        className={`w-2.5 h-2.5 rounded-full transition-[width] duration-300 ${
+                          aboutPageIndex === index
+                            ? 'bg-blue-500 w-6'
+                            : 'bg-slate-300 hover:bg-slate-400'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            ) : (
+              /* Variant A & B: Original single-page layout */
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                transition={{ duration: 0.3, delay: 0.1 }}
+                onClick={(e) => e.stopPropagation()}
+                className="relative z-10 pointer-events-auto mx-auto max-w-md flex flex-col items-center px-8 pt-10 pb-8 gap-5"
+              >
+                {/* 1) HEADER - in flow */}
+                <motion.h1
+                  initial={{ opacity: 0, y: -20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: 0.2 }}
+                  className="text-[30px] font-bold text-slate-900 text-center uppercase leading-tight"
+                >
+                  DISCOVER THE WORLD AROUND THE BOOK
+                </motion.h1>
+
+                {/* 2) LOGO CONTAINER - with notifications on top */}
+                <div className="relative flex items-center justify-center h-[220px] mt-[84px]">
+                  {/* Notifications overlay - variant B */}
+                  {featureFlags.info_page_variant === 'b' && (
+                    <div className="absolute -top-[70px] left-1/2 -translate-x-1/2 z-10">
+                      <InfoPageTooltips />
+                    </div>
+                  )}
+
+                  <motion.img
+                    src={getAssetPath('/logo_tight.png')}
+                    alt="Logo"
+                    className="w-56 h-56 object-contain"
+                    style={{
+                      filter: 'drop-shadow(0 20px 40px rgba(255, 255, 255, 0.8))',
+                    }}
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ duration: 0.4, delay: 0.4 }}
+                  />
+
+                  {/* Heart animation on top of logo */}
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.6, duration: 0.3 }}
+                    className="absolute top-[62px] left-1/2 pointer-events-none"
+                    style={{ transform: 'translateX(calc(-50% - 6px)) scale(0.7)', mixBlendMode: 'overlay' }}
+                  >
+                    <Lottie animationData={heartAnimation} loop={false} className="w-24 h-24" />
+                  </motion.div>
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.6, duration: 0.3 }}
+                    className="absolute top-[62px] left-1/2 pointer-events-none"
+                    style={{ transform: 'translateX(calc(-50% - 6px)) scale(0.7)', mixBlendMode: 'overlay' }}
+                  >
+                    <Lottie animationData={heartAnimation} loop={false} className="w-24 h-24" />
+                  </motion.div>
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.6, duration: 0.3 }}
+                    className="absolute top-[62px] left-1/2 pointer-events-none"
+                    style={{ transform: 'translateX(calc(-50% - 6px)) scale(0.7)', mixBlendMode: 'overlay' }}
+                  >
+                    <Lottie animationData={heartAnimation} loop={false} className="w-24 h-24" />
+                  </motion.div>
+
+                  {featureFlags.info_page_variant === 'a' ? (
+                    <>
+                      {/* Variant A: Animated icons */}
+                      <motion.div
+                        initial={{ scale: 0, opacity: 0, x: 0, y: 0 }}
+                        animate={{ scale: 1, opacity: 1, x: -130, y: -140 }}
+                        transition={{ duration: 0.6, delay: 0.6, type: "spring", stiffness: 150 }}
+                        className="absolute"
+                      >
+                        <div className="w-[60px] h-[60px] rounded-full flex items-center justify-center" style={{
+                          background: 'rgba(147, 51, 234, 0.75)',
+                          boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                          backdropFilter: 'blur(9.4px)',
+                          WebkitBackdropFilter: 'blur(9.4px)',
+                          border: '1px solid rgba(147, 51, 234, 0.3)',
+                        }}>
+                          <Headphones size={30} className="text-white" />
+                        </div>
+                      </motion.div>
+
+                      <motion.div
+                        initial={{ scale: 0, opacity: 0, x: 0, y: 0 }}
+                        animate={{ scale: 1, opacity: 1, x: -50, y: -160 }}
+                        transition={{ duration: 0.6, delay: 0.75, type: "spring", stiffness: 150 }}
+                        className="absolute"
+                      >
+                        <div className="w-[60px] h-[60px] rounded-full flex items-center justify-center" style={{
+                          background: 'rgba(239, 68, 68, 0.75)',
+                          boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                          backdropFilter: 'blur(9.4px)',
+                          WebkitBackdropFilter: 'blur(9.4px)',
+                          border: '1px solid rgba(239, 68, 68, 0.3)',
+                        }}>
+                          <Play size={30} className="text-white" />
+                        </div>
+                      </motion.div>
+
+                      <motion.div
+                        initial={{ scale: 0, opacity: 0, x: 0, y: 0 }}
+                        animate={{ scale: 1, opacity: 1, x: 50, y: -160 }}
+                        transition={{ duration: 0.6, delay: 0.9, type: "spring", stiffness: 150 }}
+                        className="absolute"
+                      >
+                        <div className="w-[60px] h-[60px] rounded-full flex items-center justify-center" style={{
+                          background: 'rgba(234, 179, 8, 0.75)',
+                          boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                          backdropFilter: 'blur(9.4px)',
+                          WebkitBackdropFilter: 'blur(9.4px)',
+                          border: '1px solid rgba(234, 179, 8, 0.3)',
+                        }}>
+                          <Microscope size={30} className="text-white" />
+                        </div>
+                      </motion.div>
+
+                      <motion.div
+                        initial={{ scale: 0, opacity: 0, x: 0, y: 0 }}
+                        animate={{ scale: 1, opacity: 1, x: 130, y: -140 }}
+                        transition={{ duration: 0.6, delay: 1.05, type: "spring", stiffness: 150 }}
+                        className="absolute"
+                      >
+                        <div className="w-[60px] h-[60px] rounded-full flex items-center justify-center" style={{
+                          background: 'rgba(255, 255, 255, 0.75)',
+                          boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                          backdropFilter: 'blur(9.4px)',
+                          WebkitBackdropFilter: 'blur(9.4px)',
+                          border: '1px solid rgba(255, 255, 255, 0.3)',
+                        }}>
+                          <MessagesSquare size={30} className="text-slate-800" />
+                        </div>
+                      </motion.div>
+                    </>
+                  ) : null}
+                </div>
+
+                {/* 4) DESCRIPTION */}
+                <motion.p
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: 0.5 }}
+                  className="text-[18.4px] text-slate-600 text-center"
+                >
+                  Book.Luv finds interesting <span className="font-semibold text-slate-800">facts</span>, <span className="font-semibold text-slate-800">videos</span>, <span className="font-semibold text-slate-800">podcasts</span> and <span className="font-semibold text-slate-800">discussions</span> around the book you're reading.
+                </motion.p>
+
+                {/* 5) BUTTON */}
+                <motion.button
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.4, delay: 1.3 }}
+                  onClick={() => {
+                    setShowAboutScreen(false);
+                    localStorage.setItem('hasSeenIntro', 'true');
+                    setIsAdding(true);
+                  }}
+                  className="px-8 py-3 text-white font-semibold text-base active:scale-95 transition-transform mt-6"
+                  style={blueGlassmorphicStyle}
+                >
+                  Add a book
+                </motion.button>
+              </motion.div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

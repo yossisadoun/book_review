@@ -69,6 +69,15 @@ export function LoginScreen() {
         backgroundRepeat: 'no-repeat',
       }}
     >
+      {/* Logo text header */}
+      <div className="absolute top-[50px] left-0 right-0 flex justify-center pointer-events-none">
+        <img
+          src={getAssetPath('/logo_text.png')}
+          alt="Logo"
+          className="h-[20px] object-contain"
+        />
+      </div>
+
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
