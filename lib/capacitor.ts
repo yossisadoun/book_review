@@ -126,3 +126,42 @@ export async function secureGet(key: string): Promise<string | null> {
   const { value } = await Preferences.get({ key });
   return value ?? null;
 }
+
+// Cross-platform storage helpers (uses Preferences on native, localStorage on web)
+export async function storageSet(key: string, value: string): Promise<void> {
+  if (isNativePlatform) {
+    await Preferences.set({ key, value });
+  } else {
+    localStorage.setItem(key, value);
+  }
+}
+
+export async function storageGet(key: string): Promise<string | null> {
+  if (isNativePlatform) {
+    const { value } = await Preferences.get({ key });
+    return value ?? null;
+  }
+  return localStorage.getItem(key);
+}
+
+export async function storageRemove(key: string): Promise<void> {
+  if (isNativePlatform) {
+    await Preferences.remove({ key });
+  } else {
+    localStorage.removeItem(key);
+  }
+}
+
+// App lifecycle listener for background/foreground events
+export function listenForAppStateChange(handler: (isActive: boolean) => void): () => void {
+  if (!isNativePlatform) return () => {};
+  let removeListener = () => {};
+
+  App.addListener('appStateChange', (state) => {
+    handler(state.isActive);
+  }).then((listener) => {
+    removeListener = () => listener.remove();
+  });
+
+  return () => removeListener();
+}

@@ -53,7 +53,7 @@ import { BookLoading } from '@/components/BookLoading';
 import { CachedImage } from '@/components/CachedImage';
 import { supabase } from '@/lib/supabase';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
-import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerErrorHaptic } from '@/lib/capacitor';
+import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerErrorHaptic, openSystemBrowser, isNativePlatform, storageSet, storageGet, listenForAppStateChange } from '@/lib/capacitor';
 import { featureFlags } from '@/lib/feature-flags';
 
 // Helper function to get the correct path for static assets (handles basePath)
@@ -1791,13 +1791,30 @@ function setFeedItemReadStatus(itemId: string, read: boolean): void {
   }
 }
 
-// Spoiler revealed status storage (per book)
+// Spoiler revealed status storage (per book) - cross-platform
 const SPOILER_REVEALED_STORAGE_KEY = 'spoiler_revealed_status';
 
 function getSpoilerRevealedFromStorage(): Map<string, Set<string>> {
   if (typeof window === 'undefined') return new Map();
   try {
+    // Try localStorage first for initial sync load
     const stored = localStorage.getItem(SPOILER_REVEALED_STORAGE_KEY);
+    if (!stored) return new Map();
+    const parsed = JSON.parse(stored) as Record<string, string[]>;
+    const map = new Map<string, Set<string>>();
+    for (const [bookId, sections] of Object.entries(parsed)) {
+      map.set(bookId, new Set(sections));
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
+// Async version for cross-platform storage (call on mount for native)
+async function loadSpoilerRevealedFromStorage(): Promise<Map<string, Set<string>>> {
+  try {
+    const stored = await storageGet(SPOILER_REVEALED_STORAGE_KEY);
     if (!stored) return new Map();
     const parsed = JSON.parse(stored) as Record<string, string[]>;
     const map = new Map<string, Set<string>>();
@@ -1817,9 +1834,14 @@ function saveSpoilerRevealedToStorage(revealed: Map<string, Set<string>>): void 
     revealed.forEach((sections, bookId) => {
       obj[bookId] = [...sections];
     });
-    localStorage.setItem(SPOILER_REVEALED_STORAGE_KEY, JSON.stringify(obj));
+    const jsonStr = JSON.stringify(obj);
+    // Save to both localStorage (sync) and cross-platform storage (async)
+    localStorage.setItem(SPOILER_REVEALED_STORAGE_KEY, jsonStr);
+    storageSet(SPOILER_REVEALED_STORAGE_KEY, jsonStr).catch(e => {
+      console.error('[saveSpoilerRevealedToStorage] Error saving to Preferences:', e);
+    });
   } catch (e) {
-    console.error('[saveSpoilerRevealedToStorage] Error saving to localStorage:', e);
+    console.error('[saveSpoilerRevealedToStorage] Error saving:', e);
   }
 }
 
@@ -4350,11 +4372,11 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
             style={glassmorphicStyle}
           >
             {/* Thumbnail with play button - works on iOS */}
-            <a
-              href={videoUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                openSystemBrowser(videoUrl);
+              }}
               className="relative w-full block rounded-xl overflow-hidden"
               style={{ paddingBottom: '56.25%' }}
             >
@@ -4375,17 +4397,17 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
                   <Play size={32} className="text-white ml-1" fill="white" />
                 </div>
               </div>
-            </a>
+            </button>
             <div className="mt-3">
-              <a
-                href={videoUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openSystemBrowser(videoUrl);
+                }}
                 className="text-sm font-bold text-slate-900 block mb-1 line-clamp-2 text-left"
               >
                 {currentVideo.title}
-              </a>
+              </button>
               <div className="text-xs text-slate-500 mb-2">
                 <span>{currentVideo.channelTitle}</span>
                 {currentVideo.publishedAt && (
@@ -7326,7 +7348,18 @@ export default function App() {
   };
   // Podcast source selector removed - now always fetches from both sources
 
-  // Persist spoiler revealed status to localStorage
+  // Load spoiler status from cross-platform storage on native (runs once on mount)
+  useEffect(() => {
+    if (isNativePlatform) {
+      loadSpoilerRevealedFromStorage().then(loaded => {
+        if (loaded.size > 0) {
+          setSpoilerRevealed(loaded);
+        }
+      });
+    }
+  }, []);
+
+  // Persist spoiler revealed status to storage
   useEffect(() => {
     saveSpoilerRevealedToStorage(spoilerRevealed);
   }, [spoilerRevealed]);
@@ -9431,9 +9464,18 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [activeBook?.id, user, bookInfluences, bookContext, bookDomain, youtubeVideos]);
 
-  // Load personalized feed when feed page is shown
+  // Track if feed has been loaded to prevent reload on app resume
+  const feedLoadedRef = useRef(false);
+
+  // Load personalized feed when feed page is shown (only if not already loaded)
   useEffect(() => {
     if (!showFeedPage || !user) return;
+
+    // Don't reload if we already have feed items (prevents reload on app resume)
+    if (feedLoadedRef.current && personalizedFeedItems.length > 0) {
+      console.log('[Feed] ℹ️ Feed already loaded, skipping reload');
+      return;
+    }
 
     async function loadPersonalizedFeed() {
       setIsLoadingPersonalizedFeed(true);
@@ -9450,6 +9492,7 @@ export default function App() {
         }));
 
         setPersonalizedFeedItems(itemsWithReadStatus as PersonalizedFeedItem[]);
+        feedLoadedRef.current = true;
         console.log(`[Feed] ✅ Loaded ${items.length} feed items (${readItems.size} marked as read)`);
 
         // Mark only first 8 items as shown
