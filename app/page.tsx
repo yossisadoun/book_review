@@ -15648,7 +15648,7 @@ export default function App() {
                 </div>
 
                 {/* Fixed logo that stays in place on all pages */}
-                <div className="absolute bottom-[7vh] left-0 right-0 flex justify-center z-0 pointer-events-none">
+                <div className="absolute bottom-[calc(7vh+15px)] left-0 right-0 flex justify-center z-0 pointer-events-none">
                   <img
                     src={getAssetPath('/logo_tight.png')}
                     alt="Logo"
