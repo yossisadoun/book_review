@@ -15671,7 +15671,7 @@ export default function App() {
                       className="absolute inset-0 flex flex-col items-center px-8"
                     >
                       {/* Header - anchored to top */}
-                      <div className="absolute top-[100px] left-0 right-0 flex flex-col items-center gap-3 px-8">
+                      <div className="absolute top-[120px] left-0 right-0 flex flex-col items-center gap-3 px-8">
                         <h1 className="text-[28px] font-bold text-slate-900 text-center uppercase leading-tight">
                           GET MORE THAN JUST READING
                         </h1>
@@ -15698,7 +15698,7 @@ export default function App() {
                       className="absolute inset-0 flex flex-col items-center px-8"
                     >
                       {/* Header - anchored to top */}
-                      <div className="absolute top-[100px] left-0 right-0 flex flex-col items-center gap-3 px-8">
+                      <div className="absolute top-[120px] left-0 right-0 flex flex-col items-center gap-3 px-8">
                         <h1 className="text-[28px] font-bold text-slate-900 text-center uppercase leading-tight">
                           TALK ABOUT<br />YOUR BOOK
                         </h1>
@@ -15776,7 +15776,7 @@ export default function App() {
                       className="absolute inset-0 flex flex-col items-center px-8"
                     >
                       {/* Header - anchored to top */}
-                      <div className="absolute top-[100px] left-0 right-0 flex flex-col items-center gap-3 px-8">
+                      <div className="absolute top-[120px] left-0 right-0 flex flex-col items-center gap-3 px-8">
                         <h1 className="text-[28px] font-bold text-slate-900 text-center uppercase leading-tight">
                           START WITH<br />YOUR BOOK
                         </h1>
