@@ -70,7 +70,7 @@ export function LoginScreen() {
       }}
     >
       {/* Logo text header */}
-      <div className="absolute top-[50px] left-0 right-0 flex justify-center pointer-events-none">
+      <div className="absolute top-[70px] left-0 right-0 flex justify-center pointer-events-none">
         <img
           src={getAssetPath('/logo_text.png')}
           alt="Logo"

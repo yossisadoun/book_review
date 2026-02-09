@@ -10303,8 +10303,8 @@ export default function App() {
           />
         </>
       )}
-      {/* Logo text header - shows on bookshelf views */}
-      {(showBookshelf || showBookshelfCovers) && !showAccountPage && !showSortingResults && !showFollowingPage && !showNotesView && !showFeedPage && !viewingUserId && (
+      {/* Logo text header - shows on main views (bookshelf, feed, following, notes, book details) */}
+      {!showAccountPage && !showSortingResults && !viewingUserId && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{
@@ -15583,7 +15583,7 @@ export default function App() {
                 }}
               >
                 {/* Fixed logo_text header that stays in place on all pages */}
-                <div className="absolute top-[50px] left-0 right-0 flex justify-center z-0 pointer-events-none">
+                <div className="absolute top-[70px] left-0 right-0 flex justify-center z-0 pointer-events-none">
                   <img
                     src={getAssetPath('/logo_text.png')}
                     alt="Logo"
