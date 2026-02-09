@@ -5146,7 +5146,7 @@ const InfoPageTooltips = React.memo(function InfoPageTooltips() {
         className="w-full flex justify-center"
       >
         <div
-          className="px-5 py-5 rounded-2xl w-[340px]"
+          className="px-[min(20px,2.5vh)] py-[min(20px,2.5vh)] rounded-2xl w-[min(340px,90vw)]"
           style={{
             background: 'rgba(255, 255, 255, 0.35)',
             boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
@@ -5157,14 +5157,14 @@ const InfoPageTooltips = React.memo(function InfoPageTooltips() {
         >
           {(currentTooltip.type === 'youtube' || currentTooltip.type === 'podcast') ? (
             <div>
-              <div className="w-28 h-28 rounded-xl overflow-hidden relative float-left mr-4 mb-2">
+              <div className="w-[min(112px,14vh)] h-[min(112px,14vh)] rounded-xl overflow-hidden relative float-left mr-[min(16px,2vh)] mb-2">
                 <img
                   src={currentTooltip.thumbnail}
                   alt="Thumbnail"
                   className="w-full h-full object-cover"
                 />
                 <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                  <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center">
+                  <div className="w-[min(48px,6vh)] h-[min(48px,6vh)] rounded-full bg-white/90 flex items-center justify-center">
                     <Play size={22} className={currentTooltip.type === 'youtube' ? 'text-red-600 ml-0.5' : 'text-purple-600 ml-0.5'} fill="currentColor" />
                   </div>
                 </div>
@@ -5187,9 +5187,9 @@ const InfoPageTooltips = React.memo(function InfoPageTooltips() {
               </p>
             </div>
           ) : (
-            <div className="flex items-start gap-4">
+            <div className="flex items-start gap-[min(16px,2vh)]">
               <div
-                className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0"
+                className="w-[min(56px,7vh)] h-[min(56px,7vh)] rounded-xl flex items-center justify-center flex-shrink-0"
                 style={{
                   background: currentTooltip.color,
                   border: `1px solid ${currentTooltip.borderColor}`,
@@ -15639,20 +15639,20 @@ export default function App() {
                 }}
               >
                 {/* Fixed logo_text header that stays in place on all pages */}
-                <div className="absolute top-[70px] left-0 right-0 flex justify-center z-0 pointer-events-none">
+                <div className="absolute top-[8vh] left-0 right-0 flex justify-center z-0 pointer-events-none">
                   <img
                     src={getAssetPath('/logo_text.png')}
                     alt="Logo"
-                    className="h-[20px] object-contain"
+                    className="h-[min(20px,3vh)] object-contain"
                   />
                 </div>
 
                 {/* Fixed logo that stays in place on all pages */}
-                <div className="absolute bottom-[130px] left-0 right-0 flex justify-center z-0 pointer-events-none">
+                <div className="absolute bottom-[7vh] left-0 right-0 flex justify-center z-0 pointer-events-none">
                   <img
                     src={getAssetPath('/logo_tight.png')}
                     alt="Logo"
-                    className="w-48 h-48 object-contain"
+                    className="w-[min(192px,23vh)] h-[min(192px,23vh)] object-contain"
                     style={{
                       filter: 'drop-shadow(0 20px 40px rgba(255, 255, 255, 0.8))',
                     }}
@@ -15671,17 +15671,17 @@ export default function App() {
                       className="absolute inset-0 flex flex-col items-center px-8"
                     >
                       {/* Header - anchored to top */}
-                      <div className="absolute top-[120px] left-0 right-0 flex flex-col items-center gap-3 px-8">
-                        <h1 className="text-[28px] font-bold text-slate-900 text-center uppercase leading-tight">
+                      <div className="absolute top-[14vh] left-0 right-0 flex flex-col items-center gap-[1vh] px-8">
+                        <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 text-center uppercase leading-tight">
                           GET MORE THAN JUST READING
                         </h1>
-                        <p className="text-[17px] text-slate-600 text-center">
+                        <p className="text-[min(17px,2.2vh)] text-slate-600 text-center">
                           Videos, podcasts, facts, and context — All in one place
                         </p>
                       </div>
 
                       {/* Content - notifications anchored above logo */}
-                      <div className="absolute bottom-[330px] left-0 right-0 flex justify-center px-8 z-10">
+                      <div className="absolute bottom-[32vh] left-0 right-0 flex justify-center px-8 z-10">
                         <InfoPageTooltips />
                       </div>
 
@@ -15698,18 +15698,18 @@ export default function App() {
                       className="absolute inset-0 flex flex-col items-center px-8"
                     >
                       {/* Header - anchored to top */}
-                      <div className="absolute top-[120px] left-0 right-0 flex flex-col items-center gap-3 px-8">
-                        <h1 className="text-[28px] font-bold text-slate-900 text-center uppercase leading-tight">
+                      <div className="absolute top-[14vh] left-0 right-0 flex flex-col items-center gap-[1vh] px-8">
+                        <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 text-center uppercase leading-tight">
                           TALK ABOUT<br />YOUR BOOK
                         </h1>
-                        <p className="text-[17px] text-slate-600 text-center px-4">
+                        <p className="text-[min(17px,2.2vh)] text-slate-600 text-center px-4">
                           Join discussions and book clubs, with real people or with your private AI bot.
                         </p>
                       </div>
 
                       {/* Content - anchored above pagination */}
-                      <div className="absolute bottom-[340px] left-0 right-0 flex justify-center px-8 z-10">
-                        <div className="flex flex-col gap-3 w-full max-w-[300px]">
+                      <div className="absolute bottom-[34vh] left-0 right-0 flex justify-center px-8 z-10">
+                        <div className="flex flex-col gap-[min(12px,1.5vh)] w-full max-w-[min(300px,85vw)]">
                           {/* Message 1 - from left */}
                           <motion.div
                             initial={{ opacity: 0, x: -30, scale: 0.9 }}
@@ -15717,18 +15717,18 @@ export default function App() {
                             transition={{ duration: 0.4, delay: 0.3, type: "spring", stiffness: 150 }}
                             className="flex items-end gap-2 self-start"
                           >
-                            <div className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center" style={{
+                            <div className="w-[min(32px,4vh)] h-[min(32px,4vh)] rounded-full flex-shrink-0 flex items-center justify-center" style={{
                               background: 'rgba(147, 51, 234, 0.75)',
                               border: '1px solid rgba(147, 51, 234, 0.3)',
                             }}>
                               <User size={14} className="text-white" />
                             </div>
-                            <div className="px-3 py-2 rounded-2xl rounded-bl-md max-w-[200px]" style={{
+                            <div className="px-3 py-[min(8px,1vh)] rounded-2xl rounded-bl-md max-w-[min(200px,55vw)]" style={{
                               background: 'rgba(255, 255, 255, 0.7)',
                               backdropFilter: 'blur(10px)',
                               border: '1px solid rgba(255, 255, 255, 0.4)',
                             }}>
-                              <p className="text-sm text-slate-700">What did you think of the ending?</p>
+                              <p className="text-[min(14px,1.8vh)] text-slate-700">What did you think of the ending?</p>
                             </div>
                           </motion.div>
 
@@ -15739,18 +15739,18 @@ export default function App() {
                             transition={{ duration: 0.4, delay: 0.6, type: "spring", stiffness: 150 }}
                             className="flex items-end gap-2 self-end flex-row-reverse"
                           >
-                            <div className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center" style={{
+                            <div className="w-[min(32px,4vh)] h-[min(32px,4vh)] rounded-full flex-shrink-0 flex items-center justify-center" style={{
                               background: 'rgba(59, 130, 246, 0.75)',
                               border: '1px solid rgba(59, 130, 246, 0.3)',
                             }}>
                               <User size={14} className="text-white" />
                             </div>
-                            <div className="px-3 py-2 rounded-2xl rounded-br-md max-w-[200px]" style={{
+                            <div className="px-3 py-[min(8px,1vh)] rounded-2xl rounded-br-md max-w-[min(200px,55vw)]" style={{
                               background: 'rgba(59, 130, 246, 0.15)',
                               backdropFilter: 'blur(10px)',
                               border: '1px solid rgba(59, 130, 246, 0.3)',
                             }}>
-                              <p className="text-sm text-slate-700">I was shocked! Didn&apos;t see it coming</p>
+                              <p className="text-[min(14px,1.8vh)] text-slate-700">I was shocked! Didn&apos;t see it coming</p>
                             </div>
                           </motion.div>
 
@@ -15761,18 +15761,18 @@ export default function App() {
                             transition={{ duration: 0.4, delay: 0.9, type: "spring", stiffness: 150 }}
                             className="flex items-end gap-2 self-start"
                           >
-                            <div className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center" style={{
+                            <div className="w-[min(32px,4vh)] h-[min(32px,4vh)] rounded-full flex-shrink-0 flex items-center justify-center" style={{
                               background: 'rgba(16, 185, 129, 0.75)',
                               border: '1px solid rgba(16, 185, 129, 0.3)',
                             }}>
                               <Bot size={14} className="text-white" />
                             </div>
-                            <div className="px-3 py-2 rounded-2xl rounded-bl-md max-w-[220px]" style={{
+                            <div className="px-3 py-[min(8px,1vh)] rounded-2xl rounded-bl-md max-w-[min(220px,60vw)]" style={{
                               background: 'rgba(16, 185, 129, 0.1)',
                               backdropFilter: 'blur(10px)',
                               border: '1px solid rgba(16, 185, 129, 0.3)',
                             }}>
-                              <p className="text-sm text-slate-700">The foreshadowing in chapter 3 hinted at it!</p>
+                              <p className="text-[min(14px,1.8vh)] text-slate-700">The foreshadowing in chapter 3 hinted at it!</p>
                             </div>
                           </motion.div>
                         </div>
@@ -15791,11 +15791,11 @@ export default function App() {
                       className="absolute inset-0 flex flex-col items-center px-8"
                     >
                       {/* Header - anchored to top */}
-                      <div className="absolute top-[120px] left-0 right-0 flex flex-col items-center gap-3 px-8">
-                        <h1 className="text-[28px] font-bold text-slate-900 text-center uppercase leading-tight">
+                      <div className="absolute top-[14vh] left-0 right-0 flex flex-col items-center gap-[1vh] px-8">
+                        <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 text-center uppercase leading-tight">
                           START WITH<br />YOUR BOOK
                         </h1>
-                        <p className="text-[17px] text-slate-600 text-center">
+                        <p className="text-[min(17px,2.2vh)] text-slate-600 text-center">
                           Add a book you're reading to start exploring now
                         </p>
                       </div>
@@ -15805,7 +15805,7 @@ export default function App() {
                         initial={{ opacity: 0, y: 30, scale: 0.9 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         transition={{ duration: 0.4, delay: 0.2, type: "spring", stiffness: 150 }}
-                        className="absolute bottom-[390px] left-0 right-0 flex justify-center px-8"
+                        className="absolute bottom-[42vh] left-0 right-0 flex justify-center px-8"
                       >
                         <button
                           onClick={() => {
@@ -15814,7 +15814,7 @@ export default function App() {
                             localStorage.setItem('hasSeenIntro', 'true');
                             setIsAdding(true);
                           }}
-                          className="w-24 aspect-[2/3] rounded-lg overflow-hidden shadow-lg flex items-center justify-center active:scale-95 transition-transform cursor-pointer"
+                          className="w-[min(96px,12vh)] aspect-[2/3] rounded-lg overflow-hidden shadow-lg flex items-center justify-center active:scale-95 transition-transform cursor-pointer"
                           style={glassmorphicStyle}
                         >
                           <Plus size={32} className="text-slate-400" />
@@ -15826,7 +15826,7 @@ export default function App() {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.4, delay: 0.4, type: "spring", stiffness: 150 }}
-                        className="absolute bottom-[320px] left-0 right-0 flex justify-center px-8"
+                        className="absolute bottom-[32vh] left-0 right-0 flex justify-center px-8"
                       >
                         <button
                           onClick={() => {
@@ -15847,7 +15847,7 @@ export default function App() {
                 </AnimatePresence>
 
                 {/* Pagination dots - anchored to bottom (stays fixed) */}
-                <div className="absolute bottom-[100px] left-0 right-0 flex justify-center z-20">
+                <div className="absolute bottom-[60px] left-0 right-0 flex justify-center z-20">
                   <div className="flex items-center gap-2">
                     {[0, 1, 2].map((index) => (
                       <button
