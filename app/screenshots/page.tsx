@@ -72,29 +72,20 @@ export default function ScreenshotsPage() {
 
     try {
       const scale = getPreviewScale(device);
-      // Calculate the scale factor to get exact pixel dimensions
       const exportScale = device.width / (device.points.w * scale);
 
-      const canvas = await html2canvas(container, {
-        scale: exportScale,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#000000',
-        logging: false,
-        // Ignore the iframe content - we'll capture what's visible
-        ignoreElements: (element) => {
-          return element.tagName === 'IFRAME';
-        },
-      });
+      // Try to capture iframe content first
+      const iframe = container.querySelector('iframe') as HTMLIFrameElement | null;
+      let iframeCanvas: HTMLCanvasElement | null = null;
 
-      // For iframe content, we need to draw it separately
-      // First, let's try to capture the iframe
-      const iframe = container.querySelector('iframe');
       if (iframe) {
         try {
           const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-          if (iframeDoc) {
-            const iframeCanvas = await html2canvas(iframeDoc.body, {
+          if (iframeDoc && iframeDoc.body) {
+            // Wait a moment for content to be ready
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            iframeCanvas = await html2canvas(iframeDoc.body, {
               scale: device.width / device.points.w,
               useCORS: true,
               allowTaint: true,
@@ -102,40 +93,63 @@ export default function ScreenshotsPage() {
               logging: false,
               width: device.points.w,
               height: device.points.h,
+              windowWidth: device.points.w,
+              windowHeight: device.points.h,
             });
-
-            // Create final canvas at exact dimensions
-            const finalCanvas = document.createElement('canvas');
-            finalCanvas.width = device.width;
-            finalCanvas.height = device.height;
-            const ctx = finalCanvas.getContext('2d');
-
-            if (ctx) {
-              // Draw iframe content first
-              ctx.drawImage(iframeCanvas, 0, 0, device.width, device.height);
-
-              // Draw overlay on top (from the original canvas, but only the overlay part)
-              ctx.drawImage(canvas, 0, 0, device.width, device.height);
-
-              // Download
-              const link = document.createElement('a');
-              link.download = `${screenshotName}_${device.id}_${device.width}x${device.height}.png`;
-              link.href = finalCanvas.toDataURL('image/png', 1.0);
-              link.click();
-            }
           }
         } catch (iframeError) {
-          console.log('Could not capture iframe content, using container only:', iframeError);
-          // Fallback: just download what we captured
-          const link = document.createElement('a');
-          link.download = `${screenshotName}_${device.id}_${device.width}x${device.height}.png`;
-          link.href = canvas.toDataURL('image/png', 1.0);
-          link.click();
+          console.log('Could not capture iframe:', iframeError);
         }
+      }
+
+      // Capture overlay (without iframe)
+      const overlayCanvas = await html2canvas(container, {
+        scale: exportScale,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#000000',
+        logging: false,
+        ignoreElements: (element) => element.tagName === 'IFRAME',
+      });
+
+      // Create final canvas at exact dimensions
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = device.width;
+      finalCanvas.height = device.height;
+      const ctx = finalCanvas.getContext('2d');
+
+      if (ctx) {
+        // Fill with black background
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, device.width, device.height);
+
+        // Draw iframe content if captured
+        if (iframeCanvas) {
+          ctx.drawImage(iframeCanvas, 0, 0, device.width, device.height);
+        } else {
+          // Draw placeholder if no iframe content
+          ctx.fillStyle = '#f8fafc';
+          ctx.fillRect(0, 0, device.width, device.height);
+          ctx.fillStyle = '#64748b';
+          ctx.font = `${32 * (device.width / 430)}px system-ui`;
+          ctx.textAlign = 'center';
+          ctx.fillText('App Content', device.width / 2, device.height / 2);
+          ctx.font = `${18 * (device.width / 430)}px system-ui`;
+          ctx.fillText('(Use DevTools for full capture)', device.width / 2, device.height / 2 + 50);
+        }
+
+        // Draw overlay on top
+        ctx.drawImage(overlayCanvas, 0, 0, device.width, device.height);
+
+        // Download
+        const link = document.createElement('a');
+        link.download = `${screenshotName}_${device.id}_${device.width}x${device.height}.png`;
+        link.href = finalCanvas.toDataURL('image/png', 1.0);
+        link.click();
       }
     } catch (error) {
       console.error('Export failed:', error);
-      alert(`Export failed for ${device.name}. Try using the DevTools method instead.`);
+      alert(`Export failed for ${device.name}. Check console for details.`);
     } finally {
       setExporting(null);
     }
