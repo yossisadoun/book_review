@@ -26,8 +26,9 @@ export default function ScreenshotsPage() {
   const [exportingAll, setExportingAll] = useState(false);
   const [exportProgress, setExportProgress] = useState({ current: 0, total: 0 });
 
-  // Refs for each device container
+  // Refs for each device container and overlay
   const deviceRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
+  const overlayRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   const getPreviewScale = (device: typeof DEVICES[0]) => {
     return PREVIEW_HEIGHT / device.points.h;
@@ -66,6 +67,7 @@ export default function ScreenshotsPage() {
   // Export a single device screenshot
   const exportDevice = useCallback(async (device: typeof DEVICES[0]) => {
     const container = deviceRefs.current[device.id];
+    const overlay = overlayRefs.current[device.id];
     if (!container) return;
 
     setExporting(device.id);
@@ -96,14 +98,18 @@ export default function ScreenshotsPage() {
         }
       }
 
-      // Capture the overlay container (without iframe)
-      const overlayDataUrl = await toPng(container, {
-        pixelRatio,
-        backgroundColor: '#000000',
-        filter: (node) => {
-          return node.tagName !== 'IFRAME';
-        },
-      });
+      // Capture just the overlay element with transparent background
+      let overlayDataUrl: string | null = null;
+      if (overlay && showOverlay) {
+        try {
+          overlayDataUrl = await toPng(overlay, {
+            pixelRatio,
+            backgroundColor: 'transparent',
+          });
+        } catch (overlayError) {
+          console.log('Could not capture overlay:', overlayError);
+        }
+      }
 
       // Combine images on canvas
       const finalCanvas = document.createElement('canvas');
@@ -112,11 +118,7 @@ export default function ScreenshotsPage() {
       const ctx = finalCanvas.getContext('2d');
 
       if (ctx) {
-        // Fill with black background
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, device.width, device.height);
-
-        // Draw iframe content if captured
+        // Draw iframe content or placeholder
         if (iframeDataUrl) {
           const iframeImg = new Image();
           await new Promise((resolve, reject) => {
@@ -126,25 +128,37 @@ export default function ScreenshotsPage() {
           });
           ctx.drawImage(iframeImg, 0, 0, device.width, device.height);
         } else {
-          // Draw placeholder if no iframe content
-          ctx.fillStyle = '#f8fafc';
+          // Draw nice placeholder background
+          const gradient = ctx.createLinearGradient(0, 0, 0, device.height);
+          gradient.addColorStop(0, '#f8fafc');
+          gradient.addColorStop(1, '#e2e8f0');
+          ctx.fillStyle = gradient;
           ctx.fillRect(0, 0, device.width, device.height);
-          ctx.fillStyle = '#64748b';
-          ctx.font = `bold ${32 * (device.width / 430)}px system-ui`;
+
+          // Draw placeholder text
+          ctx.fillStyle = '#94a3b8';
+          ctx.font = `bold ${36 * (device.width / 430)}px system-ui`;
           ctx.textAlign = 'center';
-          ctx.fillText('App Content', device.width / 2, device.height / 2);
-          ctx.font = `${18 * (device.width / 430)}px system-ui`;
-          ctx.fillText('(Use DevTools for full capture)', device.width / 2, device.height / 2 + 50);
+          ctx.fillText('App Screenshot', device.width / 2, device.height / 2 - 20);
+          ctx.font = `${20 * (device.width / 430)}px system-ui`;
+          ctx.fillText('Use DevTools for actual content', device.width / 2, device.height / 2 + 30);
         }
 
-        // Draw overlay on top
-        const overlayImg = new Image();
-        await new Promise((resolve, reject) => {
-          overlayImg.onload = resolve;
-          overlayImg.onerror = reject;
-          overlayImg.src = overlayDataUrl;
-        });
-        ctx.drawImage(overlayImg, 0, 0, device.width, device.height);
+        // Draw overlay on top if captured
+        if (overlayDataUrl) {
+          const overlayImg = new Image();
+          await new Promise((resolve, reject) => {
+            overlayImg.onload = resolve;
+            overlayImg.onerror = reject;
+            overlayImg.src = overlayDataUrl;
+          });
+          // Position overlay at bottom of canvas
+          const overlayHeight = overlay!.offsetHeight * pixelRatio;
+          const overlayWidth = overlay!.offsetWidth * pixelRatio;
+          const overlayX = (device.width - overlayWidth) / 2;
+          const overlayY = device.height - overlayHeight - (32 * scale * pixelRatio);
+          ctx.drawImage(overlayImg, overlayX, overlayY, overlayWidth, overlayHeight);
+        }
 
         // Download
         const link = document.createElement('a');
@@ -158,7 +172,7 @@ export default function ScreenshotsPage() {
     } finally {
       setExporting(null);
     }
-  }, [screenshotName]);
+  }, [screenshotName, showOverlay]);
 
   // Export all devices
   const exportAllDevices = useCallback(async () => {
@@ -390,9 +404,10 @@ export default function ScreenshotsPage() {
                         }}
                       >
                         <div
+                          ref={(el) => { overlayRefs.current[device.id] = el; }}
                           style={{
                             padding: `${16 * scale}px ${24 * scale}px`,
-                            background: 'rgba(255, 255, 255, 0.35)',
+                            background: 'rgba(255, 255, 255, 0.85)',
                             backdropFilter: 'blur(16px)',
                             WebkitBackdropFilter: 'blur(16px)',
                             border: '1px solid rgba(255, 255, 255, 0.4)',
