@@ -96,7 +96,7 @@ export function LoginScreen() {
 
         {/* Logo with Heart Animation */}
         <div className="relative mb-4" style={{ marginTop: '-15px' }}>
-          <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto" />
+          <img src={getAssetPath("/logo_tight.png")} alt="BOOK" className="h-32 object-contain mx-auto" />
           {showHearts && (
             <>
               <div className="absolute top-[18px] left-1/2 pointer-events-none" style={{ transform: 'translateX(calc(-50% - 6px)) scale(0.8)', opacity: 1, mixBlendMode: 'overlay' }}>
