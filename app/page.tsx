@@ -15711,7 +15711,12 @@ export default function App() {
                       <div className="absolute bottom-[340px] left-0 right-0 flex justify-center px-8 z-10">
                         <div className="flex flex-col gap-3 w-full max-w-[300px]">
                           {/* Message 1 - from left */}
-                          <div className="flex items-end gap-2 self-start">
+                          <motion.div
+                            initial={{ opacity: 0, x: -30, scale: 0.9 }}
+                            animate={{ opacity: 1, x: 0, scale: 1 }}
+                            transition={{ duration: 0.4, delay: 0.3, type: "spring", stiffness: 150 }}
+                            className="flex items-end gap-2 self-start"
+                          >
                             <div className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center" style={{
                               background: 'rgba(147, 51, 234, 0.75)',
                               border: '1px solid rgba(147, 51, 234, 0.3)',
@@ -15725,10 +15730,15 @@ export default function App() {
                             }}>
                               <p className="text-sm text-slate-700">What did you think of the ending?</p>
                             </div>
-                          </div>
+                          </motion.div>
 
                           {/* Message 2 - from right */}
-                          <div className="flex items-end gap-2 self-end flex-row-reverse">
+                          <motion.div
+                            initial={{ opacity: 0, x: 30, scale: 0.9 }}
+                            animate={{ opacity: 1, x: 0, scale: 1 }}
+                            transition={{ duration: 0.4, delay: 0.6, type: "spring", stiffness: 150 }}
+                            className="flex items-end gap-2 self-end flex-row-reverse"
+                          >
                             <div className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center" style={{
                               background: 'rgba(59, 130, 246, 0.75)',
                               border: '1px solid rgba(59, 130, 246, 0.3)',
@@ -15742,10 +15752,15 @@ export default function App() {
                             }}>
                               <p className="text-sm text-slate-700">I was shocked! Didn&apos;t see it coming</p>
                             </div>
-                          </div>
+                          </motion.div>
 
                           {/* Message 3 - AI bot from left */}
-                          <div className="flex items-end gap-2 self-start">
+                          <motion.div
+                            initial={{ opacity: 0, x: -30, scale: 0.9 }}
+                            animate={{ opacity: 1, x: 0, scale: 1 }}
+                            transition={{ duration: 0.4, delay: 0.9, type: "spring", stiffness: 150 }}
+                            className="flex items-end gap-2 self-start"
+                          >
                             <div className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center" style={{
                               background: 'rgba(16, 185, 129, 0.75)',
                               border: '1px solid rgba(16, 185, 129, 0.3)',
@@ -15759,7 +15774,7 @@ export default function App() {
                             }}>
                               <p className="text-sm text-slate-700">The foreshadowing in chapter 3 hinted at it!</p>
                             </div>
-                          </div>
+                          </motion.div>
                         </div>
                       </div>
 
@@ -15786,17 +15801,33 @@ export default function App() {
                       </div>
 
                       {/* Placeholder book cover */}
-                      <div className="absolute bottom-[390px] left-0 right-0 flex justify-center px-8">
-                        <div
-                          className="w-24 aspect-[2/3] rounded-lg overflow-hidden shadow-lg flex items-center justify-center"
+                      <motion.div
+                        initial={{ opacity: 0, y: 30, scale: 0.9 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{ duration: 0.4, delay: 0.2, type: "spring", stiffness: 150 }}
+                        className="absolute bottom-[390px] left-0 right-0 flex justify-center px-8"
+                      >
+                        <button
+                          onClick={() => {
+                            setShowAboutScreen(false);
+                            setAboutPageIndex(0);
+                            localStorage.setItem('hasSeenIntro', 'true');
+                            setIsAdding(true);
+                          }}
+                          className="w-24 aspect-[2/3] rounded-lg overflow-hidden shadow-lg flex items-center justify-center active:scale-95 transition-transform cursor-pointer"
                           style={glassmorphicStyle}
                         >
                           <Plus size={32} className="text-slate-400" />
-                        </div>
-                      </div>
+                        </button>
+                      </motion.div>
 
                       {/* CTA Button - positioned above logo_tight */}
-                      <div className="absolute bottom-[320px] left-0 right-0 flex justify-center px-8">
+                      <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4, delay: 0.4, type: "spring", stiffness: 150 }}
+                        className="absolute bottom-[320px] left-0 right-0 flex justify-center px-8"
+                      >
                         <button
                           onClick={() => {
                             setShowAboutScreen(false);
@@ -15809,7 +15840,7 @@ export default function App() {
                         >
                           Add a book
                         </button>
-                      </div>
+                      </motion.div>
 
                     </motion.div>
                   )}
