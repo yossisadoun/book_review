@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { Download, Edit3, Smartphone, RefreshCw, Camera, Copy, ExternalLink, Check } from 'lucide-react';
+import { useState, useRef, useCallback } from 'react';
+import html2canvas from 'html2canvas';
+import { Download, Edit3, Smartphone, RefreshCw, Camera, Copy, ExternalLink, Check, Loader2 } from 'lucide-react';
 
 // Device specifications for App Store
 const DEVICES = [
@@ -21,7 +22,12 @@ export default function ScreenshotsPage() {
   const [showOverlay, setShowOverlay] = useState(true);
   const [iframeKeys, setIframeKeys] = useState<{ [key: string]: number }>({});
   const [copiedDevice, setCopiedDevice] = useState<string | null>(null);
-  const [selectedForExport, setSelectedForExport] = useState<string[]>(DEVICES.filter(d => d.required).map(d => d.id));
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [exportingAll, setExportingAll] = useState(false);
+  const [exportProgress, setExportProgress] = useState({ current: 0, total: 0 });
+
+  // Refs for each device container
+  const deviceRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   const getPreviewScale = (device: typeof DEVICES[0]) => {
     return PREVIEW_HEIGHT / device.points.h;
@@ -49,7 +55,6 @@ export default function ScreenshotsPage() {
   };
 
   const openInNewTab = (device: typeof DEVICES[0]) => {
-    // Open a new window with specific dimensions for screenshot capture
     const url = `/?screenshot=1&device=${device.id}`;
     window.open(
       url,
@@ -58,13 +63,100 @@ export default function ScreenshotsPage() {
     );
   };
 
-  const toggleExportSelection = (deviceId: string) => {
-    setSelectedForExport(prev =>
-      prev.includes(deviceId)
-        ? prev.filter(id => id !== deviceId)
-        : [...prev, deviceId]
-    );
-  };
+  // Export a single device screenshot
+  const exportDevice = useCallback(async (device: typeof DEVICES[0]) => {
+    const container = deviceRefs.current[device.id];
+    if (!container) return;
+
+    setExporting(device.id);
+
+    try {
+      const scale = getPreviewScale(device);
+      // Calculate the scale factor to get exact pixel dimensions
+      const exportScale = device.width / (device.points.w * scale);
+
+      const canvas = await html2canvas(container, {
+        scale: exportScale,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#000000',
+        logging: false,
+        // Ignore the iframe content - we'll capture what's visible
+        ignoreElements: (element) => {
+          return element.tagName === 'IFRAME';
+        },
+      });
+
+      // For iframe content, we need to draw it separately
+      // First, let's try to capture the iframe
+      const iframe = container.querySelector('iframe');
+      if (iframe) {
+        try {
+          const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+          if (iframeDoc) {
+            const iframeCanvas = await html2canvas(iframeDoc.body, {
+              scale: device.width / device.points.w,
+              useCORS: true,
+              allowTaint: true,
+              backgroundColor: '#ffffff',
+              logging: false,
+              width: device.points.w,
+              height: device.points.h,
+            });
+
+            // Create final canvas at exact dimensions
+            const finalCanvas = document.createElement('canvas');
+            finalCanvas.width = device.width;
+            finalCanvas.height = device.height;
+            const ctx = finalCanvas.getContext('2d');
+
+            if (ctx) {
+              // Draw iframe content first
+              ctx.drawImage(iframeCanvas, 0, 0, device.width, device.height);
+
+              // Draw overlay on top (from the original canvas, but only the overlay part)
+              ctx.drawImage(canvas, 0, 0, device.width, device.height);
+
+              // Download
+              const link = document.createElement('a');
+              link.download = `${screenshotName}_${device.id}_${device.width}x${device.height}.png`;
+              link.href = finalCanvas.toDataURL('image/png', 1.0);
+              link.click();
+            }
+          }
+        } catch (iframeError) {
+          console.log('Could not capture iframe content, using container only:', iframeError);
+          // Fallback: just download what we captured
+          const link = document.createElement('a');
+          link.download = `${screenshotName}_${device.id}_${device.width}x${device.height}.png`;
+          link.href = canvas.toDataURL('image/png', 1.0);
+          link.click();
+        }
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert(`Export failed for ${device.name}. Try using the DevTools method instead.`);
+    } finally {
+      setExporting(null);
+    }
+  }, [screenshotName]);
+
+  // Export all devices
+  const exportAllDevices = useCallback(async () => {
+    setExportingAll(true);
+    setExportProgress({ current: 0, total: DEVICES.length });
+
+    for (let i = 0; i < DEVICES.length; i++) {
+      const device = DEVICES[i];
+      setExportProgress({ current: i + 1, total: DEVICES.length });
+      await exportDevice(device);
+      // Small delay between exports
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    setExportingAll(false);
+    setExportProgress({ current: 0, total: 0 });
+  }, [exportDevice]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
@@ -111,6 +203,25 @@ export default function ScreenshotsPage() {
             </button>
 
             <div className="flex-1" />
+
+            {/* Export All Button */}
+            <button
+              onClick={exportAllDevices}
+              disabled={exportingAll}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-green-800 disabled:cursor-not-allowed rounded text-sm font-semibold transition-colors"
+            >
+              {exportingAll ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Exporting {exportProgress.current}/{exportProgress.total}...
+                </>
+              ) : (
+                <>
+                  <Download size={16} />
+                  Export All PNGs
+                </>
+              )}
+            </button>
 
             {/* Overlay text editor */}
             <div className="flex items-center gap-2">
@@ -164,7 +275,7 @@ export default function ScreenshotsPage() {
       </div>
 
       {/* Device previews - side by side */}
-      <div className="p-6">
+      <div className="p-6 pb-32">
         <div className="max-w-[1800px] mx-auto">
           <div className="flex gap-6 overflow-x-auto pb-4">
             {DEVICES.map((device) => {
@@ -190,6 +301,19 @@ export default function ScreenshotsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
+                      {/* Export single device */}
+                      <button
+                        onClick={() => exportDevice(device)}
+                        disabled={exporting === device.id || exportingAll}
+                        className="p-1.5 bg-green-600 hover:bg-green-500 disabled:bg-slate-700 rounded"
+                        title="Export PNG"
+                      >
+                        {exporting === device.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Download size={12} />
+                        )}
+                      </button>
                       <button
                         onClick={() => copyDimensions(device)}
                         className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded text-xs"
@@ -216,12 +340,12 @@ export default function ScreenshotsPage() {
 
                   {/* Device frame */}
                   <div
+                    ref={(el) => { deviceRefs.current[device.id] = el; }}
                     className="relative bg-black overflow-hidden"
                     style={{
                       width: previewWidth,
                       height: PREVIEW_HEIGHT,
                       borderRadius: 32 * scale,
-                      boxShadow: '0 0 0 3px #333, 0 8px 32px rgba(0,0,0,0.4)',
                     }}
                   >
                     {/* App content via iframe */}
@@ -285,39 +409,41 @@ export default function ScreenshotsPage() {
         </div>
       </div>
 
-      {/* Instructions panel */}
+      {/* Bottom panel */}
       <div className="fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur border-t border-slate-700 p-4">
         <div className="max-w-[1800px] mx-auto">
-          <div className="flex items-start gap-8">
-            <div className="flex-1">
-              <h3 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                <Download size={14} className="text-blue-400" />
-                How to Export Screenshots
-              </h3>
-              <ol className="text-xs text-slate-400 space-y-1">
-                <li>1. Navigate each device preview to the desired app state</li>
-                <li>2. Click <ExternalLink size={10} className="inline" /> to open in a new window at correct dimensions</li>
-                <li>3. Use Chrome DevTools (Cmd+Shift+P → &quot;Capture screenshot&quot;) or take a screenshot</li>
-                <li>4. For exact pixels, use DevTools device toolbar with custom dimensions</li>
-              </ol>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="text-sm">
+                <span className="text-slate-400">Ready to export:</span>
+                <span className="ml-2 font-medium">{DEVICES.length} screenshots</span>
+              </div>
+              <div className="text-xs text-slate-500">
+                {DEVICES.map(d => `${d.id}: ${d.width}×${d.height}`).join(' • ')}
+              </div>
             </div>
 
-            <div className="text-xs text-slate-500 border-l border-slate-700 pl-8">
-              <p className="font-medium text-slate-400 mb-1">Chrome DevTools Quick Guide:</p>
-              <p>1. Open DevTools (Cmd+Option+I)</p>
-              <p>2. Toggle device toolbar (Cmd+Shift+M)</p>
-              <p>3. Set &quot;Responsive&quot; → &quot;Edit&quot; → Add custom device</p>
-              <p>4. Enter exact pixel dimensions</p>
-              <p>5. Cmd+Shift+P → &quot;Capture full size screenshot&quot;</p>
-            </div>
-
-            <div className="text-xs text-slate-500 border-l border-slate-700 pl-8">
-              <p className="font-medium text-slate-400 mb-1">Required Dimensions:</p>
-              {DEVICES.map(d => (
-                <p key={d.id} className={d.required ? 'text-red-400' : ''}>
-                  {d.id}: {d.width}×{d.height} {d.required ? '★' : ''}
-                </p>
-              ))}
+            <div className="flex items-center gap-4">
+              <p className="text-xs text-slate-500">
+                Note: If export quality is poor, use the <ExternalLink size={10} className="inline mx-1" /> button and Chrome DevTools for pixel-perfect capture.
+              </p>
+              <button
+                onClick={exportAllDevices}
+                disabled={exportingAll}
+                className="flex items-center gap-2 px-6 py-2.5 bg-green-600 hover:bg-green-500 disabled:bg-green-800 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors"
+              >
+                {exportingAll ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" />
+                    Exporting {exportProgress.current}/{exportProgress.total}...
+                  </>
+                ) : (
+                  <>
+                    <Download size={18} />
+                    Export All PNGs
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>
