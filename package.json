@@ -34,6 +34,8 @@
     "@types/js-yaml": "^4.0.9",
     "capacitor-secure-storage-plugin": "0.10.0",
     "framer-motion": "^11.11.17",
+    "html-to-image": "^1.11.13",
+    "html2canvas": "^1.4.1",
     "js-yaml": "^4.1.1",
     "lottie-react": "^2.4.1",
     "lucide-react": "^0.563.0",

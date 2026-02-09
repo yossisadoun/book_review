@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import { Download, Edit3, Smartphone, RefreshCw, Camera, Copy, ExternalLink, Check, Loader2 } from 'lucide-react';
 
 // Device specifications for App Store
@@ -72,29 +72,23 @@ export default function ScreenshotsPage() {
 
     try {
       const scale = getPreviewScale(device);
-      const exportScale = device.width / (device.points.w * scale);
+      const pixelRatio = device.width / (device.points.w * scale);
 
       // Try to capture iframe content first
       const iframe = container.querySelector('iframe') as HTMLIFrameElement | null;
-      let iframeCanvas: HTMLCanvasElement | null = null;
+      let iframeDataUrl: string | null = null;
 
       if (iframe) {
         try {
           const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
           if (iframeDoc && iframeDoc.body) {
-            // Wait a moment for content to be ready
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise(resolve => setTimeout(resolve, 200));
 
-            iframeCanvas = await html2canvas(iframeDoc.body, {
-              scale: device.width / device.points.w,
-              useCORS: true,
-              allowTaint: true,
-              backgroundColor: '#ffffff',
-              logging: false,
+            iframeDataUrl = await toPng(iframeDoc.body, {
               width: device.points.w,
               height: device.points.h,
-              windowWidth: device.points.w,
-              windowHeight: device.points.h,
+              pixelRatio: device.width / device.points.w,
+              backgroundColor: '#ffffff',
             });
           }
         } catch (iframeError) {
@@ -102,17 +96,16 @@ export default function ScreenshotsPage() {
         }
       }
 
-      // Capture overlay (without iframe)
-      const overlayCanvas = await html2canvas(container, {
-        scale: exportScale,
-        useCORS: true,
-        allowTaint: true,
+      // Capture the overlay container (without iframe)
+      const overlayDataUrl = await toPng(container, {
+        pixelRatio,
         backgroundColor: '#000000',
-        logging: false,
-        ignoreElements: (element) => element.tagName === 'IFRAME',
+        filter: (node) => {
+          return node.tagName !== 'IFRAME';
+        },
       });
 
-      // Create final canvas at exact dimensions
+      // Combine images on canvas
       const finalCanvas = document.createElement('canvas');
       finalCanvas.width = device.width;
       finalCanvas.height = device.height;
@@ -124,14 +117,20 @@ export default function ScreenshotsPage() {
         ctx.fillRect(0, 0, device.width, device.height);
 
         // Draw iframe content if captured
-        if (iframeCanvas) {
-          ctx.drawImage(iframeCanvas, 0, 0, device.width, device.height);
+        if (iframeDataUrl) {
+          const iframeImg = new Image();
+          await new Promise((resolve, reject) => {
+            iframeImg.onload = resolve;
+            iframeImg.onerror = reject;
+            iframeImg.src = iframeDataUrl!;
+          });
+          ctx.drawImage(iframeImg, 0, 0, device.width, device.height);
         } else {
           // Draw placeholder if no iframe content
           ctx.fillStyle = '#f8fafc';
           ctx.fillRect(0, 0, device.width, device.height);
           ctx.fillStyle = '#64748b';
-          ctx.font = `${32 * (device.width / 430)}px system-ui`;
+          ctx.font = `bold ${32 * (device.width / 430)}px system-ui`;
           ctx.textAlign = 'center';
           ctx.fillText('App Content', device.width / 2, device.height / 2);
           ctx.font = `${18 * (device.width / 430)}px system-ui`;
@@ -139,7 +138,13 @@ export default function ScreenshotsPage() {
         }
 
         // Draw overlay on top
-        ctx.drawImage(overlayCanvas, 0, 0, device.width, device.height);
+        const overlayImg = new Image();
+        await new Promise((resolve, reject) => {
+          overlayImg.onload = resolve;
+          overlayImg.onerror = reject;
+          overlayImg.src = overlayDataUrl;
+        });
+        ctx.drawImage(overlayImg, 0, 0, device.width, device.height);
 
         // Download
         const link = document.createElement('a');
