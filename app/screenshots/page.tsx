@@ -361,26 +361,36 @@ export default function ScreenshotsPage() {
                       }}
                     />
 
-                    {/* Promotional overlay - glassmorphic */}
+                    {/* Promotional overlay - glassmorphic notification style */}
                     {showOverlay && (
                       <div
-                        className="absolute bottom-0 left-0 right-0 pointer-events-none"
+                        className="absolute bottom-0 left-0 right-0 flex justify-center pointer-events-none"
                         style={{
-                          padding: `${16 * scale}px ${20 * scale}px ${24 * scale}px`,
-                          background: 'rgba(255, 255, 255, 0.6)',
-                          backdropFilter: 'blur(9.4px)',
-                          WebkitBackdropFilter: 'blur(9.4px)',
-                          borderTop: '1px solid rgba(255, 255, 255, 0.3)',
+                          padding: `${20 * scale}px`,
+                          paddingBottom: `${32 * scale}px`,
                         }}
                       >
-                        <p
-                          className="text-slate-900 font-bold text-center leading-tight"
+                        <div
                           style={{
-                            fontSize: Math.max(12, 24 * scale),
+                            padding: `${16 * scale}px ${24 * scale}px`,
+                            background: 'rgba(255, 255, 255, 0.35)',
+                            backdropFilter: 'blur(16px)',
+                            WebkitBackdropFilter: 'blur(16px)',
+                            border: '1px solid rgba(255, 255, 255, 0.4)',
+                            borderRadius: 16 * scale,
+                            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+                            maxWidth: '90%',
                           }}
                         >
-                          {overlayText}
-                        </p>
+                          <p
+                            className="text-slate-900 font-bold text-center leading-tight"
+                            style={{
+                              fontSize: Math.max(12, 22 * scale),
+                            }}
+                          >
+                            {overlayText}
+                          </p>
+                        </div>
                       </div>
                     )}
 
