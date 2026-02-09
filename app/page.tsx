@@ -4323,7 +4323,21 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
   const videoUrl = `https://www.youtube.com/watch?v=${currentVideo.videoId}`;
 
   return (
-    <div className="w-full">
+    <div
+      onClick={handleNext}
+      onTouchStart={(e) => {
+        const touch = e.touches[0];
+        setTouchStart({ x: touch.clientX, y: touch.clientY });
+      }}
+      onTouchMove={(e) => {
+        if (touchStart) {
+          const touch = e.touches[0];
+          setTouchEnd({ x: touch.clientX, y: touch.clientY });
+        }
+      }}
+      onTouchEnd={handleSwipe}
+      className="w-full cursor-pointer"
+    >
       <AnimatePresence mode="wait">
         {isVisible && (
           <motion.div
@@ -4332,7 +4346,7 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="rounded-xl overflow-hidden"
+            className="rounded-xl overflow-hidden p-4"
             style={glassmorphicStyle}
           >
             {/* Thumbnail with play button - works on iOS */}
@@ -4340,7 +4354,8 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
               href={videoUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="relative w-full block"
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full block rounded-xl overflow-hidden"
               style={{ paddingBottom: '56.25%' }}
             >
               {currentVideo.thumbnail ? (
@@ -4361,16 +4376,17 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
                 </div>
               </div>
             </a>
-            <div className="p-4">
+            <div className="mt-3">
               <a
                 href={videoUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs font-bold text-blue-700 hover:text-blue-800 hover:underline block mb-2 line-clamp-2 text-left"
+                onClick={(e) => e.stopPropagation()}
+                className="text-sm font-bold text-slate-900 block mb-1 line-clamp-2 text-left"
               >
                 {currentVideo.title}
               </a>
-              <div className="text-xs text-slate-600 mb-2">
+              <div className="text-xs text-slate-500 mb-2">
                 <span>{currentVideo.channelTitle}</span>
                 {currentVideo.publishedAt && (
                   <span> • {new Date(currentVideo.publishedAt).getFullYear()}</span>
@@ -4383,12 +4399,9 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
               )}
             </div>
             {videos.length > 1 && (
-              <button
-                onClick={handleNext}
-                className="w-full text-xs text-slate-600 text-center pb-2 font-bold uppercase tracking-wider hover:text-slate-800"
-              >
+              <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
                 Tap for next ({currentIndex + 1}/{videos.length})
-              </button>
+              </p>
             )}
           </motion.div>
         )}
