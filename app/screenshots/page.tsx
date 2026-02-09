@@ -361,20 +361,22 @@ export default function ScreenshotsPage() {
                       }}
                     />
 
-                    {/* Promotional overlay */}
+                    {/* Promotional overlay - glassmorphic */}
                     {showOverlay && (
                       <div
                         className="absolute bottom-0 left-0 right-0 pointer-events-none"
                         style={{
-                          background: 'linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.8) 30%, rgba(0,0,0,0.4) 60%, transparent 100%)',
-                          padding: `${50 * scale}px ${20 * scale}px ${40 * scale}px`,
+                          padding: `${16 * scale}px ${20 * scale}px ${24 * scale}px`,
+                          background: 'rgba(255, 255, 255, 0.6)',
+                          backdropFilter: 'blur(9.4px)',
+                          WebkitBackdropFilter: 'blur(9.4px)',
+                          borderTop: '1px solid rgba(255, 255, 255, 0.3)',
                         }}
                       >
                         <p
-                          className="text-white font-bold text-center leading-tight"
+                          className="text-slate-900 font-bold text-center leading-tight"
                           style={{
-                            fontSize: Math.max(12, 26 * scale),
-                            textShadow: '0 2px 8px rgba(0,0,0,0.8)',
+                            fontSize: Math.max(12, 24 * scale),
                           }}
                         >
                           {overlayText}
