@@ -5129,7 +5129,7 @@ const InfoPageTooltips = React.memo(function InfoPageTooltips() {
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentIndex((prev) => (prev + 1) % tooltips.length);
-    }, 5000);
+    }, 2500); // Rotate every 2.5 seconds
     return () => clearInterval(interval);
   }, [tooltips.length]);
 
@@ -6361,6 +6361,10 @@ export default function App() {
   const { user, loading: authLoading, signOut } = useAuth();
   const [books, setBooks] = useState<BookWithRatings[]>([]);
   const [viewingUserId, setViewingUserId] = useState<string | null>(null);
+
+  // Screenshot mode for App Store screenshots
+  const [screenshotMode, setScreenshotMode] = useState(false);
+  const [screenshotOverlayText, setScreenshotOverlayText] = useState('Discover the world around your books');
   const [viewingUserBooks, setViewingUserBooks] = useState<BookWithRatings[]>([]);
   const [viewingUserName, setViewingUserName] = useState<string>('');
   const [viewingUserFullName, setViewingUserFullName] = useState<string | null>(null);
@@ -7363,6 +7367,24 @@ export default function App() {
   useEffect(() => {
     saveSpoilerRevealedToStorage(spoilerRevealed);
   }, [spoilerRevealed]);
+
+  // Detect screenshot mode from URL params
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const isScreenshot = params.get('screenshot') === '1';
+      const overlayText = params.get('text');
+      console.log('[Screenshot Mode] Checking URL params:', { isScreenshot, overlayText, search: window.location.search });
+      if (isScreenshot) {
+        setScreenshotMode(true);
+        // Also mark intro as seen to prevent about screen from showing
+        localStorage.setItem('hasSeenIntro', 'true');
+        if (overlayText) {
+          setScreenshotOverlayText(decodeURIComponent(overlayText));
+        }
+      }
+    }
+  }, []);
 
   // Load books from Supabase
   useEffect(() => {
@@ -15660,30 +15682,40 @@ export default function App() {
                 </div>
 
                 {/* Full page content that swipes together */}
-                <AnimatePresence mode="popLayout">
+                <AnimatePresence initial={false} mode="popLayout">
                   {aboutPageIndex === 0 && (
                     <motion.div
                       key="page-0"
-                      initial={{ opacity: 0, x: aboutSwipeDirection === 'backward' ? -100 : 0 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: aboutSwipeDirection === 'forward' ? -100 : 100 }}
-                      transition={{ duration: 0.3 }}
+                      initial={{ x: '-100%' }}
+                      animate={{ x: 0 }}
+                      exit={{ x: '-100%' }}
+                      transition={{ duration: 0.3, ease: 'easeInOut' }}
                       className="absolute inset-0 flex flex-col items-center px-8"
                     >
                       {/* Header - anchored to top */}
-                      <div className="absolute top-[14vh] left-0 right-0 flex flex-col items-center gap-[1vh] px-8">
+                      <motion.div
+                        className="absolute top-[14vh] left-0 right-0 flex flex-col items-center gap-[1vh] px-8"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.3, delay: 0.1 }}
+                      >
                         <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 text-center uppercase leading-tight">
-                          GET MORE THAN JUST READING
+                          GET MORE FROM READING
                         </h1>
                         <p className="text-[min(17px,2.2vh)] text-slate-600 text-center">
-                          Videos, podcasts, facts, and context — All in one place
+                          Videos, podcasts, fun facts and context around your book — All in one place.
                         </p>
-                      </div>
+                      </motion.div>
 
-                      {/* Content - notifications anchored above logo */}
-                      <div className="absolute bottom-[32vh] left-0 right-0 flex justify-center px-8 z-10">
+                      {/* Content - notifications anchored above logo - animates in after page transition */}
+                      <motion.div
+                        className="absolute bottom-[32vh] left-0 right-0 flex justify-center px-8 z-10"
+                        initial={{ opacity: 0, y: 30, scale: 0.9 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{ duration: 0.4, delay: 0.35, ease: 'easeOut' }}
+                      >
                         <InfoPageTooltips />
-                      </div>
+                      </motion.div>
 
                     </motion.div>
                   )}
@@ -15691,10 +15723,10 @@ export default function App() {
                   {aboutPageIndex === 1 && (
                     <motion.div
                       key="page-1"
-                      initial={{ opacity: 0, x: aboutSwipeDirection === 'forward' ? 100 : -100 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: aboutSwipeDirection === 'forward' ? -100 : 100 }}
-                      transition={{ duration: 0.3 }}
+                      initial={{ x: aboutSwipeDirection === 'forward' ? '100%' : '-100%' }}
+                      animate={{ x: 0 }}
+                      exit={{ x: aboutSwipeDirection === 'forward' ? '-100%' : '100%' }}
+                      transition={{ duration: 0.3, ease: 'easeInOut' }}
                       className="absolute inset-0 flex flex-col items-center px-8"
                     >
                       {/* Header - anchored to top */}
@@ -15784,10 +15816,10 @@ export default function App() {
                   {aboutPageIndex === 2 && (
                     <motion.div
                       key="page-2"
-                      initial={{ opacity: 0, x: aboutSwipeDirection === 'forward' ? 100 : -100 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: aboutSwipeDirection === 'forward' ? -100 : 100 }}
-                      transition={{ duration: 0.3 }}
+                      initial={{ x: '100%' }}
+                      animate={{ x: 0 }}
+                      exit={{ x: '100%' }}
+                      transition={{ duration: 0.3, ease: 'easeInOut' }}
                       className="absolute inset-0 flex flex-col items-center px-8"
                     >
                       {/* Header - anchored to top */}
@@ -16209,6 +16241,33 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Screenshot Mode Overlay - for App Store screenshots */}
+      {screenshotMode && (
+        <>
+          <div
+            className="fixed bottom-12 left-0 right-0 z-[10000] flex justify-center px-6 pointer-events-none"
+          >
+            <div
+              className="text-center"
+              style={{
+                padding: '20px 32px',
+                background: 'rgba(255, 255, 255, 0.9)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+                border: '1px solid rgba(255, 255, 255, 0.4)',
+                borderRadius: 20,
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.15)',
+                maxWidth: '90%',
+              }}
+            >
+              <p className="text-xl font-bold text-slate-900">
+                {screenshotOverlayText}
+              </p>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
