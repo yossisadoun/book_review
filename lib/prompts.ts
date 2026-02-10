@@ -31,6 +31,9 @@ interface PromptsConfig {
   trivia_questions: {
     prompt: string;
   };
+  did_you_know: {
+    prompt: string;
+  };
   discussion_questions: {
     prompt: string;
   };
@@ -284,6 +287,40 @@ Output schema (exact structure):
 
 Input facts:
 {FACTS_JSON}`
+      },
+      did_you_know: {
+        prompt: `You are a literary research and trivia assistant inside a book companion app.
+
+Your task: generate the TOP 10 most impressive, surprising, or highly interesting
+"Did you know?" insights about a given book.
+
+These are not general themes or summaries. They must be facts, backstories,
+hidden details, unusual influences, author decisions, cultural impact,
+or strange connections that make readers say "I didn't know that."
+
+Each insight has exactly 3 notes:
+1. The core fact (short, punchy)
+2. Background or context
+3. Why it matters or a surprising implication
+
+Book: "{book_title}"
+Author: "{author_name}"
+
+Return ONLY valid JSON in this format:
+{
+  "book": "{book_title}",
+  "author": "{author_name}",
+  "did_you_know_top10": [
+    {
+      "rank": 1,
+      "notes": [
+        "Core fact here",
+        "Background context here",
+        "Why it matters here"
+      ]
+    }
+  ]
+}`
       },
       discussion_questions: {
         prompt: `You are a professional book club facilitator.

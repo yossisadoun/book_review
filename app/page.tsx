@@ -79,6 +79,25 @@ function timeAgo(date: string): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+// Helper function to decode HTML entities (e.g., &#39; -> ')
+function decodeHtmlEntities(text: string): string {
+  if (!text) return text;
+  const textarea = typeof document !== 'undefined' ? document.createElement('textarea') : null;
+  if (textarea) {
+    textarea.innerHTML = text;
+    return textarea.value;
+  }
+  // Fallback for SSR - decode common entities manually
+  return text
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ');
+}
+
 // Feed card glassmorphism style
 const feedCardStyle = {
   background: 'rgba(255, 255, 255, 0.45)',
@@ -169,6 +188,19 @@ interface DomainInsights {
   facts: string[];
 }
 
+// Did You Know insight item (3 notes that tell a mini-story)
+interface DidYouKnowItem {
+  rank: number;
+  notes: [string, string, string]; // Note 1 = fact, Note 2 = background, Note 3 = why it matters
+}
+
+// Did You Know response from Grok
+interface DidYouKnowResponse {
+  book: string;
+  author: string;
+  did_you_know_top10: DidYouKnowItem[];
+}
+
 // Feed item interface for community/following feed
 interface FeedItem {
   id: string;
@@ -190,7 +222,7 @@ interface PersonalizedFeedItem {
   source_book_title: string;
   source_book_author: string;
   source_book_cover_url: string | null;
-  type: 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book';
+  type: 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book' | 'did_you_know';
   content: Record<string, any>;
   content_hash: string | null;
   reading_status: string | null;
@@ -339,8 +371,16 @@ interface GrokUsageLog {
 // Using approximate rates for grok-4-1-fast-non-reasoning
 const GROK_INPUT_PRICE_PER_M = 0.20;  // $0.20 per million input tokens
 const GROK_OUTPUT_PRICE_PER_M = 0.50;  // $0.50 per million output tokens
+const GROK_WEB_SEARCH_PRICE_PER_CALL = 0.005;  // $0.005 per web search call (estimate)
 
-async function logGrokUsage(functionName: string, usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined): Promise<void> {
+interface GrokUsageInput {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  web_search_calls?: number;  // Number of web search calls made
+}
+
+async function logGrokUsage(functionName: string, usage: GrokUsageInput | undefined, webSearchCalls?: number): Promise<void> {
   if (!usage || typeof usage.prompt_tokens !== 'number' || typeof usage.completion_tokens !== 'number') {
     return;
   }
@@ -348,11 +388,13 @@ async function logGrokUsage(functionName: string, usage: { prompt_tokens?: numbe
   const promptTokens = usage.prompt_tokens || 0;
   const completionTokens = usage.completion_tokens || 0;
   const totalTokens = usage.total_tokens || (promptTokens + completionTokens);
+  const searchCalls = webSearchCalls || usage.web_search_calls || 0;
 
   // Calculate cost
   const inputCost = (promptTokens / 1_000_000) * GROK_INPUT_PRICE_PER_M;
   const outputCost = (completionTokens / 1_000_000) * GROK_OUTPUT_PRICE_PER_M;
-  const estimatedCost = inputCost + outputCost;
+  const webSearchCost = searchCalls * GROK_WEB_SEARCH_PRICE_PER_CALL;
+  const estimatedCost = inputCost + outputCost + webSearchCost;
 
   // Get current user
   const { data: { user } } = await supabase.auth.getUser();
@@ -372,6 +414,7 @@ async function logGrokUsage(functionName: string, usage: { prompt_tokens?: numbe
         completion_tokens: completionTokens,
         total_tokens: totalTokens,
         estimated_cost: estimatedCost,
+        ...(searchCalls > 0 ? { web_search_calls: searchCalls } : {}),
       });
 
     if (error) {
@@ -1027,6 +1070,161 @@ async function saveBookContextToCache(bookTitle: string, bookAuthor: string, con
   }
 }
 
+// "Did You Know?" insights from Grok
+async function getGrokDidYouKnow(bookTitle: string, author: string): Promise<DidYouKnowItem[]> {
+  console.log('[getGrokDidYouKnow] Called for:', bookTitle, 'by', author);
+
+  if (!grokApiKey) {
+    console.warn('[getGrokDidYouKnow] API key is missing!');
+    return [];
+  }
+
+  console.log('[getGrokDidYouKnow] API key found, waiting 2s before request...');
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  const url = 'https://api.x.ai/v1/chat/completions';
+
+  const prompts = await loadPrompts();
+  if (!prompts.did_you_know || !prompts.did_you_know.prompt) {
+    console.error('[getGrokDidYouKnow] ❌ did_you_know prompt not found in prompts config');
+    return [];
+  }
+  const prompt = formatPrompt(prompts.did_you_know.prompt, { bookTitle, author });
+
+  const payload = {
+    messages: [
+      {
+        role: "user",
+        content: prompt
+      }
+    ],
+    model: "grok-4-1-fast-non-reasoning",
+    stream: false,
+    temperature: 0.7
+  };
+
+  console.log('[getGrokDidYouKnow] 🔵 Making request to Grok API...');
+  try {
+    const data = await fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload)
+    }, 2, 3000);
+
+    // Log usage
+    if (data.usage) {
+      logGrokUsage('getGrokDidYouKnow', data.usage);
+    }
+
+    const content = data.choices?.[0]?.message?.content || '{"did_you_know_top10":[]}';
+    // Try to extract JSON from the response (Grok might wrap it in markdown)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    const result: DidYouKnowResponse = JSON.parse(jsonStr);
+    console.log('[getGrokDidYouKnow] ✅ Parsed', result.did_you_know_top10?.length || 0, '"Did You Know?" insights');
+    return result.did_you_know_top10 || [];
+  } catch (err: any) {
+    console.error('[getGrokDidYouKnow] Error:', err);
+    return [];
+  }
+}
+
+// Get "Did You Know?" insights with caching
+async function getDidYouKnow(bookTitle: string, author: string): Promise<DidYouKnowItem[]> {
+  console.log(`[getDidYouKnow] 🔄 Fetching "Did You Know?" insights for "${bookTitle}" by ${author}`);
+
+  // Check database cache first
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = author.toLowerCase().trim();
+
+    const { data: cachedData, error: cacheError } = await supabase
+      .from('did_you_know_cache')
+      .select('insights')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+
+    if (!cacheError && cachedData && cachedData.insights && Array.isArray(cachedData.insights)) {
+      if (cachedData.insights.length > 0) {
+        console.log(`[getDidYouKnow] ✅ Found ${cachedData.insights.length} cached insights in database`);
+        return cachedData.insights as DidYouKnowItem[];
+      } else {
+        // Empty array means "no results" was already cached - don't try again
+        console.log(`[getDidYouKnow] ✅ Found cached "no results" - skipping Grok API call`);
+        return [];
+      }
+    } else if (cacheError && cacheError.code !== 'PGRST116') {
+      console.warn('[getDidYouKnow] ⚠️ Error checking cache:', cacheError);
+    }
+  } catch (err) {
+    console.warn('[getDidYouKnow] ⚠️ Error checking cache:', err);
+    // Continue to fetch from Grok
+  }
+
+  // Fetch from Grok API
+  const insights = await getGrokDidYouKnow(bookTitle, author);
+
+  // Save to cache
+  await saveDidYouKnowToCache(bookTitle, author, insights);
+
+  return insights;
+}
+
+// Helper function to save "Did You Know?" insights to cache table
+async function saveDidYouKnowToCache(bookTitle: string, bookAuthor: string, insights: DidYouKnowItem[]): Promise<void> {
+  try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = bookAuthor.toLowerCase().trim();
+
+    // Check if record exists
+    const { data: existingData, error: checkError } = await supabase
+      .from('did_you_know_cache')
+      .select('id')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('[saveDidYouKnowToCache] ❌ Error checking existing record:', checkError);
+      return;
+    }
+
+    let result;
+    if (existingData) {
+      // Update existing record
+      result = await supabase
+        .from('did_you_know_cache')
+        .update({
+          insights,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingData.id);
+    } else {
+      // Insert new record
+      result = await supabase
+        .from('did_you_know_cache')
+        .insert({
+          book_title: normalizedTitle,
+          book_author: normalizedAuthor,
+          insights
+        });
+    }
+
+    if (result.error) {
+      console.error('[saveDidYouKnowToCache] ❌ Error saving insights:', result.error);
+    } else {
+      console.log(`[saveDidYouKnowToCache] ✅ Saved ${insights.length} "Did You Know?" insights to cache`);
+    }
+  } catch (err: any) {
+    console.error('[saveDidYouKnowToCache] ❌ Error:', err);
+  }
+}
+
 // Discussion questions interface and functions
 interface DiscussionQuestion {
   id: number;
@@ -1401,7 +1599,7 @@ async function saveAuthorFactsToCache(bookTitle: string, bookAuthor: string, fac
 // FEED ITEM GENERATION
 // ============================================
 
-type FeedItemType = 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book';
+type FeedItemType = 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book' | 'did_you_know';
 
 interface FeedItemContent {
   [key: string]: any;
@@ -1474,20 +1672,10 @@ async function generateFeedItemsForBook(
   readingStatus: string | null,
   bookCreatedAt: string
 ): Promise<{ created: number; errors: string[]; skipped?: boolean }> {
-  const generatedTypes: FeedItemType[] = ['fact', 'context', 'drilldown', 'influence', 'podcast', 'article', 'related_book', 'video'];
+  const generatedTypes: FeedItemType[] = ['fact', 'context', 'drilldown', 'influence', 'podcast', 'article', 'related_book', 'video', 'did_you_know'];
 
-  // Check if generated feed items already exist for this user and book
-  const { count: existingCount } = await supabase
-    .from('feed_items')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .eq('source_book_id', bookId)
-    .in('type', generatedTypes);
-
-  if (existingCount && existingCount > 0) {
-    console.log(`[generateFeedItemsForBook] ⏭️ Skipping "${bookTitle}" - already has ${existingCount} generated feed items`);
-    return { created: 0, errors: [], skipped: true };
-  }
+  // Note: We no longer skip based on existing items - the upsert with ignoreDuplicates handles deduplication.
+  // This allows new content types to be added to books that already have some feed items.
 
   const errors: string[] = [];
   let created = 0;
@@ -1519,6 +1707,7 @@ async function generateFeedItemsForBook(
     });
 
     if (error) {
+      console.error(`[insertFeedItem] ❌ Error inserting ${type}:`, error.message, error.code, error.details);
       errors.push(`${type}: ${error.message}`);
       return false;
     }
@@ -1535,6 +1724,7 @@ async function generateFeedItemsForBook(
     articlesData,
     relatedBooksData,
     youtubeVideosData,
+    didYouKnowData,
   ] = await Promise.all([
     supabase.from('author_facts_cache').select('author_facts').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
     supabase.from('book_context_cache').select('context_insights').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
@@ -1544,7 +1734,16 @@ async function generateFeedItemsForBook(
     supabase.from('google_scholar_articles').select('articles').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
     supabase.from('related_books').select('related_books').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
     supabase.from('youtube_videos').select('videos').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
+    supabase.from('did_you_know_cache').select('insights').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
   ]);
+
+  // Debug: Log what we found in cache tables
+  console.log(`[generateFeedItemsForBook] 📊 Cache data for "${normalizedTitle}" by "${normalizedAuthor}":`);
+  console.log(`  - author_facts: ${authorFactsData.data?.author_facts?.length || 0} items, error: ${authorFactsData.error?.message || 'none'}`);
+  console.log(`  - context: ${bookContextData.data?.context_insights?.length || 0} items, error: ${bookContextData.error?.message || 'none'}`);
+  console.log(`  - domain: ${bookDomainData.data?.domain_insights?.length || 0} items, error: ${bookDomainData.error?.message || 'none'}`);
+  console.log(`  - influences: ${bookInfluencesData.data?.influences?.length || 0} items, error: ${bookInfluencesData.error?.message || 'none'}`);
+  console.log(`  - did_you_know: ${didYouKnowData.data?.insights?.length || 0} items, error: ${didYouKnowData.error?.message || 'none'}`);
 
   // Process author facts
   const authorFacts = authorFactsData.data?.author_facts;
@@ -1610,6 +1809,20 @@ async function generateFeedItemsForBook(
     }
   }
 
+  // Process "Did you know?" insights - each item has 3 notes shown together
+  const didYouKnowInsights = didYouKnowData.data?.insights;
+  if (didYouKnowInsights && Array.isArray(didYouKnowInsights)) {
+    for (const item of didYouKnowInsights) {
+      // Each did_you_know item contains { rank, notes: [string, string, string] }
+      if (item.notes && Array.isArray(item.notes) && item.notes.length === 3) {
+        if (await insertFeedItem('did_you_know', {
+          rank: item.rank,
+          notes: item.notes
+        })) created++;
+      }
+    }
+  }
+
   console.log(`[generateFeedItemsForBook] ✅ Created ${created} feed items for "${bookTitle}" (${errors.length} errors)`);
   return { created, errors };
 }
@@ -1625,6 +1838,7 @@ async function getPersonalizedFeed(userId: string): Promise<any[]> {
     supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'drilldown').order('created_at', { ascending: false }).limit(POOL_SIZE),
     supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'influence').order('created_at', { ascending: false }).limit(POOL_SIZE),
     supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'podcast').order('created_at', { ascending: false }).limit(POOL_SIZE),
+    supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'did_you_know').order('created_at', { ascending: false }).limit(POOL_SIZE),
     supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'article').order('created_at', { ascending: false }).limit(POOL_SIZE),
     supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'related_book').order('created_at', { ascending: false }).limit(POOL_SIZE),
     supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'video').order('created_at', { ascending: false }).limit(POOL_SIZE),
@@ -3752,7 +3966,6 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
   const [isVisible, setIsVisible] = useState(true); // Start visible to prevent flickering
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
-  const [isTextExpanded, setIsTextExpanded] = useState(false);
   const minSwipeDistance = 50;
   const prevInsightsRef = useRef<string>('');
   
@@ -3796,7 +4009,6 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
 
   function handleNext() {
     setIsVisible(false);
-    setIsTextExpanded(false);
     // Wait for fade out, then show next (or loop back to first)
     setTimeout(() => {
       setCurrentIndex(prev => (prev + 1) % insights.length);
@@ -3806,7 +4018,6 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
 
   function handlePrev() {
     setIsVisible(false);
-    setIsTextExpanded(false);
     setTimeout(() => {
       setCurrentIndex(prev => (prev > 0 ? prev - 1 : insights.length - 1));
       setIsVisible(true);
@@ -3888,28 +4099,9 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
               </span>
             </div>
             <div className="text-center">
-              <p
-                className={`text-xs font-medium text-slate-950 leading-relaxed ${!isTextExpanded ? 'line-clamp-4' : ''}`}
-                onClick={(e) => {
-                  if (currentInsight.text.length > 200) {
-                    e.stopPropagation();
-                    setIsTextExpanded(!isTextExpanded);
-                  }
-                }}
-              >
+              <p className="text-xs font-medium text-slate-950 leading-relaxed">
                 💡 {currentInsight.text}
               </p>
-              {currentInsight.text.length > 200 && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsTextExpanded(!isTextExpanded);
-                  }}
-                  className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
-                >
-                  {isTextExpanded ? 'Show less' : 'Show more'}
-                </button>
-              )}
             </div>
             {currentInsight.sourceUrl && (
               <a
@@ -4191,8 +4383,8 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                 </button>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-bold text-slate-900 text-sm line-clamp-2">{currentEpisode.title}</p>
-                <p className="text-xs text-slate-500 mt-1">{currentEpisode.podcast_name || 'Podcast'}</p>
+                <p className="font-bold text-slate-900 text-sm line-clamp-2">{decodeHtmlEntities(currentEpisode.title)}</p>
+                <p className="text-xs text-slate-500 mt-1">{decodeHtmlEntities(currentEpisode.podcast_name || 'Podcast')}</p>
                 <div className="flex items-center gap-3 mt-2">
                   <button
                     onClick={(e) => handlePlay(e, currentEpisode)}
@@ -4228,6 +4420,33 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                 </div>
               </div>
             </div>
+            {/* Episode description with read-more */}
+            {currentEpisode.episode_summary && (
+              <div className="mt-2">
+                <p
+                  className={`text-xs text-slate-700 leading-relaxed ${!isTextExpanded ? 'line-clamp-2' : ''}`}
+                  onClick={(e) => {
+                    if (currentEpisode.episode_summary && currentEpisode.episode_summary.length > 100) {
+                      e.stopPropagation();
+                      setIsTextExpanded(!isTextExpanded);
+                    }
+                  }}
+                >
+                  {decodeHtmlEntities(currentEpisode.episode_summary)}
+                </p>
+                {currentEpisode.episode_summary.length > 100 && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsTextExpanded(!isTextExpanded);
+                    }}
+                    className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+                  >
+                    {isTextExpanded ? 'Show less' : 'Read more'}
+                  </button>
+                )}
+              </div>
+            )}
             <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
               Tap for next ({currentIndex + 1}/{episodes.length})
             </p>
@@ -4565,18 +4784,18 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
                   onClick={(e) => e.stopPropagation()}
                   className="text-xs font-bold text-blue-700 hover:text-blue-800 hover:underline block mb-1 line-clamp-2"
                 >
-                  {currentArticle.title}
+                  {decodeHtmlEntities(currentArticle.title)}
                 </a>
                 {(currentArticle.authors || currentArticle.year) && (
                   <div className="text-xs text-slate-600">
-                    {currentArticle.authors && <span>{currentArticle.authors}</span>}
+                    {currentArticle.authors && <span>{decodeHtmlEntities(currentArticle.authors)}</span>}
                     {currentArticle.year && <span> • {currentArticle.year}</span>}
                   </div>
                 )}
               </div>
             </div>
             <p className="text-xs font-medium text-slate-800 leading-relaxed mb-1">
-              {currentArticle.snippet}
+              {decodeHtmlEntities(currentArticle.snippet)}
             </p>
             {currentArticle.url && (
               <button
@@ -4584,10 +4803,10 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
                   e.stopPropagation();
                   window.open(currentArticle.url, '_blank');
                 }}
-                className="inline-flex items-center gap-1 text-xs text-violet-600 font-medium active:scale-95 transition-transform mt-2"
+                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium active:scale-95 transition-transform mt-2"
               >
                 <ExternalLink size={12} />
-                Read article
+                Read more
               </button>
             )}
             <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
@@ -4612,9 +4831,8 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
   const [isVisible, setIsVisible] = useState(false);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
-  const [isTextExpanded, setIsTextExpanded] = useState(false);
   const minSwipeDistance = 50;
-  
+
   // Consistent glassmorphism style (less transparent for book page info cards)
   const glassmorphicStyle: React.CSSProperties = {
     background: 'rgba(255, 255, 255, 0.45)',
@@ -4629,7 +4847,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
     // Reset when book changes
     setCurrentIndex(0);
     setIsVisible(false);
-    
+
     if (books.length === 0) return;
 
     // Show first book after a short delay
@@ -4642,7 +4860,6 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
 
   function handleNext() {
     setIsVisible(false);
-    setIsTextExpanded(false);
     // Wait for fade out, then show next (or loop back to first)
     setTimeout(() => {
       setCurrentIndex(prev => (prev + 1) % books.length);
@@ -4652,7 +4869,6 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
 
   function handlePrev() {
     setIsVisible(false);
-    setIsTextExpanded(false);
     setTimeout(() => {
       setCurrentIndex(prev => (prev > 0 ? prev - 1 : books.length - 1));
       setIsVisible(true);
@@ -4778,10 +4994,10 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
               )}
               <div className="flex-1 min-w-0">
                 <h3 className="text-xs font-bold text-slate-800 mb-1 line-clamp-2">
-                  {currentBook.title}
+                  {decodeHtmlEntities(currentBook.title)}
                 </h3>
                 <div className="text-xs text-slate-600 mb-2">
-                  <span>{currentBook.author}</span>
+                  <span>{decodeHtmlEntities(currentBook.author)}</span>
                 </div>
                 {/* Add Book Button */}
                 {onAddBook && (
@@ -4795,35 +5011,13 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
                 )}
               </div>
             </div>
-            {(() => {
-              const needsShowMore = currentBook.reason && currentBook.reason.length > 120;
-              return (
-                <div className="mb-3">
-                  <p
-                    className={`text-xs font-medium text-slate-800 leading-relaxed ${!isTextExpanded && needsShowMore ? 'line-clamp-3' : ''}`}
-                    onClick={(e) => {
-                      if (needsShowMore) {
-                        e.stopPropagation();
-                        setIsTextExpanded(!isTextExpanded);
-                      }
-                    }}
-                  >
-                    {currentBook.reason}
-                  </p>
-                  {needsShowMore && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setIsTextExpanded(!isTextExpanded);
-                      }}
-                      className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
-                    >
-                      {isTextExpanded ? 'Show less' : 'Show more'}
-                    </button>
-                  )}
-                </div>
-              );
-            })()}
+            {currentBook.reason && (
+              <div className="mb-3">
+                <p className="text-xs font-medium text-slate-800 leading-relaxed">
+                  {decodeHtmlEntities(currentBook.reason)}
+                </p>
+              </div>
+            )}
             {books.length > 1 && (
               <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
                 Tap card for next ({currentIndex + 1}/{books.length})
@@ -6444,6 +6638,8 @@ export default function App() {
   const [loadingDomainForBookId, setLoadingDomainForBookId] = useState<string | null>(null);
   const [bookContext, setBookContext] = useState<Map<string, string[]>>(new Map());
   const [loadingContextForBookId, setLoadingContextForBookId] = useState<string | null>(null);
+  const [didYouKnow, setDidYouKnow] = useState<Map<string, DidYouKnowItem[]>>(new Map());
+  const [loadingDidYouKnowForBookId, setLoadingDidYouKnowForBookId] = useState<string | null>(null);
   const [loadingPodcastsForBookId, setLoadingPodcastsForBookId] = useState<string | null>(null);
   const [loadingAnalysisForBookId, setLoadingAnalysisForBookId] = useState<string | null>(null);
   const [analysisArticles, setAnalysisArticles] = useState<Map<string, AnalysisArticle[]>>(new Map());
@@ -6525,7 +6721,7 @@ export default function App() {
   const [isLoadingPersonalizedFeed, setIsLoadingPersonalizedFeed] = useState(false);
   const [feedDisplayCount, setFeedDisplayCount] = useState(8);
   const [feedFilter, setFeedFilter] = useState<'all' | 'unread'>('all');
-  const [feedTypeFilter, setFeedTypeFilter] = useState<'all' | 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book'>('all');
+  const [feedTypeFilter, setFeedTypeFilter] = useState<'all' | 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book' | 'did_you_know'>('all');
   const [isFeedTypeDropdownOpen, setIsFeedTypeDropdownOpen] = useState(false);
   const feedTypeDropdownRef = useRef<HTMLDivElement>(null);
   const [isLoadingMoreFeed, setIsLoadingMoreFeed] = useState(false);
@@ -6533,6 +6729,7 @@ export default function App() {
   const feedAudioRef = useRef<HTMLAudioElement | null>(null);
   const [feedPlayingVideoId, setFeedPlayingVideoId] = useState<string | null>(null);
   const [expandedFeedDescriptions, setExpandedFeedDescriptions] = useState<Set<string>>(new Set());
+  const [didYouKnowNoteIndex, setDidYouKnowNoteIndex] = useState<Map<string, number>>(new Map());
   const [followingUsers, setFollowingUsers] = useState<Array<{ id: string; full_name: string | null; avatar_url: string | null; email: string; followed_at: string }>>([]);
 
   // Book discussion state
@@ -8843,6 +9040,96 @@ export default function App() {
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
 
+  // Track which books we're currently fetching "Did you know?" insights for to prevent duplicate concurrent fetches
+  const fetchingDidYouKnowForBooksRef = useRef<Set<string>>(new Set());
+
+  // Fetch "Did you know?" insights for existing books when they're selected
+  useEffect(() => {
+    const currentBook = books[selectedIndex];
+    if (!currentBook || !currentBook.title || !currentBook.author) {
+      setLoadingDidYouKnowForBookId(null);
+      return;
+    }
+
+    const bookId = currentBook.id;
+    const bookTitle = currentBook.title;
+    const bookAuthor = currentBook.author;
+
+    // Check if "Did you know?" insights already exist in local state
+    const didYouKnowData = didYouKnow.get(bookId);
+    const hasDidYouKnow = didYouKnowData && didYouKnowData.length > 0;
+
+    // Check if we're currently fetching for this book (to prevent concurrent fetches)
+    const isCurrentlyFetching = fetchingDidYouKnowForBooksRef.current.has(bookId);
+
+    if (hasDidYouKnow) {
+      // "Did you know?" insights already loaded in state, no need to fetch again
+      setLoadingDidYouKnowForBookId(null);
+      return;
+    }
+
+    if (isCurrentlyFetching) {
+      // Fetch already in progress, just wait
+      setLoadingDidYouKnowForBookId(bookId);
+      return;
+    }
+
+    let cancelled = false;
+
+    // Mark this book as being fetched (to prevent concurrent fetches)
+    fetchingDidYouKnowForBooksRef.current.add(bookId);
+
+    // Set loading state
+    setLoadingDidYouKnowForBookId(bookId);
+
+    // Add a delay to avoid rate limits when scrolling through books
+    const fetchTimer = setTimeout(() => {
+      if (cancelled) return;
+
+      console.log(`[Did You Know] 🔄 Fetching "Did you know?" insights for "${bookTitle}" by ${bookAuthor}...`);
+      getDidYouKnow(bookTitle, bookAuthor).then((insights) => {
+        if (cancelled) return;
+
+        // Clear loading state and remove from fetching set
+        setLoadingDidYouKnowForBookId(null);
+        fetchingDidYouKnowForBooksRef.current.delete(bookId);
+
+        if (insights.length > 0) {
+          console.log(`[Did You Know] ✅ Received ${insights.length} "Did you know?" insights for "${bookTitle}"`);
+
+          // Store in state
+          setDidYouKnow(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, insights);
+            return newMap;
+          });
+        } else {
+          console.log(`[Did You Know] ⚠️ No "Did you know?" insights received for "${bookTitle}"`);
+          // Store empty array to prevent future fetches
+          setDidYouKnow(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, []);
+            return newMap;
+          });
+        }
+      }).catch(err => {
+        if (!cancelled) {
+          setLoadingDidYouKnowForBookId(null);
+          console.error('Error fetching "Did you know?" insights:', err);
+        }
+        // Remove from fetching set on error so we can retry
+        fetchingDidYouKnowForBooksRef.current.delete(bookId);
+      });
+    }, 3000); // Delay to avoid rate limits when scrolling
+
+    return () => {
+      cancelled = true;
+      setLoadingDidYouKnowForBookId(null);
+      fetchingDidYouKnowForBooksRef.current.delete(bookId); // Clean up on unmount
+      clearTimeout(fetchTimer);
+    };
+  }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
+
   // Track which books we're currently fetching podcasts for to prevent duplicate concurrent fetches
   const fetchingPodcastsForBooksRef = useRef<Set<string>>(new Set());
   
@@ -11002,6 +11289,7 @@ export default function App() {
                           { value: 'context', label: 'Context' },
                           { value: 'drilldown', label: 'Insights' },
                           { value: 'influence', label: 'Influences' },
+                          { value: 'did_you_know', label: 'Did You Know?' },
                           { value: 'podcast', label: 'Podcasts' },
                           { value: 'article', label: 'Articles' },
                           { value: 'related_book', label: 'Books' },
@@ -11545,10 +11833,10 @@ export default function App() {
                                 </div>
                               )}
                               <div className="flex-1 min-w-0 flex flex-col justify-center">
-                                <p className="font-bold text-slate-900 text-lg leading-tight">{relatedBook?.title || 'Related Book'}</p>
-                                <p className="text-sm text-slate-600 mt-0.5">{relatedBook?.author || 'Unknown Author'}</p>
+                                <p className="font-bold text-slate-900 text-lg leading-tight">{decodeHtmlEntities(relatedBook?.title || 'Related Book')}</p>
+                                <p className="text-sm text-slate-600 mt-0.5">{decodeHtmlEntities(relatedBook?.author || 'Unknown Author')}</p>
                                 {relatedBook?.reason && (
-                                  <p className="text-sm text-slate-700 mt-2 leading-snug">{relatedBook.reason}</p>
+                                  <p className="text-sm text-slate-700 mt-2 leading-snug">{decodeHtmlEntities(relatedBook.reason)}</p>
                                 )}
                               </div>
                             </div>
@@ -11574,9 +11862,9 @@ export default function App() {
                         </div>
                         <div className="px-4 pb-4">
                           <div className="bg-white/40 rounded-xl p-3 mb-3">
-                            <p className="font-semibold text-slate-800 text-sm mb-1">{article?.title || 'Article'}</p>
+                            <p className="font-semibold text-slate-800 text-sm mb-1">{decodeHtmlEntities(article?.title || 'Article')}</p>
                             {article?.snippet && (
-                              <p className="text-xs text-slate-600 line-clamp-2">{article.snippet}</p>
+                              <p className="text-xs text-slate-600 line-clamp-2">{decodeHtmlEntities(article.snippet)}</p>
                             )}
                             {article?.url && (
                               <a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-2 text-xs text-blue-600 font-medium">
@@ -11689,6 +11977,84 @@ export default function App() {
                               Add book
                             </button>
                           )}
+                        </div>
+                      </motion.div>
+                    );
+
+                  case 'did_you_know':
+                    // "Did you know?" item with 3 notes shown together with pagination dots
+                    const didYouKnowNotes: string[] = item.content.notes || [];
+                    const currentNoteIdx = didYouKnowNoteIndex.get(item.id) || 0;
+
+                    return (
+                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+                            <Lightbulb size={20} className="text-white" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-slate-900 text-sm">Did You Know?</p>
+                            <p className="text-xs text-slate-500">Surprising facts about your book</p>
+                          </div>
+                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
+                          <ReadToggle />
+                        </div>
+                        <div className="px-4 pb-4">
+                          {/* Notes carousel */}
+                          <div className="bg-gradient-to-br from-violet-50 to-purple-50 rounded-xl p-4 mb-3 border border-violet-100 min-h-[100px]">
+                            <AnimatePresence mode="wait">
+                              <motion.p
+                                key={currentNoteIdx}
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: -20 }}
+                                transition={{ duration: 0.2 }}
+                                className="text-sm text-slate-700 leading-relaxed"
+                              >
+                                {didYouKnowNotes[currentNoteIdx] || ''}
+                              </motion.p>
+                            </AnimatePresence>
+                          </div>
+
+                          {/* Pagination dots */}
+                          {didYouKnowNotes.length > 1 && (
+                            <div className="flex justify-center gap-2 mb-3">
+                              {didYouKnowNotes.map((_, idx) => (
+                                <button
+                                  key={idx}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDidYouKnowNoteIndex(prev => {
+                                      const newMap = new Map(prev);
+                                      newMap.set(item.id, idx);
+                                      return newMap;
+                                    });
+                                  }}
+                                  className={`w-2 h-2 rounded-full transition-all ${
+                                    idx === currentNoteIdx
+                                      ? 'bg-violet-500 w-4'
+                                      : 'bg-slate-300 hover:bg-slate-400'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          )}
+
+                          <button
+                            onClick={openSourceBookOverlay}
+                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                          >
+                            {item.source_book_cover_url ? (
+                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
+                            ) : (
+                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-slate-500">About</p>
+                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                            </div>
+                          </button>
                         </div>
                       </motion.div>
                     );
@@ -13785,11 +14151,14 @@ export default function App() {
                   const domainLabel = domainData?.label || 'Domain';
                   const contextInsights = bookContext.get(activeBook.id) || [];
                   const hasContext = contextInsights.length > 0;
+                  const didYouKnowInsights = didYouKnow.get(activeBook.id) || [];
+                  const hasDidYouKnow = didYouKnowInsights.length > 0;
                   const isLoadingFacts = !bookPageSectionsResolved && loadingFactsForBookId === activeBook.id && !hasFacts;
                   const isLoadingResearch = !bookPageSectionsResolved && loadingResearchForBookId === activeBook.id && !hasResearch;
                   const isLoadingInfluences = !bookPageSectionsResolved && loadingInfluencesForBookId === activeBook.id && !hasInfluences;
                   const isLoadingDomain = !bookPageSectionsResolved && loadingDomainForBookId === activeBook.id && !hasDomain;
                   const isLoadingContext = !bookPageSectionsResolved && loadingContextForBookId === activeBook.id && !hasContext;
+                  const isLoadingDidYouKnow = !bookPageSectionsResolved && loadingDidYouKnowForBookId === activeBook.id && !hasDidYouKnow;
                   
                   // Get available categories
                   const categories: { id: string; label: string; count: number }[] = [];
@@ -13805,6 +14174,9 @@ export default function App() {
                   if (hasContext || isLoadingContext) {
                     categories.push({ id: 'context', label: 'Context', count: contextInsights.length });
                   }
+                  if (hasDidYouKnow || isLoadingDidYouKnow) {
+                    categories.push({ id: 'did_you_know', label: 'Did you know?', count: didYouKnowInsights.length });
+                  }
                   if (hasResearch) {
                     research.pillars.forEach(pillar => {
                       categories.push({ 
@@ -13816,7 +14188,7 @@ export default function App() {
                   }
                   
                   // Only render if loading or has data
-                  if (!isLoadingFacts && !isLoadingResearch && !isLoadingInfluences && !isLoadingDomain && !isLoadingContext && !hasFacts && !hasResearch && !hasInfluences && !hasDomain && !hasContext) return null;
+                  if (!isLoadingFacts && !isLoadingResearch && !isLoadingInfluences && !isLoadingDomain && !isLoadingContext && !isLoadingDidYouKnow && !hasFacts && !hasResearch && !hasInfluences && !hasDomain && !hasContext && !hasDidYouKnow) return null;
                   
                   // Determine current category data
                   const currentCategory = categories.find(c => c.id === selectedInsightCategory) || categories[0];
@@ -13837,6 +14209,12 @@ export default function App() {
                   } else if (currentCategory?.id === 'context') {
                     currentInsights = contextInsights.map(insight => ({ text: insight, label: 'Context' }));
                     isLoading = isLoadingContext;
+                  } else if (currentCategory?.id === 'did_you_know') {
+                    // For "Did you know?", combine all 3 notes per item into separate insights
+                    currentInsights = didYouKnowInsights.flatMap(item =>
+                      item.notes.map(note => ({ text: note, label: 'Did you know?' }))
+                    );
+                    isLoading = isLoadingDidYouKnow;
                   } else if (currentCategory && hasResearch) {
                     const pillar = research.pillars.find(p => p.pillar_name.toLowerCase().replace(/\s+/g, '_') === currentCategory.id);
                     if (pillar) {

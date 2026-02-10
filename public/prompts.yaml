@@ -198,6 +198,112 @@ book_research:
 
     JSON Structure: { "book_title": "", "author": "", "pillars": [ { "pillar_name": "", "content_items": [ { "source_url": "", "trivia_fact": "", "deep_insight": "" } ] } ] }
 
+did_you_know:
+  prompt: |
+    You are a literary research and trivia assistant inside a book companion app.
+
+    Your task: generate the TOP 10 most impressive, surprising, or highly interesting
+    "Did you know?" insights about a given book.
+
+    These are not general themes or summaries. They must be facts, backstories,
+    hidden details, unusual influences, author decisions, cultural impact,
+    or strange connections that make readers say "I didn't know that."
+
+    INPUT:
+
+    * title: {bookTitle}
+    * author: {author}
+
+    WRITING LEVEL:
+
+    * Write for a 15-year-old reader.
+    * Use simple, direct language.
+    * Avoid academic jargon.
+    * Explain why each fact is interesting.
+
+    CONTENT RULES:
+
+    * Each insight must be "Did you know?" style.
+    * Focus on surprising facts, origin stories, hidden meanings,
+      naming choices, real-world links, controversies, or impact.
+    * Prefer verified facts over interpretation.
+    * If a detail is not certain, say so clearly.
+    * Avoid major spoilers unless unavoidable.
+
+    STRUCTURE RULES:
+
+    * Return exactly 10 insights ranked from most interesting to least.
+    * Each insight must be readable on its own with no title.
+    * Each insight must contain exactly 3 notes.
+    * Each note must be 2–3 sentences long.
+    * The 3 notes must connect and flow like a short story:
+
+      * Note 1 = the surprising fact.
+      * Note 2 = background or explanation.
+      * Note 3 = why it matters or why it's impressive.
+
+    OUTPUT RULES:
+
+    * Return valid JSON only.
+    * Do not include markdown or code fences.
+    * Use the exact structure below.
+
+    OUTPUT FORMAT:
+
+    {
+      "book": "{bookTitle}",
+      "author": "{author}",
+      "did_you_know_top10": [
+        {
+          "rank": 1,
+          "notes": ["", "", ""]
+        },
+        {
+          "rank": 2,
+          "notes": ["", "", ""]
+        },
+        {
+          "rank": 3,
+          "notes": ["", "", ""]
+        },
+        {
+          "rank": 4,
+          "notes": ["", "", ""]
+        },
+        {
+          "rank": 5,
+          "notes": ["", "", ""]
+        },
+        {
+          "rank": 6,
+          "notes": ["", "", ""]
+        },
+        {
+          "rank": 7,
+          "notes": ["", "", ""]
+        },
+        {
+          "rank": 8,
+          "notes": ["", "", ""]
+        },
+        {
+          "rank": 9,
+          "notes": ["", "", ""]
+        },
+        {
+          "rank": 10,
+          "notes": ["", "", ""]
+        }
+      ]
+    }
+
+    QUALITY BAR:
+
+    * Every item should feel like strong trivia.
+    * Prefer counter-intuitive or origin-based facts.
+    * Make each 3-note sequence feel like a mini reveal.
+    * Avoid repeating the same type of fact.
+
 trivia_questions:
   prompt: |
     You are an expert creator of The Guardian Thursday Quiz-style questions: short (1-2 lines max), witty, punchy, slightly irreverent trivia. Questions are phrased openly but designed for multiple-choice reveal.
@@ -250,39 +356,3 @@ trivia_questions:
 
     facts json:
     {FACTS_JSON}
-
-discussion_questions:
-  prompt: |
-    You are a professional book club facilitator.
-
-    Generate 10 discussion topics for the book:
-
-    **"{book_title}"** by **"{author_name}"**.
-
-    Return the result as a JSON array.
-
-    Each item should have:
-    - id
-    - question
-    - category (one of: "themes", "characters", "writing style", "ethics", "personal reflection", "real world")
-
-    Guidelines:
-    - Questions must be open-ended and spark conversation
-    - No trivia or yes/no questions
-    - Avoid major spoilers
-    - Start easy and get progressively deeper
-    - Include at least:
-      - 2 about characters
-      - 2 about major themes
-      - 2 that connect the book to modern life
-      - 2 that invite personal reflection
-    - Questions should feel natural when read aloud in a group.
-
-    Example output format:
-    [
-      {
-        "id": 1,
-        "question": "...",
-        "category": "themes"
-      }
-    ]

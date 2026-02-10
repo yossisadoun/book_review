@@ -178,6 +178,125 @@ Feature flags are configured in `/lib/feature-flags.ts`.
 | `/public/feed.svg` | `Rss` | Header, bottom nav (feed) |
 | `/public/search.svg` | `Search` | AddBookSheet, feed drilldown, bottom nav |
 
+## Database Migrations
+
+**Location:** `/migrations/` (root level, NOT in `/supabase/migrations/`)
+
+Migrations are SQL files run manually in Supabase SQL Editor. Naming convention: `add_<feature>.sql`
+
+## Adding/Modifying Feed Items
+
+The feed system generates content cards from cached book data. Here's how to add a new feed item type:
+
+### Architecture Overview
+
+```
+Cache Tables (Supabase)          →  generateFeedItemsForBook()  →  feed_items table  →  Feed UI
+- author_facts_cache                 Reads from cache tables        Stores items         Renders cards
+- book_context_cache                 Creates feed items             with type, content   based on type
+- did_you_know_cache                 Upserts to feed_items
+- etc.
+```
+
+### Steps to Add a New Feed Item Type
+
+**1. Update TypeScript types** (`app/page.tsx`):
+```typescript
+// Add to FeedItemType union (~line 1602)
+type FeedItemType = '...' | 'your_new_type';
+
+// Add to PersonalizedFeedItem interface (~line 225)
+type: '...' | 'your_new_type';
+
+// Add to feedTypeFilter state type (~line 6708)
+const [feedTypeFilter, setFeedTypeFilter] = useState<'all' | '...' | 'your_new_type'>('all');
+```
+
+**2. Add cache table query** in `generateFeedItemsForBook()` (~line 1730):
+```typescript
+const [
+  // ... existing queries
+  yourNewData,
+] = await Promise.all([
+  // ... existing queries
+  supabase.from('your_cache_table').select('data').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
+]);
+```
+
+**3. Process and insert feed items** (~line 1815):
+```typescript
+const yourItems = yourNewData.data?.items;
+if (yourItems && Array.isArray(yourItems)) {
+  for (const item of yourItems) {
+    if (await insertFeedItem('your_new_type', { item })) created++;
+  }
+}
+```
+
+**4. Add query in `getPersonalizedFeed()`** (~line 1840):
+```typescript
+supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'your_new_type').order('created_at', { ascending: false }).limit(POOL_SIZE),
+```
+
+**5. Add to filter dropdown** (~line 11280):
+```typescript
+{ value: 'your_new_type', label: 'Your Label' },
+```
+
+**6. Add UI rendering** in the feed switch statement (~line 11428):
+```typescript
+case 'your_new_type':
+  return (
+    <motion.div key={item.id} ...>
+      {/* Your card UI */}
+    </motion.div>
+  );
+```
+
+**7. Create Supabase migration** (`/migrations/add_your_type.sql`):
+- Create cache table if needed
+- Add RLS policies
+- If `feed_items.type` is an enum, add the new value
+
+### Common Pitfalls
+
+1. **Title/Author Mismatch**: Cache tables store normalized titles (`toLowerCase().trim()`). Ensure consistency between save and query operations.
+
+2. **Duplicate Prevention**: The `insertFeedItem()` uses `upsert` with `onConflict: 'user_id,type,content_hash'` and `ignoreDuplicates: true`. Don't add skip logic that prevents new types from being added to existing books.
+
+3. **CHECK Constraint on type column**: The `feed_items.type` column has a CHECK constraint limiting allowed values. You MUST update it when adding new types:
+   ```sql
+   -- Check existing constraint
+   SELECT conname, pg_get_constraintdef(oid)
+   FROM pg_constraint
+   WHERE conrelid = 'feed_items'::regclass AND contype = 'c';
+
+   -- Drop and recreate with new type
+   ALTER TABLE feed_items DROP CONSTRAINT feed_items_type_check;
+   ALTER TABLE feed_items ADD CONSTRAINT feed_items_type_check
+   CHECK (type = ANY (ARRAY['fact'::text, 'context'::text, 'drilldown'::text, 'influence'::text, 'podcast'::text, 'article'::text, 'related_book'::text, 'video'::text, 'friend_book'::text, 'your_new_type'::text]));
+   ```
+
+4. **State for Interactive Cards**: If your card needs local state (like pagination), add a Map at component level:
+   ```typescript
+   const [yourStateMap, setYourStateMap] = useState<Map<string, number>>(new Map());
+   ```
+   Don't use `useState` inside the switch case.
+
+5. **RLS Policies**: New cache tables need Row Level Security policies for read/insert/update.
+
+### Key Files & Locations
+
+| What | Location |
+|------|----------|
+| FeedItemType union | `app/page.tsx` ~line 1602 |
+| PersonalizedFeedItem interface | `app/page.tsx` ~line 218 |
+| generateFeedItemsForBook() | `app/page.tsx` ~line 1666 |
+| getPersonalizedFeed() | `app/page.tsx` ~line 1840 |
+| Feed filter dropdown | `app/page.tsx` ~line 11269 |
+| Feed card rendering (switch) | `app/page.tsx` ~line 11428 |
+| feedTypeFilter state | `app/page.tsx` ~line 6708 |
+
 ## Design Guidelines
 
 See `DESIGN_GUIDELINES.md` for:
