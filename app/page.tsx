@@ -4115,8 +4115,8 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
         {/* Stacked cards effect - only show if multiple items */}
         {insights.length > 1 && (
           <>
-            <div style={stackedCardStyle(8, 0.96, 0.4)} />
-            <div style={stackedCardStyle(0, 0.98, 0.6)} />
+            <div style={stackedCardStyle(4, 0.96, 0.4)} />
+            <div style={stackedCardStyle(-4, 0.98, 0.6)} />
           </>
         )}
         <AnimatePresence mode="wait">
@@ -4130,25 +4130,19 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
               className="relative rounded-2xl overflow-hidden"
               style={glassmorphicStyle}
             >
-            {/* Insights label */}
-            <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-              <span className="bg-cyan-100/90 text-cyan-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
-                Insights
-              </span>
-            </div>
-            {/* Header - matching feed style */}
-            <div className="flex items-center gap-3 px-4 py-2">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-teal-500 flex items-center justify-center">
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
                 <Lightbulb size={20} className="text-white" />
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-slate-900 text-sm">Discover</p>
+                <p className="font-semibold text-slate-900 text-sm">Insights</p>
                 <p className="text-xs text-slate-500">Interesting facts about this book</p>
               </div>
             </div>
             {/* Content */}
             <div className="px-4 pb-4">
-              <p className="text-xs font-medium text-slate-800 leading-relaxed">
+              <p className="text-sm text-slate-700 leading-relaxed">
                 {currentInsight.text}
               </p>
               {currentInsight.sourceUrl && (
@@ -4409,8 +4403,8 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
         {/* Stacked cards effect - only show if multiple items */}
         {episodes.length > 1 && (
           <>
-            <div style={stackedCardStyle(8, 0.96, 0.4)} />
-            <div style={stackedCardStyle(0, 0.98, 0.6)} />
+            <div style={stackedCardStyle(4, 0.96, 0.4)} />
+            <div style={stackedCardStyle(-4, 0.98, 0.6)} />
           </>
         )}
         <AnimatePresence mode="wait">
@@ -4424,26 +4418,20 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
               className="relative rounded-2xl overflow-hidden"
               style={glassmorphicStyle}
             >
-            {/* Podcasts label */}
-            <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-              <span className="bg-violet-100/90 text-violet-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
-                Podcasts
-              </span>
-            </div>
-            {/* Header - matching feed style */}
-            <div className="flex items-center gap-3 px-4 py-2">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-400 to-purple-500 flex items-center justify-center">
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(139, 92, 246, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
                 <Headphones size={20} className="text-white" />
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-slate-900 text-sm">Listen</p>
+                <p className="font-semibold text-slate-900 text-sm">Podcasts</p>
                 <p className="text-xs text-slate-500">Podcast about this book</p>
               </div>
             </div>
             {/* Content */}
             <div className="px-4 pb-4">
               <div className="flex gap-3 mb-3">
-                {/* Podcast thumbnail with play button overlay */}
+                {/* Podcast thumbnail */}
                 <div className="relative w-20 h-20 flex-shrink-0">
                   {currentEpisode.thumbnail ? (
                     <img src={currentEpisode.thumbnail} alt={currentEpisode.title} className="w-full h-full rounded-xl object-cover" />
@@ -4452,24 +4440,6 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                       <Headphones size={28} className="text-white" />
                     </div>
                   )}
-                  {/* Play/Pause overlay button */}
-                  <button
-                    onClick={(e) => handlePlay(e, currentEpisode)}
-                    className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl active:scale-95 transition-transform"
-                  >
-                    {isPlaying ? (
-                      <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                        <div className="flex gap-1">
-                          <div className="w-1 h-4 bg-emerald-600 rounded-full" />
-                          <div className="w-1 h-4 bg-emerald-600 rounded-full" />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                        <Play size={18} className="text-emerald-600 ml-0.5" fill="currentColor" />
-                      </div>
-                    )}
-                  </button>
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-slate-900 text-sm line-clamp-2">{decodeHtmlEntities(currentEpisode.title)}</p>
@@ -4477,7 +4447,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                   <div className="flex items-center gap-3 mt-2">
                     <button
                       onClick={(e) => handlePlay(e, currentEpisode)}
-                      className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium active:scale-95 transition-transform"
+                      className="inline-flex items-center gap-1 text-xs text-blue-600 font-medium active:scale-95 transition-transform"
                     >
                       {isPlaying ? (
                         <>
@@ -4497,7 +4467,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                           e.stopPropagation();
                           window.open(currentEpisode.url, '_blank');
                         }}
-                        className="inline-flex items-center gap-1 text-xs text-violet-600 font-medium active:scale-95 transition-transform"
+                        className="inline-flex items-center gap-1 text-xs text-blue-600 font-medium active:scale-95 transition-transform"
                       >
                         <ExternalLink size={12} />
                         Link
@@ -4513,7 +4483,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
               {currentEpisode.episode_summary && (
                 <div className="mt-2">
                   <p
-                    className={`text-xs text-slate-700 leading-relaxed ${!isTextExpanded ? 'line-clamp-2' : ''}`}
+                    className={`text-sm text-slate-700 leading-relaxed ${!isTextExpanded ? 'line-clamp-2' : ''}`}
                     onClick={(e) => {
                       if (currentEpisode.episode_summary && currentEpisode.episode_summary.length > 100) {
                         e.stopPropagation();
@@ -4687,8 +4657,8 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
         {/* Stacked cards effect - only show if multiple items */}
         {videos.length > 1 && (
           <>
-            <div style={stackedCardStyle(8, 0.96, 0.4)} />
-            <div style={stackedCardStyle(0, 0.98, 0.6)} />
+            <div style={stackedCardStyle(4, 0.96, 0.4)} />
+            <div style={stackedCardStyle(-4, 0.98, 0.6)} />
           </>
         )}
         <AnimatePresence mode="wait">
@@ -4702,20 +4672,14 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
               className="relative rounded-2xl overflow-hidden"
               style={glassmorphicStyle}
             >
-            {/* Videos label */}
-            <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-              <span className="bg-red-100/90 text-red-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
-                Videos
-              </span>
-            </div>
-            {/* Header - matching feed style */}
-            <div className="flex items-center gap-3 px-4 py-2">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center">
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(239, 68, 68, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
                 <Play size={20} className="text-white ml-0.5" fill="white" />
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-slate-900 text-sm">Watch</p>
-                <p className="text-xs text-slate-500">Video about this book</p>
+                <p className="font-semibold text-slate-900 text-sm">Videos</p>
+                <p className="text-xs text-slate-500">Videos about the book and its author</p>
               </div>
             </div>
             {/* Content */}
@@ -4908,8 +4872,8 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
         {/* Stacked cards effect - only show if multiple items */}
         {articles.length > 1 && (
           <>
-            <div style={stackedCardStyle(8, 0.96, 0.4)} />
-            <div style={stackedCardStyle(0, 0.98, 0.6)} />
+            <div style={stackedCardStyle(4, 0.96, 0.4)} />
+            <div style={stackedCardStyle(-4, 0.98, 0.6)} />
           </>
         )}
         <AnimatePresence mode="wait">
@@ -4923,19 +4887,13 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
               className="relative rounded-2xl overflow-hidden"
               style={glassmorphicStyle}
             >
-            {/* Google Scholar label */}
-            <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-              <span className="bg-blue-100/90 text-blue-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
-                Google Scholar
-              </span>
-            </div>
-            {/* Header - matching feed style */}
-            <div className="flex items-center gap-3 px-4 py-2">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(59, 130, 246, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
                 <FileText size={20} className="text-white" />
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-slate-900 text-sm">Read</p>
+                <p className="font-semibold text-slate-900 text-sm">Articles</p>
                 <p className="text-xs text-slate-500">Academic article about this book</p>
               </div>
             </div>
@@ -4958,7 +4916,7 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
                   </div>
                 )}
               </div>
-              <p className="text-xs text-slate-700 leading-relaxed mb-2">
+              <p className="text-sm text-slate-700 leading-relaxed mb-2">
                 {decodeHtmlEntities(currentArticle.snippet)}
               </p>
               {currentArticle.url && (
@@ -5151,8 +5109,8 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
         {/* Stacked cards effect - only show if multiple items */}
         {books.length > 1 && (
           <>
-            <div style={stackedCardStyle(8, 0.96, 0.4)} />
-            <div style={stackedCardStyle(0, 0.98, 0.6)} />
+            <div style={stackedCardStyle(4, 0.96, 0.4)} />
+            <div style={stackedCardStyle(-4, 0.98, 0.6)} />
           </>
         )}
         <AnimatePresence mode="wait">
@@ -5166,20 +5124,14 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
               className="relative rounded-2xl overflow-hidden"
               style={glassmorphicStyle}
             >
-            {/* Related Books label */}
-            <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-              <span className="bg-amber-100/90 text-amber-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
-                Related Books
-              </span>
-            </div>
-            {/* Header - matching feed style */}
-            <div className="flex items-center gap-3 px-4 py-2">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(245, 158, 11, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
                 <BookMarked size={20} className="text-white" />
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-slate-900 text-sm">Discover</p>
-                <p className="text-xs text-slate-500">Similar book you might enjoy</p>
+                <p className="font-semibold text-slate-900 text-sm">Related Books</p>
+                <p className="text-xs text-slate-500">Similar books you might enjoy</p>
               </div>
             </div>
             {/* Content */}
@@ -5218,7 +5170,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
               </div>
               {currentBook.reason && (
                 <div className="mb-2">
-                  <p className="text-xs text-slate-700 leading-relaxed">
+                  <p className="text-sm text-slate-700 leading-relaxed">
                     {decodeHtmlEntities(currentBook.reason)}
                   </p>
                 </div>
@@ -6937,6 +6889,7 @@ export default function App() {
   const feedAudioRef = useRef<HTMLAudioElement | null>(null);
   const [feedPlayingVideoId, setFeedPlayingVideoId] = useState<string | null>(null);
   const [expandedFeedDescriptions, setExpandedFeedDescriptions] = useState<Set<string>>(new Set());
+  const [feedPodcastExpandedMap, setFeedPodcastExpandedMap] = useState<Map<string, boolean>>(new Map());
   const [didYouKnowNoteIndex, setDidYouKnowNoteIndex] = useState<Map<string, number>>(new Map());
   const [followingUsers, setFollowingUsers] = useState<Array<{ id: string; full_name: string | null; avatar_url: string | null; email: string; followed_at: string }>>([]);
 
@@ -11688,12 +11641,12 @@ export default function App() {
                     return (
                       <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-400 flex items-center justify-center">
-                            <Sparkles size={20} className="text-white" />
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
+                            <Lightbulb size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Did You Know?</p>
-                            <p className="text-xs text-slate-500">Facts from your reading</p>
+                            <p className="font-semibold text-slate-900 text-sm">Insights</p>
+                            <p className="text-xs text-slate-500">Interesting facts about this book</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
@@ -11726,7 +11679,7 @@ export default function App() {
                     return (
                       <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-400 to-emerald-500 flex items-center justify-center">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(20, 184, 166, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(20, 184, 166, 0.3)' }}>
                             <Info size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
@@ -11767,7 +11720,7 @@ export default function App() {
                     return (
                       <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(244, 63, 94, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(244, 63, 94, 0.3)' }}>
                             {featureFlags.hand_drawn_icons ? (
                               <img src={getAssetPath("/search.svg")} alt="Search" className="w-[20px] h-[20px] invert" />
                             ) : (
@@ -11811,7 +11764,7 @@ export default function App() {
                     return (
                       <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-blue-500 flex items-center justify-center">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(99, 102, 241, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
                             <BookMarked size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
@@ -11851,21 +11804,21 @@ export default function App() {
                     const podcastAudioUrl = episode?.audioUrl || (episode?.url && episode.url.match(/\.(mp3|m4a|wav|ogg|aac)(\?|$)/i) ? episode.url : null);
                     const isPodcastPlaying = feedPlayingAudioUrl === (podcastAudioUrl || episode?.url);
                     return (
-                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
+                      <motion.div key={item.id} initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-400 to-purple-500 flex items-center justify-center">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(139, 92, 246, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
                             <Headphones size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Listen</p>
-                            <p className="text-xs text-slate-500">Podcast about your book</p>
+                            <p className="font-semibold text-slate-900 text-sm">Podcasts</p>
+                            <p className="text-xs text-slate-500">Podcast about this book</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
                         </div>
                         <div className="px-4 pb-4">
                           <div className="flex gap-3 mb-3">
-                            {/* Podcast thumbnail with play button overlay */}
+                            {/* Podcast thumbnail */}
                             <div className="relative w-20 h-20 flex-shrink-0">
                               {episode?.thumbnail ? (
                                 <img src={episode.thumbnail} alt={episode.title} className="w-full h-full rounded-xl object-cover" />
@@ -11874,27 +11827,6 @@ export default function App() {
                                   <Headphones size={28} className="text-white" />
                                 </div>
                               )}
-                              {/* Play/Pause overlay button */}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleFeedPodcastPlay(episode);
-                                }}
-                                className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl active:scale-95 transition-transform"
-                              >
-                                {isPodcastPlaying ? (
-                                  <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                                    <div className="flex gap-1">
-                                      <div className="w-1 h-4 bg-emerald-600 rounded-full" />
-                                      <div className="w-1 h-4 bg-emerald-600 rounded-full" />
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                                    <Play size={18} className="text-emerald-600 ml-0.5" fill="currentColor" />
-                                  </div>
-                                )}
-                              </button>
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="font-bold text-slate-900 text-sm line-clamp-2">{episode?.title || 'Podcast Episode'}</p>
@@ -11905,7 +11837,7 @@ export default function App() {
                                     e.stopPropagation();
                                     handleFeedPodcastPlay(episode);
                                   }}
-                                  className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium active:scale-95 transition-transform"
+                                  className="inline-flex items-center gap-1 text-xs text-blue-600 font-medium active:scale-95 transition-transform"
                                 >
                                   {isPodcastPlaying ? (
                                     <>
@@ -11925,7 +11857,7 @@ export default function App() {
                                       e.stopPropagation();
                                       window.open(episode.url, '_blank');
                                     }}
-                                    className="inline-flex items-center gap-1 text-xs text-violet-600 font-medium active:scale-95 transition-transform"
+                                    className="inline-flex items-center gap-1 text-xs text-blue-600 font-medium active:scale-95 transition-transform"
                                   >
                                     <ExternalLink size={12} />
                                     Link
@@ -11937,6 +11869,29 @@ export default function App() {
                               </div>
                             </div>
                           </div>
+                          {/* Episode description preview */}
+                          {episode?.episode_summary && (
+                            <div className="mb-3">
+                              <p className={`text-sm text-slate-700 leading-relaxed ${!feedPodcastExpandedMap.get(item.id) ? 'line-clamp-2' : ''}`}>
+                                {episode.episode_summary}
+                              </p>
+                              {episode.episode_summary.length > 100 && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setFeedPodcastExpandedMap(prev => {
+                                      const newMap = new Map(prev);
+                                      newMap.set(item.id, !prev.get(item.id));
+                                      return newMap;
+                                    });
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+                                >
+                                  {feedPodcastExpandedMap.get(item.id) ? 'Show less' : 'Read more'}
+                                </button>
+                              )}
+                            </div>
+                          )}
                           <button
                             onClick={openSourceBookOverlay}
                             className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
@@ -11963,12 +11918,12 @@ export default function App() {
                     return (
                       <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(239, 68, 68, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
                             <Play size={20} className="text-white ml-0.5" fill="white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Watch</p>
-                            <p className="text-xs text-slate-500">Video about your book</p>
+                            <p className="font-semibold text-slate-900 text-sm">Videos</p>
+                            <p className="text-xs text-slate-500">Videos about the book and its author</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
@@ -12049,12 +12004,12 @@ export default function App() {
                     return (
                       <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-yellow-500 flex items-center justify-center">
-                            <Sparkles size={20} className="text-white" />
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(245, 158, 11, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                            <BookMarked size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Recommended for you</p>
-                            <p className="text-xs text-slate-500">Based on {item.source_book_title}</p>
+                            <p className="font-semibold text-slate-900 text-sm">Related Books</p>
+                            <p className="text-xs text-slate-500">Similar books you might enjoy</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
@@ -12090,12 +12045,12 @@ export default function App() {
                     return (
                       <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-500 to-slate-600 flex items-center justify-center">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(59, 130, 246, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
                             <FileText size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Read</p>
-                            <p className="text-xs text-slate-500">Article about your book</p>
+                            <p className="font-semibold text-slate-900 text-sm">Articles</p>
+                            <p className="text-xs text-slate-500">Academic article about this book</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
@@ -12155,7 +12110,7 @@ export default function App() {
                     return (
                       <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(168, 85, 247, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(168, 85, 247, 0.3)' }}>
                             <Users size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
@@ -12249,12 +12204,12 @@ export default function App() {
                     return (
                       <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
                             <Lightbulb size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Did You Know?</p>
-                            <p className="text-xs text-slate-500">Surprising facts about your book</p>
+                            <p className="font-semibold text-slate-900 text-sm">Insights</p>
+                            <p className="text-xs text-slate-500">Interesting facts about this book</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
@@ -12262,7 +12217,13 @@ export default function App() {
                         <div className="px-4 pb-4">
                           {/* Notes carousel with pagination dots inside - tap to advance, swipe to navigate */}
                           <div
-                            className="bg-gradient-to-br from-violet-50 to-purple-50 rounded-xl p-4 mb-3 border border-violet-100 min-h-[100px] cursor-pointer select-none active:bg-violet-100/50 transition-colors"
+                            className="rounded-xl p-4 mb-3 min-h-[100px] cursor-pointer select-none active:opacity-80 transition-opacity"
+                            style={{
+                              background: 'rgba(255, 255, 255, 0.6)',
+                              backdropFilter: 'blur(9.4px)',
+                              WebkitBackdropFilter: 'blur(9.4px)',
+                              border: '1px solid rgba(255, 255, 255, 0.3)',
+                            }}
                             onClick={(e) => {
                               // Don't trigger if clicking on pagination dots
                               if ((e.target as HTMLElement).closest('button')) return;
@@ -12307,7 +12268,7 @@ export default function App() {
 
                             {/* Pagination dots inside the note box */}
                             {didYouKnowNotes.length > 1 && (
-                              <div className="flex justify-center gap-2 mt-4 pt-3 border-t border-violet-200/50">
+                              <div className="flex justify-center gap-2 mt-4 pt-3 border-t border-slate-200/50">
                                 {didYouKnowNotes.map((_, idx) => (
                                   <button
                                     key={idx}
@@ -12321,8 +12282,8 @@ export default function App() {
                                     }}
                                     className={`w-2 h-2 rounded-full transition-all ${
                                       idx === currentNoteIdx
-                                        ? 'bg-violet-500 w-4'
-                                        : 'bg-violet-300 hover:bg-violet-400'
+                                        ? 'bg-blue-500 w-4'
+                                        : 'bg-slate-300 hover:bg-slate-400'
                                     }`}
                                   />
                                 ))}
@@ -12606,7 +12567,7 @@ export default function App() {
                           </div>
                         ) : (
                           <div>
-                            <p className="text-xs text-slate-700 leading-relaxed line-clamp-3">
+                            <p className="text-sm text-slate-700 leading-relaxed line-clamp-3">
                               {book.notes}
                             </p>
                           </div>
@@ -13658,7 +13619,7 @@ export default function App() {
                     className="absolute inset-0 w-full h-full"
                   >
                     <AnimatePresence mode='wait'>
-                      <motion.div key={activeBook.id || 'active-book'} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="relative w-full h-full rounded-lg overflow-hidden">
+                      <motion.div key={activeBook.id || 'active-book'} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="relative w-full h-full rounded-lg overflow-hidden border-2 border-white/50 shadow-lg">
                         {activeBook.cover_url ? (
                           <>
                           <img src={activeBook.cover_url} alt={activeBook.title} className="w-full h-full object-cover" />
