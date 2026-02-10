@@ -4050,14 +4050,26 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
         <motion.div
           animate={{ opacity: [0.5, 0.8, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="rounded-xl p-4"
+          className="rounded-2xl overflow-hidden"
           style={glassmorphicStyle}
         >
-          <div className="flex flex-col items-center gap-2">
-            <div className="w-16 h-3 bg-slate-300/50 rounded animate-pulse" />
-            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
-            <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-            <div className="w-20 h-3 bg-slate-300/50 rounded animate-pulse mt-1" />
+          {/* Label skeleton */}
+          <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+            <div className="w-14 h-4 bg-slate-300/50 rounded animate-pulse" />
+          </div>
+          {/* Header skeleton */}
+          <div className="flex items-center gap-3 px-4 py-2">
+            <div className="w-10 h-10 rounded-full bg-slate-300/50 animate-pulse" />
+            <div className="flex-1 space-y-1">
+              <div className="w-20 h-4 bg-slate-300/50 rounded animate-pulse" />
+              <div className="w-40 h-3 bg-slate-300/50 rounded animate-pulse" />
+            </div>
+          </div>
+          {/* Content skeleton */}
+          <div className="px-4 pb-4 space-y-2">
+            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
+            <div className="w-4/5 h-3 bg-slate-300/50 rounded animate-pulse" />
+            <div className="w-3/5 h-3 bg-slate-300/50 rounded animate-pulse" />
           </div>
         </motion.div>
       </div>
@@ -4067,65 +4079,101 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
   if (insights.length === 0 || currentIndex >= insights.length) return null;
 
   const currentInsight = insights[currentIndex];
-  const labelColor = currentInsight.label === 'Trivia' 
-    ? 'bg-purple-100/90 text-purple-800'
-    : 'bg-blue-100/90 text-blue-800';
+
+  // Stacked cards style (cards behind the main card)
+  const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
+    ...glassmorphicStyle,
+    position: 'absolute' as const,
+    inset: 0,
+    transform: `translateY(${offset}px) scale(${scale})`,
+    opacity,
+    borderRadius: '16px',
+  });
 
   return (
     <div
       onClick={handleNext}
       onTouchStart={(e) => {
+        e.stopPropagation();
         const touch = e.touches[0];
         setTouchStart({ x: touch.clientX, y: touch.clientY });
       }}
       onTouchMove={(e) => {
+        e.stopPropagation();
         if (touchStart) {
           const touch = e.touches[0];
           setTouchEnd({ x: touch.clientX, y: touch.clientY });
         }
       }}
-      onTouchEnd={handleSwipe}
+      onTouchEnd={(e) => {
+        e.stopPropagation();
+        handleSwipe();
+      }}
       className="w-full cursor-pointer"
     >
-      <AnimatePresence mode="wait">
-        {isVisible && (
-          <motion.div
-            key={`${currentInsight.text}-${currentIndex}`}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="rounded-xl p-4"
-          style={glassmorphicStyle}
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <span className={`${labelColor} px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider`}>
-                {currentInsight.label}
+      <div className="relative pb-3">
+        {/* Stacked cards effect - only show if multiple items */}
+        {insights.length > 1 && (
+          <>
+            <div style={stackedCardStyle(8, 0.96, 0.4)} />
+            <div style={stackedCardStyle(0, 0.98, 0.6)} />
+          </>
+        )}
+        <AnimatePresence mode="wait">
+          {isVisible && (
+            <motion.div
+              key={`${currentInsight.text}-${currentIndex}`}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="relative rounded-2xl overflow-hidden"
+              style={glassmorphicStyle}
+            >
+            {/* Insights label */}
+            <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+              <span className="bg-cyan-100/90 text-cyan-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
+                Insights
               </span>
             </div>
-            <div className="text-center">
-              <p className="text-xs font-medium text-slate-950 leading-relaxed">
-                💡 {currentInsight.text}
-              </p>
+            {/* Header - matching feed style */}
+            <div className="flex items-center gap-3 px-4 py-2">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-400 to-teal-500 flex items-center justify-center">
+                <Lightbulb size={20} className="text-white" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-slate-900 text-sm">Discover</p>
+                <p className="text-xs text-slate-500">Interesting facts about this book</p>
+              </div>
             </div>
-            {currentInsight.sourceUrl && (
-              <a
-                href={currentInsight.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="flex items-center justify-center gap-1 mt-2 text-[10px] text-blue-700 hover:text-blue-800 hover:underline"
-              >
-                <ExternalLink size={10} />
-                <span>Source</span>
-              </a>
-            )}
-            <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
-              Tap for next ({currentIndex + 1}/{insights.length})
-            </p>
+            {/* Content */}
+            <div className="px-4 pb-4">
+              <p className="text-xs font-medium text-slate-800 leading-relaxed">
+                {currentInsight.text}
+              </p>
+              {currentInsight.sourceUrl && (
+                <a
+                  href={currentInsight.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 mt-2 text-xs text-cyan-600 font-medium hover:text-cyan-700"
+                >
+                  <ExternalLink size={12} />
+                  Source
+                </a>
+              )}
+              {/* Pagination */}
+              {insights.length > 1 && (
+                <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
+                  Tap for next ({currentIndex + 1}/{insights.length})
+                </p>
+              )}
+            </div>
           </motion.div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
@@ -4331,6 +4379,16 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
   const audioUrl = currentEpisode.audioUrl || (currentEpisode.url && currentEpisode.url.match(/\.(mp3|m4a|wav|ogg|aac)(\?|$)/i) ? currentEpisode.url : null);
   const isPlaying = playingAudioUrl === (audioUrl || currentEpisode.url);
 
+  // Stacked cards style (cards behind the main card)
+  const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
+    ...glassmorphicStyle,
+    position: 'absolute' as const,
+    inset: 0,
+    transform: `translateY(${offset}px) scale(${scale})`,
+    opacity,
+    borderRadius: '16px',
+  });
+
   return (
     <div
       onClick={handleNext}
@@ -4347,17 +4405,25 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
       onTouchEnd={handleSwipe}
       className="w-full cursor-pointer"
     >
-      <AnimatePresence mode="wait">
-        {isVisible && (
-          <motion.div
-            key={`${currentEpisode.url}-${currentIndex}`}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="rounded-2xl overflow-hidden"
-            style={glassmorphicStyle}
-          >
+      <div className="relative pb-3">
+        {/* Stacked cards effect - only show if multiple items */}
+        {episodes.length > 1 && (
+          <>
+            <div style={stackedCardStyle(8, 0.96, 0.4)} />
+            <div style={stackedCardStyle(0, 0.98, 0.6)} />
+          </>
+        )}
+        <AnimatePresence mode="wait">
+          {isVisible && (
+            <motion.div
+              key={`${currentEpisode.url}-${currentIndex}`}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="relative rounded-2xl overflow-hidden"
+              style={glassmorphicStyle}
+            >
             {/* Podcasts label */}
             <div className="flex items-center gap-2 px-4 pt-3 pb-1">
               <span className="bg-violet-100/90 text-violet-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
@@ -4471,13 +4537,16 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                 </div>
               )}
               {/* Pagination */}
-              <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
-                Tap for next ({currentIndex + 1}/{episodes.length})
-              </p>
+              {episodes.length > 1 && (
+                <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
+                  Tap for next ({currentIndex + 1}/{episodes.length})
+                </p>
+              )}
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
@@ -4588,6 +4657,16 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
   const currentVideo = videos[currentIndex];
   const videoUrl = `https://www.youtube.com/watch?v=${currentVideo.videoId}`;
 
+  // Stacked cards style (cards behind the main card)
+  const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
+    ...glassmorphicStyle,
+    position: 'absolute' as const,
+    inset: 0,
+    transform: `translateY(${offset}px) scale(${scale})`,
+    opacity,
+    borderRadius: '16px',
+  });
+
   return (
     <div
       onClick={handleNext}
@@ -4604,17 +4683,25 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
       onTouchEnd={handleSwipe}
       className="w-full cursor-pointer"
     >
-      <AnimatePresence mode="wait">
-        {isVisible && (
-          <motion.div
-            key={`${currentVideo.videoId}-${currentIndex}`}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="rounded-2xl overflow-hidden"
-            style={glassmorphicStyle}
-          >
+      <div className="relative pb-3">
+        {/* Stacked cards effect - only show if multiple items */}
+        {videos.length > 1 && (
+          <>
+            <div style={stackedCardStyle(8, 0.96, 0.4)} />
+            <div style={stackedCardStyle(0, 0.98, 0.6)} />
+          </>
+        )}
+        <AnimatePresence mode="wait">
+          {isVisible && (
+            <motion.div
+              key={`${currentVideo.videoId}-${currentIndex}`}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="relative rounded-2xl overflow-hidden"
+              style={glassmorphicStyle}
+            >
             {/* Videos label */}
             <div className="flex items-center gap-2 px-4 pt-3 pb-1">
               <span className="bg-red-100/90 text-red-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
@@ -4691,7 +4778,8 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
@@ -4790,6 +4878,16 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
 
   const currentArticle = articles[currentIndex];
 
+  // Stacked cards style (cards behind the main card)
+  const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
+    ...glassmorphicStyle,
+    position: 'absolute' as const,
+    inset: 0,
+    transform: `translateY(${offset}px) scale(${scale})`,
+    opacity,
+    borderRadius: '16px',
+  });
+
   return (
     <div
       onClick={handleNext}
@@ -4806,17 +4904,25 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
       onTouchEnd={handleSwipe}
       className="w-full cursor-pointer"
     >
-      <AnimatePresence mode="wait">
-        {isVisible && (
-          <motion.div
-            key={`${currentArticle.url}-${currentIndex}`}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="rounded-2xl overflow-hidden"
-            style={glassmorphicStyle}
-          >
+      <div className="relative pb-3">
+        {/* Stacked cards effect - only show if multiple items */}
+        {articles.length > 1 && (
+          <>
+            <div style={stackedCardStyle(8, 0.96, 0.4)} />
+            <div style={stackedCardStyle(0, 0.98, 0.6)} />
+          </>
+        )}
+        <AnimatePresence mode="wait">
+          {isVisible && (
+            <motion.div
+              key={`${currentArticle.url}-${currentIndex}`}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="relative rounded-2xl overflow-hidden"
+              style={glassmorphicStyle}
+            >
             {/* Google Scholar label */}
             <div className="flex items-center gap-2 px-4 pt-3 pb-1">
               <span className="bg-blue-100/90 text-blue-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
@@ -4868,13 +4974,16 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
                 </button>
               )}
               {/* Pagination */}
-              <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
-                Tap for next ({currentIndex + 1}/{articles.length})
-              </p>
+              {articles.length > 1 && (
+                <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
+                  Tap for next ({currentIndex + 1}/{articles.length})
+                </p>
+              )}
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
@@ -4988,11 +5097,21 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
 
   const currentBook = books[currentIndex];
 
+  // Stacked cards style (cards behind the main card)
+  const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
+    ...glassmorphicStyle,
+    position: 'absolute' as const,
+    inset: 0,
+    transform: `translateY(${offset}px) scale(${scale})`,
+    opacity,
+    borderRadius: '16px',
+  });
+
   async function handleAddBook(e: React.MouseEvent) {
     e.stopPropagation(); // Prevent card flip
-    
+
     if (!onAddBook) return;
-    
+
     // Convert RelatedBook to Book metadata format
     const bookMeta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> = {
       title: currentBook.title,
@@ -5003,7 +5122,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
       google_books_url: currentBook.google_books_url || null,
       genre: currentBook.genre || undefined,
     };
-    
+
     onAddBook(bookMeta);
   }
 
@@ -5028,17 +5147,25 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
       }}
       className="w-full cursor-pointer"
     >
-      <AnimatePresence mode="wait">
-        {isVisible && (
-          <motion.div
-            key={`${currentBook.title}-${currentIndex}`}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="rounded-2xl overflow-hidden"
-            style={glassmorphicStyle}
-          >
+      <div className="relative pb-3">
+        {/* Stacked cards effect - only show if multiple items */}
+        {books.length > 1 && (
+          <>
+            <div style={stackedCardStyle(8, 0.96, 0.4)} />
+            <div style={stackedCardStyle(0, 0.98, 0.6)} />
+          </>
+        )}
+        <AnimatePresence mode="wait">
+          {isVisible && (
+            <motion.div
+              key={`${currentBook.title}-${currentIndex}`}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className="relative rounded-2xl overflow-hidden"
+              style={glassmorphicStyle}
+            >
             {/* Related Books label */}
             <div className="flex items-center gap-2 px-4 pt-3 pb-1">
               <span className="bg-amber-100/90 text-amber-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
@@ -5105,7 +5232,8 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
