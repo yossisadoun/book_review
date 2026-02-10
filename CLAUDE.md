@@ -167,6 +167,37 @@ Feature flags are configured in `/lib/feature-flags.ts`.
 | Flag | Default | Description |
 |------|---------|-------------|
 | `hand_drawn_icons` | `false` | When `true`, uses hand-drawn SVG icons from `/public/`. When `false`, uses Lucide icons. |
+| `info_page_variant` | `'c'` | Info page variant: 'a' = animated icons, 'b' = rotating tooltips, 'c' = 3-page stepper |
+
+### Insights Feature Flags
+
+Controls which insight types are fetched, displayed on book page, and added to feed.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `insights.author_facts` | `false` | Author trivia facts (appears as "Trivia" category) |
+| `insights.book_influences` | `false` | Literary influences on the book |
+| `insights.book_domain` | `false` | Domain/subject matter insights (appears as "Insights" in feed) |
+| `insights.book_context` | `false` | Historical/cultural context |
+| `insights.did_you_know` | `true` | "Did you know?" insights |
+
+When an insight flag is `false`:
+- The API call to fetch that insight type is skipped
+- The insight category doesn't appear in the book page UI
+- Feed items of that type are not generated
+- The feed filter dropdown hides that type
+
+### Book Page Section Headers
+
+Controls visibility of section header menus on the book details page. When `true`, the header is hidden.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `bookPageSectionHeaders.insights` | `true` | Hide the "INSIGHTS: / category" header menu |
+| `bookPageSectionHeaders.podcasts` | `false` | Hide the "PODCASTS:" header |
+| `bookPageSectionHeaders.youtube` | `false` | Hide the YouTube videos header |
+| `bookPageSectionHeaders.articles` | `false` | Hide the articles header |
+| `bookPageSectionHeaders.relatedBooks` | `false` | Hide the related books header |
 
 ### Icon Mapping (hand_drawn_icons)
 

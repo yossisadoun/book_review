@@ -1149,18 +1149,13 @@ async function getDidYouKnow(bookTitle: string, author: string): Promise<DidYouK
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!cacheError && cachedData && cachedData.insights && Array.isArray(cachedData.insights)) {
-      if (cachedData.insights.length > 0) {
-        console.log(`[getDidYouKnow] ✅ Found ${cachedData.insights.length} cached insights in database`);
-        return cachedData.insights as DidYouKnowItem[];
-      } else {
-        // Empty array means "no results" was already cached - don't try again
-        console.log(`[getDidYouKnow] ✅ Found cached "no results" - skipping Grok API call`);
-        return [];
-      }
+    if (!cacheError && cachedData && cachedData.insights && Array.isArray(cachedData.insights) && cachedData.insights.length > 0) {
+      console.log(`[getDidYouKnow] ✅ Found ${cachedData.insights.length} cached insights in database`);
+      return cachedData.insights as DidYouKnowItem[];
     } else if (cacheError && cacheError.code !== 'PGRST116') {
       console.warn('[getDidYouKnow] ⚠️ Error checking cache:', cacheError);
     }
+    // If cache is empty or has no results, proceed to fetch from Grok
   } catch (err) {
     console.warn('[getDidYouKnow] ⚠️ Error checking cache:', err);
     // Continue to fetch from Grok
@@ -1745,36 +1740,44 @@ async function generateFeedItemsForBook(
   console.log(`  - influences: ${bookInfluencesData.data?.influences?.length || 0} items, error: ${bookInfluencesData.error?.message || 'none'}`);
   console.log(`  - did_you_know: ${didYouKnowData.data?.insights?.length || 0} items, error: ${didYouKnowData.error?.message || 'none'}`);
 
-  // Process author facts
-  const authorFacts = authorFactsData.data?.author_facts;
-  if (authorFacts && Array.isArray(authorFacts)) {
-    for (const fact of authorFacts) {
-      if (await insertFeedItem('fact', { fact })) created++;
+  // Process author facts (only if feature flag enabled)
+  if (featureFlags.insights.author_facts) {
+    const authorFacts = authorFactsData.data?.author_facts;
+    if (authorFacts && Array.isArray(authorFacts)) {
+      for (const fact of authorFacts) {
+        if (await insertFeedItem('fact', { fact })) created++;
+      }
     }
   }
 
-  // Process context insights
-  const contextInsights = bookContextData.data?.context_insights;
-  if (contextInsights && Array.isArray(contextInsights)) {
-    for (const insight of contextInsights) {
-      if (await insertFeedItem('context', { insight })) created++;
+  // Process context insights (only if feature flag enabled)
+  if (featureFlags.insights.book_context) {
+    const contextInsights = bookContextData.data?.context_insights;
+    if (contextInsights && Array.isArray(contextInsights)) {
+      for (const insight of contextInsights) {
+        if (await insertFeedItem('context', { insight })) created++;
+      }
     }
   }
 
-  // Process domain/drilldown insights
-  const domainInsights = bookDomainData.data?.domain_insights;
-  const domainLabel = bookDomainData.data?.domain_label || 'Domain';
-  if (domainInsights && Array.isArray(domainInsights)) {
-    for (const insight of domainInsights) {
-      if (await insertFeedItem('drilldown', { insight, domain_label: domainLabel })) created++;
+  // Process domain/drilldown insights (only if feature flag enabled)
+  if (featureFlags.insights.book_domain) {
+    const domainInsights = bookDomainData.data?.domain_insights;
+    const domainLabel = bookDomainData.data?.domain_label || 'Domain';
+    if (domainInsights && Array.isArray(domainInsights)) {
+      for (const insight of domainInsights) {
+        if (await insertFeedItem('drilldown', { insight, domain_label: domainLabel })) created++;
+      }
     }
   }
 
-  // Process influences
-  const influences = bookInfluencesData.data?.influences;
-  if (influences && Array.isArray(influences)) {
-    for (const influence of influences) {
-      if (await insertFeedItem('influence', { influence })) created++;
+  // Process influences (only if feature flag enabled)
+  if (featureFlags.insights.book_influences) {
+    const influences = bookInfluencesData.data?.influences;
+    if (influences && Array.isArray(influences)) {
+      for (const influence of influences) {
+        if (await insertFeedItem('influence', { influence })) created++;
+      }
     }
   }
 
@@ -1809,16 +1812,18 @@ async function generateFeedItemsForBook(
     }
   }
 
-  // Process "Did you know?" insights - each item has 3 notes shown together
-  const didYouKnowInsights = didYouKnowData.data?.insights;
-  if (didYouKnowInsights && Array.isArray(didYouKnowInsights)) {
-    for (const item of didYouKnowInsights) {
-      // Each did_you_know item contains { rank, notes: [string, string, string] }
-      if (item.notes && Array.isArray(item.notes) && item.notes.length === 3) {
-        if (await insertFeedItem('did_you_know', {
-          rank: item.rank,
-          notes: item.notes
-        })) created++;
+  // Process "Did you know?" insights - each item has 3 notes shown together (only if feature flag enabled)
+  if (featureFlags.insights.did_you_know) {
+    const didYouKnowInsights = didYouKnowData.data?.insights;
+    if (didYouKnowInsights && Array.isArray(didYouKnowInsights)) {
+      for (const item of didYouKnowInsights) {
+        // Each did_you_know item contains { rank, notes: [string, string, string] }
+        if (item.notes && Array.isArray(item.notes) && item.notes.length === 3) {
+          if (await insertFeedItem('did_you_know', {
+            rank: item.rank,
+            notes: item.notes
+          })) created++;
+        }
       }
     }
   }
@@ -4093,7 +4098,7 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
             className="rounded-xl p-4"
           style={glassmorphicStyle}
           >
-            <div className="flex items-center justify-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-2">
               <span className={`${labelColor} px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider`}>
                 {currentInsight.label}
               </span>
@@ -4350,106 +4355,126 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="rounded-xl p-4"
+            className="rounded-2xl overflow-hidden"
             style={glassmorphicStyle}
           >
-            <div className="flex gap-3 mb-3">
-              {/* Podcast thumbnail with play button overlay */}
-              <div className="relative w-20 h-20 flex-shrink-0">
-                {currentEpisode.thumbnail ? (
-                  <img src={currentEpisode.thumbnail} alt={currentEpisode.title} className="w-full h-full rounded-xl object-cover" />
-                ) : (
-                  <div className="w-full h-full rounded-xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center">
-                    <Headphones size={28} className="text-white" />
-                  </div>
-                )}
-                {/* Play/Pause overlay button */}
-                <button
-                  onClick={(e) => handlePlay(e, currentEpisode)}
-                  className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl active:scale-95 transition-transform"
-                >
-                  {isPlaying ? (
-                    <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                      <div className="flex gap-1">
-                        <div className="w-1 h-4 bg-emerald-600 rounded-full" />
-                        <div className="w-1 h-4 bg-emerald-600 rounded-full" />
-                      </div>
-                    </div>
+            {/* Podcasts label */}
+            <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+              <span className="bg-violet-100/90 text-violet-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
+                Podcasts
+              </span>
+            </div>
+            {/* Header - matching feed style */}
+            <div className="flex items-center gap-3 px-4 py-2">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-400 to-purple-500 flex items-center justify-center">
+                <Headphones size={20} className="text-white" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-slate-900 text-sm">Listen</p>
+                <p className="text-xs text-slate-500">Podcast about this book</p>
+              </div>
+            </div>
+            {/* Content */}
+            <div className="px-4 pb-4">
+              <div className="flex gap-3 mb-3">
+                {/* Podcast thumbnail with play button overlay */}
+                <div className="relative w-20 h-20 flex-shrink-0">
+                  {currentEpisode.thumbnail ? (
+                    <img src={currentEpisode.thumbnail} alt={currentEpisode.title} className="w-full h-full rounded-xl object-cover" />
                   ) : (
-                    <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-                      <Play size={18} className="text-emerald-600 ml-0.5" fill="currentColor" />
+                    <div className="w-full h-full rounded-xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center">
+                      <Headphones size={28} className="text-white" />
                     </div>
                   )}
-                </button>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-slate-900 text-sm line-clamp-2">{decodeHtmlEntities(currentEpisode.title)}</p>
-                <p className="text-xs text-slate-500 mt-1">{decodeHtmlEntities(currentEpisode.podcast_name || 'Podcast')}</p>
-                <div className="flex items-center gap-3 mt-2">
+                  {/* Play/Pause overlay button */}
                   <button
                     onClick={(e) => handlePlay(e, currentEpisode)}
-                    className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium active:scale-95 transition-transform"
+                    className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl active:scale-95 transition-transform"
                   >
                     {isPlaying ? (
-                      <>
-                        <VolumeX size={12} />
-                        Stop
-                      </>
+                      <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                        <div className="flex gap-1">
+                          <div className="w-1 h-4 bg-emerald-600 rounded-full" />
+                          <div className="w-1 h-4 bg-emerald-600 rounded-full" />
+                        </div>
+                      </div>
                     ) : (
-                      <>
-                        <Play size={12} />
-                        Preview
-                      </>
+                      <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
+                        <Play size={18} className="text-emerald-600 ml-0.5" fill="currentColor" />
+                      </div>
                     )}
                   </button>
-                  {currentEpisode.url && (
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-slate-900 text-sm line-clamp-2">{decodeHtmlEntities(currentEpisode.title)}</p>
+                  <p className="text-xs text-slate-500 mt-1">{decodeHtmlEntities(currentEpisode.podcast_name || 'Podcast')}</p>
+                  <div className="flex items-center gap-3 mt-2">
+                    <button
+                      onClick={(e) => handlePlay(e, currentEpisode)}
+                      className="inline-flex items-center gap-1 text-xs text-emerald-600 font-medium active:scale-95 transition-transform"
+                    >
+                      {isPlaying ? (
+                        <>
+                          <VolumeX size={12} />
+                          Stop
+                        </>
+                      ) : (
+                        <>
+                          <Play size={12} />
+                          Preview
+                        </>
+                      )}
+                    </button>
+                    {currentEpisode.url && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.open(currentEpisode.url, '_blank');
+                        }}
+                        className="inline-flex items-center gap-1 text-xs text-violet-600 font-medium active:scale-95 transition-transform"
+                      >
+                        <ExternalLink size={12} />
+                        Link
+                      </button>
+                    )}
+                    {currentEpisode.length && (
+                      <span className="text-xs text-slate-400">{currentEpisode.length}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {/* Episode description with read-more */}
+              {currentEpisode.episode_summary && (
+                <div className="mt-2">
+                  <p
+                    className={`text-xs text-slate-700 leading-relaxed ${!isTextExpanded ? 'line-clamp-2' : ''}`}
+                    onClick={(e) => {
+                      if (currentEpisode.episode_summary && currentEpisode.episode_summary.length > 100) {
+                        e.stopPropagation();
+                        setIsTextExpanded(!isTextExpanded);
+                      }
+                    }}
+                  >
+                    {decodeHtmlEntities(currentEpisode.episode_summary)}
+                  </p>
+                  {currentEpisode.episode_summary.length > 100 && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        window.open(currentEpisode.url, '_blank');
+                        setIsTextExpanded(!isTextExpanded);
                       }}
-                      className="inline-flex items-center gap-1 text-xs text-violet-600 font-medium active:scale-95 transition-transform"
+                      className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
                     >
-                      <ExternalLink size={12} />
-                      Link
+                      {isTextExpanded ? 'Show less' : 'Read more'}
                     </button>
                   )}
-                  {currentEpisode.length && (
-                    <span className="text-xs text-slate-400">{currentEpisode.length}</span>
-                  )}
                 </div>
-              </div>
+              )}
+              {/* Pagination */}
+              <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
+                Tap for next ({currentIndex + 1}/{episodes.length})
+              </p>
             </div>
-            {/* Episode description with read-more */}
-            {currentEpisode.episode_summary && (
-              <div className="mt-2">
-                <p
-                  className={`text-xs text-slate-700 leading-relaxed ${!isTextExpanded ? 'line-clamp-2' : ''}`}
-                  onClick={(e) => {
-                    if (currentEpisode.episode_summary && currentEpisode.episode_summary.length > 100) {
-                      e.stopPropagation();
-                      setIsTextExpanded(!isTextExpanded);
-                    }
-                  }}
-                >
-                  {decodeHtmlEntities(currentEpisode.episode_summary)}
-                </p>
-                {currentEpisode.episode_summary.length > 100 && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsTextExpanded(!isTextExpanded);
-                    }}
-                    className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
-                  >
-                    {isTextExpanded ? 'Show less' : 'Read more'}
-                  </button>
-                )}
-              </div>
-            )}
-            <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
-              Tap for next ({currentIndex + 1}/{episodes.length})
-            </p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -4587,63 +4612,83 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="rounded-xl overflow-hidden p-4"
+            className="rounded-2xl overflow-hidden"
             style={glassmorphicStyle}
           >
-            {/* Thumbnail with play button - works on iOS */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                openSystemBrowser(videoUrl);
-              }}
-              className="relative w-full block rounded-xl overflow-hidden"
-              style={{ paddingBottom: '56.25%' }}
-            >
-              {currentVideo.thumbnail ? (
-                <img
-                  src={currentVideo.thumbnail}
-                  alt={currentVideo.title}
-                  className="absolute top-0 left-0 w-full h-full object-cover"
-                />
-              ) : (
-                <div className="absolute top-0 left-0 w-full h-full bg-slate-300 flex items-center justify-center">
-                  <Play size={48} className="text-slate-500" />
-                </div>
-              )}
-              {/* Play button overlay */}
-              <div className="absolute inset-0 flex items-center justify-center bg-black/20 active:bg-black/40 transition-colors">
-                <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-lg">
-                  <Play size={32} className="text-white ml-1" fill="white" />
-                </div>
+            {/* Videos label */}
+            <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+              <span className="bg-red-100/90 text-red-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
+                Videos
+              </span>
+            </div>
+            {/* Header - matching feed style */}
+            <div className="flex items-center gap-3 px-4 py-2">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center">
+                <Play size={20} className="text-white ml-0.5" fill="white" />
               </div>
-            </button>
-            <div className="mt-3">
+              <div className="flex-1">
+                <p className="font-semibold text-slate-900 text-sm">Watch</p>
+                <p className="text-xs text-slate-500">Video about this book</p>
+              </div>
+            </div>
+            {/* Content */}
+            <div className="px-4 pb-4">
+              {/* Thumbnail with play button - works on iOS */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   openSystemBrowser(videoUrl);
                 }}
-                className="text-sm font-bold text-slate-900 block mb-1 line-clamp-2 text-left"
+                className="relative w-full block rounded-xl overflow-hidden"
+                style={{ paddingBottom: '56.25%' }}
               >
-                {currentVideo.title}
+                {currentVideo.thumbnail ? (
+                  <img
+                    src={currentVideo.thumbnail}
+                    alt={currentVideo.title}
+                    className="absolute top-0 left-0 w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="absolute top-0 left-0 w-full h-full bg-slate-300 flex items-center justify-center">
+                    <Play size={48} className="text-slate-500" />
+                  </div>
+                )}
+                {/* Play button overlay */}
+                <div className="absolute inset-0 flex items-center justify-center bg-black/20 active:bg-black/40 transition-colors">
+                  <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-lg">
+                    <Play size={32} className="text-white ml-1" fill="white" />
+                  </div>
+                </div>
               </button>
-              <div className="text-xs text-slate-500 mb-2">
-                <span>{currentVideo.channelTitle}</span>
-                {currentVideo.publishedAt && (
-                  <span> • {new Date(currentVideo.publishedAt).getFullYear()}</span>
+              <div className="mt-3">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openSystemBrowser(videoUrl);
+                  }}
+                  className="text-sm font-bold text-slate-900 block mb-1 line-clamp-2 text-left"
+                >
+                  {currentVideo.title}
+                </button>
+                <div className="text-xs text-slate-500 mb-2">
+                  <span>{currentVideo.channelTitle}</span>
+                  {currentVideo.publishedAt && (
+                    <span> • {new Date(currentVideo.publishedAt).getFullYear()}</span>
+                  )}
+                </div>
+                {currentVideo.description && (
+                  <p className="text-xs text-slate-500 line-clamp-2">
+                    {currentVideo.description}
+                  </p>
                 )}
               </div>
-              {currentVideo.description && (
-                <p className="text-xs text-slate-500 line-clamp-2">
-                  {currentVideo.description}
+              {/* Pagination */}
+              {videos.length > 1 && (
+                <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
+                  Tap for next ({currentIndex + 1}/{videos.length})
                 </p>
               )}
             </div>
-            {videos.length > 1 && (
-              <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
-                Tap for next ({currentIndex + 1}/{videos.length})
-              </p>
-            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -4769,49 +4814,64 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="rounded-xl p-4"
-          style={glassmorphicStyle}
+            className="rounded-2xl overflow-hidden"
+            style={glassmorphicStyle}
           >
-            <div className="flex items-start gap-3 mb-2">
-              <div className="w-12 h-12 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                <FileText size={20} className="text-slate-600" />
+            {/* Google Scholar label */}
+            <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+              <span className="bg-blue-100/90 text-blue-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
+                Google Scholar
+              </span>
+            </div>
+            {/* Header - matching feed style */}
+            <div className="flex items-center gap-3 px-4 py-2">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
+                <FileText size={20} className="text-white" />
               </div>
-              <div className="flex-1 min-w-0">
-                <a 
-                  href={currentArticle.url} 
-                  target="_blank" 
+              <div className="flex-1">
+                <p className="font-semibold text-slate-900 text-sm">Read</p>
+                <p className="text-xs text-slate-500">Academic article about this book</p>
+              </div>
+            </div>
+            {/* Content */}
+            <div className="px-4 pb-4">
+              <div className="flex-1 min-w-0 mb-2">
+                <a
+                  href={currentArticle.url}
+                  target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  className="text-xs font-bold text-blue-700 hover:text-blue-800 hover:underline block mb-1 line-clamp-2"
+                  className="text-sm font-bold text-blue-700 hover:text-blue-800 hover:underline block mb-1 line-clamp-2"
                 >
                   {decodeHtmlEntities(currentArticle.title)}
                 </a>
                 {(currentArticle.authors || currentArticle.year) && (
-                  <div className="text-xs text-slate-600">
+                  <div className="text-xs text-slate-500">
                     {currentArticle.authors && <span>{decodeHtmlEntities(currentArticle.authors)}</span>}
                     {currentArticle.year && <span> • {currentArticle.year}</span>}
                   </div>
                 )}
               </div>
+              <p className="text-xs text-slate-700 leading-relaxed mb-2">
+                {decodeHtmlEntities(currentArticle.snippet)}
+              </p>
+              {currentArticle.url && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.open(currentArticle.url, '_blank');
+                  }}
+                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium active:scale-95 transition-transform"
+                >
+                  <ExternalLink size={12} />
+                  Read full article
+                </button>
+              )}
+              {/* Pagination */}
+              <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
+                Tap for next ({currentIndex + 1}/{articles.length})
+              </p>
             </div>
-            <p className="text-xs font-medium text-slate-800 leading-relaxed mb-1">
-              {decodeHtmlEntities(currentArticle.snippet)}
-            </p>
-            {currentArticle.url && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  window.open(currentArticle.url, '_blank');
-                }}
-                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium active:scale-95 transition-transform mt-2"
-              >
-                <ExternalLink size={12} />
-                Read more
-              </button>
-            )}
-            <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
-              Tap for next ({currentIndex + 1}/{articles.length})
-            </p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -4976,53 +5036,73 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
-            className="rounded-xl p-4"
-          style={glassmorphicStyle}
+            className="rounded-2xl overflow-hidden"
+            style={glassmorphicStyle}
           >
-            <div className="flex items-start gap-3 mb-2">
-              {/* Thumbnail or icon */}
-              {(currentBook.thumbnail || currentBook.cover_url) ? (
-                <img 
-                  src={currentBook.thumbnail || currentBook.cover_url || ''} 
-                  alt={currentBook.title}
-                  className="w-16 h-20 object-cover rounded-lg flex-shrink-0 shadow-sm"
-                />
-              ) : (
-                <div className="w-16 h-20 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                  <BookOpen size={24} className="text-slate-600" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <h3 className="text-xs font-bold text-slate-800 mb-1 line-clamp-2">
-                  {decodeHtmlEntities(currentBook.title)}
-                </h3>
-                <div className="text-xs text-slate-600 mb-2">
-                  <span>{decodeHtmlEntities(currentBook.author)}</span>
-                </div>
-                {/* Add Book Button */}
-                {onAddBook && (
-                  <button
-                    onClick={handleAddBook}
-                    className="py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded-lg transition-all duration-200 active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
-                  >
-                    <CheckCircle2 size={10} />
-                    Add Book
-                  </button>
-                )}
+            {/* Related Books label */}
+            <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+              <span className="bg-amber-100/90 text-amber-800 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
+                Related Books
+              </span>
+            </div>
+            {/* Header - matching feed style */}
+            <div className="flex items-center gap-3 px-4 py-2">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
+                <BookMarked size={20} className="text-white" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-slate-900 text-sm">Discover</p>
+                <p className="text-xs text-slate-500">Similar book you might enjoy</p>
               </div>
             </div>
-            {currentBook.reason && (
-              <div className="mb-3">
-                <p className="text-xs font-medium text-slate-800 leading-relaxed">
-                  {decodeHtmlEntities(currentBook.reason)}
-                </p>
+            {/* Content */}
+            <div className="px-4 pb-4">
+              <div className="flex items-start gap-3 mb-2">
+                {/* Thumbnail or icon */}
+                {(currentBook.thumbnail || currentBook.cover_url) ? (
+                  <img
+                    src={currentBook.thumbnail || currentBook.cover_url || ''}
+                    alt={currentBook.title}
+                    className="w-16 h-20 object-cover rounded-lg flex-shrink-0 shadow-sm"
+                  />
+                ) : (
+                  <div className="w-16 h-20 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                    <BookOpen size={24} className="text-slate-600" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-bold text-slate-800 mb-1 line-clamp-2">
+                    {decodeHtmlEntities(currentBook.title)}
+                  </h3>
+                  <div className="text-xs text-slate-500 mb-2">
+                    <span>{decodeHtmlEntities(currentBook.author)}</span>
+                  </div>
+                  {/* Add Book Button */}
+                  {onAddBook && (
+                    <button
+                      onClick={handleAddBook}
+                      className="py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded-lg transition-all duration-200 active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                    >
+                      <CheckCircle2 size={10} />
+                      Add Book
+                    </button>
+                  )}
+                </div>
               </div>
-            )}
-            {books.length > 1 && (
-              <p className="text-xs text-slate-600 text-center mt-2 font-bold uppercase tracking-wider">
-                Tap card for next ({currentIndex + 1}/{books.length})
-              </p>
-            )}
+              {currentBook.reason && (
+                <div className="mb-2">
+                  <p className="text-xs text-slate-700 leading-relaxed">
+                    {decodeHtmlEntities(currentBook.reason)}
+                  </p>
+                </div>
+              )}
+              {/* Pagination */}
+              {books.length > 1 && (
+                <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
+                  Tap for next ({currentIndex + 1}/{books.length})
+                </p>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -8616,6 +8696,12 @@ export default function App() {
   // Fetch author facts for existing books when they're selected
   // Now uses cache table instead of books table
   useEffect(() => {
+    // Skip if feature flag is disabled
+    if (!featureFlags.insights.author_facts) {
+      setLoadingFactsForBookId(null);
+      return;
+    }
+
     const currentBook = books[selectedIndex];
     if (!currentBook || !currentBook.title || !currentBook.author) {
       setLoadingFactsForBookId(null);
@@ -8775,6 +8861,12 @@ export default function App() {
   
   // Fetch book influences for existing books when they're selected
   useEffect(() => {
+    // Skip if feature flag is disabled
+    if (!featureFlags.insights.book_influences) {
+      setLoadingInfluencesForBookId(null);
+      return;
+    }
+
     const currentBook = books[selectedIndex];
     if (!currentBook || !currentBook.title || !currentBook.author) {
       setLoadingInfluencesForBookId(null);
@@ -8865,6 +8957,12 @@ export default function App() {
   
   // Fetch book domain insights for existing books when they're selected
   useEffect(() => {
+    // Skip if feature flag is disabled
+    if (!featureFlags.insights.book_domain) {
+      setLoadingDomainForBookId(null);
+      return;
+    }
+
     const currentBook = books[selectedIndex];
     if (!currentBook || !currentBook.title || !currentBook.author) {
       setLoadingDomainForBookId(null);
@@ -8955,6 +9053,12 @@ export default function App() {
   
   // Fetch book context insights for existing books when they're selected
   useEffect(() => {
+    // Skip if feature flag is disabled
+    if (!featureFlags.insights.book_context) {
+      setLoadingContextForBookId(null);
+      return;
+    }
+
     const currentBook = books[selectedIndex];
     if (!currentBook || !currentBook.title || !currentBook.author) {
       setLoadingContextForBookId(null);
@@ -9045,6 +9149,12 @@ export default function App() {
 
   // Fetch "Did you know?" insights for existing books when they're selected
   useEffect(() => {
+    // Skip if feature flag is disabled
+    if (!featureFlags.insights.did_you_know) {
+      setLoadingDidYouKnowForBookId(null);
+      return;
+    }
+
     const currentBook = books[selectedIndex];
     if (!currentBook || !currentBook.title || !currentBook.author) {
       setLoadingDidYouKnowForBookId(null);
@@ -9082,7 +9192,8 @@ export default function App() {
     // Set loading state
     setLoadingDidYouKnowForBookId(bookId);
 
-    // Add a delay to avoid rate limits when scrolling through books
+    // Add a short delay to avoid rate limits when scrolling through books
+    // Shorter delay than other insights since this is the only enabled insight type by default
     const fetchTimer = setTimeout(() => {
       if (cancelled) return;
 
@@ -9120,7 +9231,7 @@ export default function App() {
         // Remove from fetching set on error so we can retry
         fetchingDidYouKnowForBooksRef.current.delete(bookId);
       });
-    }, 3000); // Delay to avoid rate limits when scrolling
+    }, 1500); // Shorter delay since this is the primary insight type
 
     return () => {
       cancelled = true;
@@ -9750,9 +9861,10 @@ export default function App() {
       const hasDomain = bookDomain.has(bookId) && (bookDomain.get(bookId)?.facts?.length || 0) > 0;
       const hasFacts = currentBook.author_facts && currentBook.author_facts.length > 0;
       const hasVideos = youtubeVideos.has(bookId) && (youtubeVideos.get(bookId)?.length || 0) > 0;
+      const hasDidYouKnow = didYouKnow.has(bookId) && (didYouKnow.get(bookId)?.length || 0) > 0;
 
       // Only generate if we have at least some content
-      if (hasInfluences || hasContext || hasDomain || hasFacts || hasVideos) {
+      if (hasInfluences || hasContext || hasDomain || hasFacts || hasVideos || hasDidYouKnow) {
         console.log(`[Feed Generation] 🔄 Generating feed items for "${currentBook.title}"...`);
         generatedFeedForBooksRef.current.add(bookId);
 
@@ -9771,7 +9883,7 @@ export default function App() {
     }, 5000); // Wait 5 seconds for content fetching to complete
 
     return () => clearTimeout(timer);
-  }, [activeBook?.id, user, bookInfluences, bookContext, bookDomain, youtubeVideos]);
+  }, [activeBook?.id, user, bookInfluences, bookContext, bookDomain, youtubeVideos, didYouKnow]);
 
   // Track if feed has been loaded to prevent reload on app resume
   const feedLoadedRef = useRef(false);
@@ -11284,18 +11396,18 @@ export default function App() {
                         style={feedCardStyle}
                       >
                         {[
-                          { value: 'all', label: 'All Types' },
-                          { value: 'fact', label: 'Facts' },
-                          { value: 'context', label: 'Context' },
-                          { value: 'drilldown', label: 'Insights' },
-                          { value: 'influence', label: 'Influences' },
-                          { value: 'did_you_know', label: 'Did You Know?' },
-                          { value: 'podcast', label: 'Podcasts' },
-                          { value: 'article', label: 'Articles' },
-                          { value: 'related_book', label: 'Books' },
-                          { value: 'video', label: 'Videos' },
-                          { value: 'friend_book', label: 'Friends' },
-                        ].map((option, idx) => (
+                          { value: 'all', label: 'All Types', enabled: true },
+                          { value: 'fact', label: 'Facts', enabled: featureFlags.insights.author_facts },
+                          { value: 'context', label: 'Context', enabled: featureFlags.insights.book_context },
+                          { value: 'drilldown', label: 'Insights', enabled: featureFlags.insights.book_domain },
+                          { value: 'influence', label: 'Influences', enabled: featureFlags.insights.book_influences },
+                          { value: 'did_you_know', label: 'Did You Know?', enabled: featureFlags.insights.did_you_know },
+                          { value: 'podcast', label: 'Podcasts', enabled: true },
+                          { value: 'article', label: 'Articles', enabled: true },
+                          { value: 'related_book', label: 'Books', enabled: true },
+                          { value: 'video', label: 'Videos', enabled: true },
+                          { value: 'friend_book', label: 'Friends', enabled: true },
+                        ].filter(option => option.enabled).map((option, idx, filteredArray) => (
                           <button
                             key={option.value}
                             onClick={(e) => {
@@ -11308,7 +11420,7 @@ export default function App() {
                               feedTypeFilter === option.value
                                 ? 'bg-slate-900 text-white'
                                 : 'text-slate-700 hover:bg-white/30'
-                            } ${idx === 0 ? 'rounded-t-lg' : ''} ${idx === 9 ? 'rounded-b-lg' : ''}`}
+                            } ${idx === 0 ? 'rounded-t-lg' : ''} ${idx === filteredArray.length - 1 ? 'rounded-b-lg' : ''}`}
                           >
                             {option.label}
                           </button>
@@ -11986,6 +12098,26 @@ export default function App() {
                     const didYouKnowNotes: string[] = item.content.notes || [];
                     const currentNoteIdx = didYouKnowNoteIndex.get(item.id) || 0;
 
+                    // Helper functions for navigation
+                    const goToNextNote = () => {
+                      setDidYouKnowNoteIndex(prev => {
+                        const newMap = new Map(prev);
+                        newMap.set(item.id, (currentNoteIdx + 1) % didYouKnowNotes.length);
+                        return newMap;
+                      });
+                    };
+                    const goToPrevNote = () => {
+                      setDidYouKnowNoteIndex(prev => {
+                        const newMap = new Map(prev);
+                        newMap.set(item.id, currentNoteIdx > 0 ? currentNoteIdx - 1 : didYouKnowNotes.length - 1);
+                        return newMap;
+                      });
+                    };
+
+                    // Swipe detection state (using data attributes to avoid React state in render)
+                    let touchStartX = 0;
+                    let touchStartY = 0;
+
                     return (
                       <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
                         <div className="flex items-center gap-3 px-4 py-3">
@@ -12000,8 +12132,38 @@ export default function App() {
                           <ReadToggle />
                         </div>
                         <div className="px-4 pb-4">
-                          {/* Notes carousel */}
-                          <div className="bg-gradient-to-br from-violet-50 to-purple-50 rounded-xl p-4 mb-3 border border-violet-100 min-h-[100px]">
+                          {/* Notes carousel with pagination dots inside - tap to advance, swipe to navigate */}
+                          <div
+                            className="bg-gradient-to-br from-violet-50 to-purple-50 rounded-xl p-4 mb-3 border border-violet-100 min-h-[100px] cursor-pointer select-none active:bg-violet-100/50 transition-colors"
+                            onClick={(e) => {
+                              // Don't trigger if clicking on pagination dots
+                              if ((e.target as HTMLElement).closest('button')) return;
+                              goToNextNote();
+                            }}
+                            onTouchStart={(e) => {
+                              const touch = e.touches[0];
+                              touchStartX = touch.clientX;
+                              touchStartY = touch.clientY;
+                            }}
+                            onTouchEnd={(e) => {
+                              const touch = e.changedTouches[0];
+                              const deltaX = touch.clientX - touchStartX;
+                              const deltaY = touch.clientY - touchStartY;
+                              const minSwipeDistance = 50;
+
+                              // Only handle horizontal swipes (ignore vertical scrolling)
+                              if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > minSwipeDistance) {
+                                e.preventDefault();
+                                if (deltaX < 0) {
+                                  // Swipe left = next
+                                  goToNextNote();
+                                } else {
+                                  // Swipe right = previous
+                                  goToPrevNote();
+                                }
+                              }
+                            }}
+                          >
                             <AnimatePresence mode="wait">
                               <motion.p
                                 key={currentNoteIdx}
@@ -12014,31 +12176,31 @@ export default function App() {
                                 {didYouKnowNotes[currentNoteIdx] || ''}
                               </motion.p>
                             </AnimatePresence>
-                          </div>
 
-                          {/* Pagination dots */}
-                          {didYouKnowNotes.length > 1 && (
-                            <div className="flex justify-center gap-2 mb-3">
-                              {didYouKnowNotes.map((_, idx) => (
-                                <button
-                                  key={idx}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setDidYouKnowNoteIndex(prev => {
-                                      const newMap = new Map(prev);
-                                      newMap.set(item.id, idx);
-                                      return newMap;
-                                    });
-                                  }}
-                                  className={`w-2 h-2 rounded-full transition-all ${
-                                    idx === currentNoteIdx
-                                      ? 'bg-violet-500 w-4'
-                                      : 'bg-slate-300 hover:bg-slate-400'
-                                  }`}
-                                />
-                              ))}
-                            </div>
-                          )}
+                            {/* Pagination dots inside the note box */}
+                            {didYouKnowNotes.length > 1 && (
+                              <div className="flex justify-center gap-2 mt-4 pt-3 border-t border-violet-200/50">
+                                {didYouKnowNotes.map((_, idx) => (
+                                  <button
+                                    key={idx}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDidYouKnowNoteIndex(prev => {
+                                        const newMap = new Map(prev);
+                                        newMap.set(item.id, idx);
+                                        return newMap;
+                                      });
+                                    }}
+                                    className={`w-2 h-2 rounded-full transition-all ${
+                                      idx === currentNoteIdx
+                                        ? 'bg-violet-500 w-4'
+                                        : 'bg-violet-300 hover:bg-violet-400'
+                                    }`}
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
 
                           <button
                             onClick={openSourceBookOverlay}
@@ -14112,7 +14274,7 @@ export default function App() {
                   <motion.div
                     animate={{ opacity: [0.5, 0.8, 0.5] }}
                     transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                    className="w-full space-y-3"
+                    className="w-full space-y-6"
                   >
                     {[1, 2, 3, 4, 5].map((i) => (
                       <div key={`book-page-skeleton-${i}`} className="rounded-xl p-4" style={glassmorphicStyle}>
@@ -14133,7 +14295,7 @@ export default function App() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ duration: 0.3, ease: "easeInOut" }}
-                    className="w-full space-y-2"
+                    className="w-full space-y-6"
                   >
                 {/* Insights: Show if we have facts, research, or are loading */}
                 {(() => {
@@ -14160,21 +14322,21 @@ export default function App() {
                   const isLoadingContext = !bookPageSectionsResolved && loadingContextForBookId === activeBook.id && !hasContext;
                   const isLoadingDidYouKnow = !bookPageSectionsResolved && loadingDidYouKnowForBookId === activeBook.id && !hasDidYouKnow;
                   
-                  // Get available categories
+                  // Get available categories (only show enabled insight types)
                   const categories: { id: string; label: string; count: number }[] = [];
-                  if (hasFacts || isLoadingFacts) {
+                  if (featureFlags.insights.author_facts && (hasFacts || isLoadingFacts)) {
                     categories.push({ id: 'trivia', label: 'Trivia', count: activeBook.author_facts?.length || 0 });
                   }
-                  if (hasInfluences || isLoadingInfluences) {
+                  if (featureFlags.insights.book_influences && (hasInfluences || isLoadingInfluences)) {
                     categories.push({ id: 'influences', label: 'Influences', count: influences.length });
                   }
-                  if (hasDomain || isLoadingDomain) {
+                  if (featureFlags.insights.book_domain && (hasDomain || isLoadingDomain)) {
                     categories.push({ id: 'domain', label: domainLabel, count: domainData?.facts?.length || 0 });
                   }
-                  if (hasContext || isLoadingContext) {
+                  if (featureFlags.insights.book_context && (hasContext || isLoadingContext)) {
                     categories.push({ id: 'context', label: 'Context', count: contextInsights.length });
                   }
-                  if (hasDidYouKnow || isLoadingDidYouKnow) {
+                  if (featureFlags.insights.did_you_know && (hasDidYouKnow || isLoadingDidYouKnow)) {
                     categories.push({ id: 'did_you_know', label: 'Did you know?', count: didYouKnowInsights.length });
                   }
                   if (hasResearch) {
@@ -14187,8 +14349,15 @@ export default function App() {
                     });
                   }
                   
-                  // Only render if loading or has data
-                  if (!isLoadingFacts && !isLoadingResearch && !isLoadingInfluences && !isLoadingDomain && !isLoadingContext && !isLoadingDidYouKnow && !hasFacts && !hasResearch && !hasInfluences && !hasDomain && !hasContext && !hasDidYouKnow) return null;
+                  // Only render if loading or has data (for enabled insight types)
+                  const hasEnabledInsights =
+                    (featureFlags.insights.author_facts && (isLoadingFacts || hasFacts)) ||
+                    (featureFlags.insights.book_influences && (isLoadingInfluences || hasInfluences)) ||
+                    (featureFlags.insights.book_domain && (isLoadingDomain || hasDomain)) ||
+                    (featureFlags.insights.book_context && (isLoadingContext || hasContext)) ||
+                    (featureFlags.insights.did_you_know && (isLoadingDidYouKnow || hasDidYouKnow)) ||
+                    (isLoadingResearch || hasResearch); // Research doesn't have a feature flag
+                  if (!hasEnabledInsights) return null;
                   
                   // Determine current category data
                   const currentCategory = categories.find(c => c.id === selectedInsightCategory) || categories[0];
@@ -14229,59 +14398,61 @@ export default function App() {
                   
                   return (
                     <div className="w-full space-y-2">
-                      {/* Insights Header with Category Selector - Always visible */}
-                      <div className="flex items-center justify-center mb-2 relative z-[40]">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm relative" style={bookPageGlassmorphicStyle}>
-                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">INSIGHTS:</span>
-                          {categories.length > 1 && (
-                            <>
-                              <span className="text-[10px] font-bold text-slate-400">/</span>
-                              <div className="relative insight-category-dropdown z-[40]">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setIsInsightCategoryDropdownOpen(!isInsightCategoryDropdownOpen);
-                                  }}
-                                  className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded transition-colors text-blue-700 hover:bg-blue-50"
-                                >
-                                  {currentCategory?.label || 'Trivia'}
-                                  <ChevronDown
-                                    size={12}
-                                    className={`transition-transform ${isInsightCategoryDropdownOpen ? 'rotate-180' : ''}`}
-                                  />
-                                </button>
-                                {isInsightCategoryDropdownOpen && (
-                                  <div className="absolute top-full left-0 mt-1 bg-white/95 backdrop-blur-md border border-white/30 rounded-lg shadow-xl z-[40] min-w-[120px] overflow-hidden">
-                                    {categories.map((cat) => (
-                                      <button
-                                        key={cat.id || `cat-${cat.label}`}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSelectedInsightCategory(cat.id);
-                                          setIsInsightCategoryDropdownOpen(false);
-                                        }}
-                                        className={`w-full text-left text-[10px] font-bold px-3 py-2 transition-colors ${
-                                          selectedInsightCategory === cat.id
-                                            ? 'text-blue-700 bg-blue-100'
-                                            : 'text-slate-600 hover:bg-slate-100'
-                                        }`}
-                                      >
-                                        {cat.label}
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </>
-                          )}
-                          {categories.length === 1 && (
-                            <>
-                              <span className="text-[10px] font-bold text-slate-400">/</span>
-                              <span className="text-[10px] font-bold text-blue-700">{currentCategory?.label || 'Trivia'}</span>
-                            </>
-                          )}
+                      {/* Insights Header with Category Selector - hidden when featureFlags.bookPageSectionHeaders.insights is true */}
+                      {!featureFlags.bookPageSectionHeaders.insights && (
+                        <div className="flex items-center justify-center mb-2 relative z-[40]">
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm relative" style={bookPageGlassmorphicStyle}>
+                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">INSIGHTS:</span>
+                            {categories.length > 1 && (
+                              <>
+                                <span className="text-[10px] font-bold text-slate-400">/</span>
+                                <div className="relative insight-category-dropdown z-[40]">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setIsInsightCategoryDropdownOpen(!isInsightCategoryDropdownOpen);
+                                    }}
+                                    className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded transition-colors text-blue-700 hover:bg-blue-50"
+                                  >
+                                    {currentCategory?.label || 'Trivia'}
+                                    <ChevronDown
+                                      size={12}
+                                      className={`transition-transform ${isInsightCategoryDropdownOpen ? 'rotate-180' : ''}`}
+                                    />
+                                  </button>
+                                  {isInsightCategoryDropdownOpen && (
+                                    <div className="absolute top-full left-0 mt-1 bg-white/95 backdrop-blur-md border border-white/30 rounded-lg shadow-xl z-[40] min-w-[120px] overflow-hidden">
+                                      {categories.map((cat) => (
+                                        <button
+                                          key={cat.id || `cat-${cat.label}`}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setSelectedInsightCategory(cat.id);
+                                            setIsInsightCategoryDropdownOpen(false);
+                                          }}
+                                          className={`w-full text-left text-[10px] font-bold px-3 py-2 transition-colors ${
+                                            selectedInsightCategory === cat.id
+                                              ? 'text-blue-700 bg-blue-100'
+                                              : 'text-slate-600 hover:bg-slate-100'
+                                          }`}
+                                        >
+                                          {cat.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                            {categories.length === 1 && (
+                              <>
+                                <span className="text-[10px] font-bold text-slate-400">/</span>
+                                <span className="text-[10px] font-bold text-blue-700">{currentCategory?.label || 'Trivia'}</span>
+                              </>
+                            )}
+                          </div>
                         </div>
-                      </div>
+                      )}
                       {/* Content with spoiler protection */}
                       <div
                         className={`relative ${shouldBlurInsights ? 'cursor-pointer' : ''}`}
@@ -14346,14 +14517,16 @@ export default function App() {
                   
                   return (
                     <div className="w-full space-y-2">
-                      {/* Podcast Header - Always visible */}
-                      <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">PODCASTS:</span>
-                          <span className="text-[10px] font-bold text-slate-400">/</span>
-                          <span className="text-[10px] font-bold text-blue-700">Curated + Apple</span>
+                      {/* Podcast Header - hidden when featureFlags.bookPageSectionHeaders.podcasts is true */}
+                      {!featureFlags.bookPageSectionHeaders.podcasts && (
+                        <div className="flex items-center justify-center mb-2">
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
+                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">PODCASTS:</span>
+                            <span className="text-[10px] font-bold text-slate-400">/</span>
+                            <span className="text-[10px] font-bold text-blue-700">Curated + Apple</span>
+                          </div>
                         </div>
-                      </div>
+                      )}
                       {/* Content */}
                       <div>
                           {isLoading ? (
@@ -14398,14 +14571,16 @@ export default function App() {
 
                   return (
                     <div className="w-full space-y-2">
-                      {/* Videos Header */}
-                      <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">VIDEOS:</span>
-                          <span className="text-[10px] font-bold text-slate-400">/</span>
-                          <span className="text-[10px] font-bold text-blue-700">YouTube</span>
+                      {/* Videos Header - hidden when featureFlags.bookPageSectionHeaders.youtube is true */}
+                      {!featureFlags.bookPageSectionHeaders.youtube && (
+                        <div className="flex items-center justify-center mb-2">
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
+                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">VIDEOS:</span>
+                            <span className="text-[10px] font-bold text-slate-400">/</span>
+                            <span className="text-[10px] font-bold text-blue-700">YouTube</span>
+                          </div>
                         </div>
-                      </div>
+                      )}
                       {/* Content */}
                       <div>
                           {isLoading ? (
@@ -14457,14 +14632,16 @@ export default function App() {
 
                   return (
                     <div className="w-full space-y-2">
-                      {/* Analysis Header */}
-                      <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">ANALYSIS:</span>
-                          <span className="text-[10px] font-bold text-slate-400">/</span>
-                          <span className="text-[10px] font-bold text-blue-700">Google Scholar</span>
+                      {/* Analysis Header - hidden when featureFlags.bookPageSectionHeaders.articles is true */}
+                      {!featureFlags.bookPageSectionHeaders.articles && (
+                        <div className="flex items-center justify-center mb-2">
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
+                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">ANALYSIS:</span>
+                            <span className="text-[10px] font-bold text-slate-400">/</span>
+                            <span className="text-[10px] font-bold text-blue-700">Google Scholar</span>
+                          </div>
                         </div>
-                      </div>
+                      )}
                       {/* Content */}
                       <div>
                           {isLoading ? (
@@ -14509,14 +14686,16 @@ export default function App() {
 
                   return (
                     <div className="w-full space-y-2">
-                      {/* Related Books Header */}
-                      <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">RELATED:</span>
-                          <span className="text-[10px] font-bold text-slate-400">/</span>
-                          <span className="text-[10px] font-bold text-blue-700">Grok</span>
+                      {/* Related Books Header - hidden when featureFlags.bookPageSectionHeaders.relatedBooks is true */}
+                      {!featureFlags.bookPageSectionHeaders.relatedBooks && (
+                        <div className="flex items-center justify-center mb-2">
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
+                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">RELATED:</span>
+                            <span className="text-[10px] font-bold text-slate-400">/</span>
+                            <span className="text-[10px] font-bold text-blue-700">Grok</span>
+                          </div>
                         </div>
-                      </div>
+                      )}
                       {isLoading ? (
                         // Show loading placeholder
                         <motion.div
