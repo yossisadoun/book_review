@@ -37,6 +37,8 @@ import {
   X,
   MessageCircle,
   Lightbulb,
+  Cloud,
+  Share,
   ShieldUser,
   PlusCircle,
   Plus,
@@ -6955,6 +6957,7 @@ export default function App() {
   const [isAdding, setIsAdding] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
   const [selectingReadingStatusInRating, setSelectingReadingStatusInRating] = useState(false);
   const [selectingReadingStatusForExisting, setSelectingReadingStatusForExisting] = useState(false);
   const [pendingBookMeta, setPendingBookMeta] = useState<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> | null>(null);
@@ -10707,6 +10710,10 @@ export default function App() {
           setTimeout(() => {
             setIsEditing(false);
             setEditingDimension(null);
+            // Show share dialog for high ratings (4 or 5 stars)
+            if (value >= 4) {
+              setTimeout(() => setShowShareDialog(true), 100);
+            }
           }, 500);
         }
       } else if (value === null) {
@@ -14194,7 +14201,7 @@ export default function App() {
               
               {/* Click outside to close rating overlay or reading status selection */}
               {(showRatingOverlay || selectingReadingStatusForExisting) && (
-                <div 
+                <div
                   className="fixed inset-0 z-30"
                   onClick={() => {
                     setIsEditing(false);
@@ -14205,6 +14212,67 @@ export default function App() {
                 />
               )}
 
+              {/* Share Dialog - appears after high rating (4 or 5 stars) */}
+              <AnimatePresence>
+                {showShareDialog && activeBook && (
+                  <>
+                    {/* Click outside to close */}
+                    <div
+                      className="fixed inset-0 z-30"
+                      onClick={() => setShowShareDialog(false)}
+                    />
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 20 }}
+                      className="absolute bottom-16 left-4 right-4 z-40 flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden"
+                      style={standardGlassmorphicStyle}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950">
+                          A {activeBook.ratings.writing === 5 ? 'GREAAAAAT' : 'GOOD'} BOOK LIKE THIS...
+                        </h3>
+                        <p className="text-xs text-slate-500">someone you know needs to read it</p>
+                        <div className="flex gap-3 mt-2">
+                          <button
+                            onClick={async () => {
+                              try {
+                                if (navigator.share) {
+                                  await navigator.share({
+                                    title: activeBook.title,
+                                    text: `I just rated "${activeBook.title}" by ${activeBook.author} - ${RATING_FEEDBACK[activeBook.ratings.writing || 4]}`,
+                                    url: window.location.href,
+                                  });
+                                } else {
+                                  // Fallback: copy to clipboard
+                                  await navigator.clipboard.writeText(
+                                    `I just rated "${activeBook.title}" by ${activeBook.author} - ${RATING_FEEDBACK[activeBook.ratings.writing || 4]}`
+                                  );
+                                  alert('Copied to clipboard!');
+                                }
+                              } catch (err) {
+                                console.log('Share cancelled or failed');
+                              }
+                              setShowShareDialog(false);
+                            }}
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-medium active:scale-95 transition-all"
+                          >
+                            <Share size={16} />
+                            Share
+                          </button>
+                          <button
+                            onClick={() => setShowShareDialog(false)}
+                            className="px-4 py-2 rounded-xl text-slate-500 text-sm font-medium hover:bg-white/30 active:scale-95 transition-all"
+                          >
+                            Skip
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
 
               {/* Delete button - bottom right */}
               <AnimatePresence>
@@ -14539,7 +14607,7 @@ export default function App() {
                               border: '1px solid rgba(255, 255, 255, 0.3)',
                             }}
                           >
-                            <Lightbulb size={16} className="text-slate-700" />
+                            <Cloud size={16} className="text-slate-700" />
                           </button>
 
                           {/* Infographic button */}
@@ -16237,7 +16305,7 @@ export default function App() {
                 {/* Section header */}
                 <div className="flex items-center gap-2 mb-2">
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg shadow-sm" style={glassmorphicStyle}>
-                    <Sparkles size={16} className="text-amber-500" />
+                    <Cloud size={16} className="text-slate-500" />
                     <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Discussion Topics</span>
                   </div>
                 </div>
