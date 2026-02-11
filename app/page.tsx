@@ -40,6 +40,55 @@ import {
   PlusCircle,
   Plus,
   Bot,
+  Map as MapIcon,
+  UserCircle,
+  Clock,
+  Network,
+  Target,
+  Sunrise,
+  Sunset,
+  UserPlus,
+  MapPin,
+  Compass,
+  Swords,
+  Shield,
+  Heart,
+  Eye,
+  AlertTriangle,
+  Home,
+  Building,
+  Skull,
+  Gift,
+  Lock,
+  Unlock,
+  Flag,
+  Crown,
+  Flame,
+  Footprints,
+  Handshake,
+  Hammer,
+  Key,
+  Mountain,
+  Ship,
+  Tent,
+  TreePine,
+  Wind,
+  Workflow,
+  Megaphone,
+  ScrollText,
+  Feather,
+  Scale,
+  Bomb,
+  Ghost,
+  Wand2,
+  Anchor,
+  BellRing,
+  Bird,
+  Briefcase,
+  Car,
+  Coffee,
+  Drama,
+  type LucideIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Lottie from 'lottie-react';
@@ -199,6 +248,42 @@ interface DidYouKnowResponse {
   book: string;
   author: string;
   did_you_know_top10: DidYouKnowItem[];
+}
+
+// Book Infographic types (orientation guide)
+interface InfographicCharacter {
+  name: string;
+  role: string;
+  short_identity: string;
+  personality: string;
+  main_goal: string;
+  key_connections: string[];
+  why_reader_should_track: string;
+}
+
+interface InfographicCharacterBrief {
+  name: string;
+  short_identity: string;
+  group_or_side: string;
+  importance: 'major' | 'supporting' | 'minor';
+}
+
+interface InfographicPlotEvent {
+  order: number;
+  phase: 'opening' | 'early_setup' | 'early_story' | 'mid_story';
+  event_label: string;
+  what_happens: string;
+  characters_involved: string[];
+  why_it_helps_orientation: string;
+  icon?: string; // Lucide icon name
+}
+
+interface BookInfographic {
+  book: string;
+  author: string;
+  core_cast: InfographicCharacter[];
+  full_character_list: InfographicCharacterBrief[];
+  plot_timeline: InfographicPlotEvent[];
 }
 
 // Feed item interface for community/following feed
@@ -1217,6 +1302,90 @@ async function saveDidYouKnowToCache(bookTitle: string, bookAuthor: string, insi
     }
   } catch (err: any) {
     console.error('[saveDidYouKnowToCache] ❌ Error:', err);
+  }
+}
+
+// Get book infographic (orientation guide) from Grok
+async function getGrokBookInfographic(bookTitle: string, author: string): Promise<BookInfographic | null> {
+  console.log('[getGrokBookInfographic] Called for:', bookTitle, 'by', author);
+
+  if (!grokApiKey) {
+    console.warn('[getGrokBookInfographic] API key is missing!');
+    return null;
+  }
+
+  console.log('[getGrokBookInfographic] API key found, waiting 2s before request...');
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  const url = 'https://api.x.ai/v1/chat/completions';
+
+  // Load prompt from yaml
+  const prompts = await loadPrompts();
+  const prompt = formatPrompt(prompts.book_infographic.prompt, {
+    book_title: bookTitle,
+    author_name: author
+  });
+
+  const payload = {
+    messages: [
+      {
+        role: "user",
+        content: prompt
+      }
+    ],
+    model: "grok-4-1-fast-non-reasoning",
+    stream: false,
+    temperature: 0.5
+  };
+
+  console.log('[getGrokBookInfographic] 🔵 Making request to Grok API...');
+  try {
+    const data = await fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload)
+    }, 2, 5000);
+
+    // Log usage
+    if (data.usage) {
+      logGrokUsage('getGrokBookInfographic', data.usage);
+    }
+
+    const content = data.choices?.[0]?.message?.content || '{}';
+
+    // Log raw Grok response
+    console.log('[getGrokBookInfographic] 📦 RAW GROK RESPONSE:', content);
+
+    // Try to extract JSON from the response (Grok might wrap it in markdown)
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    let jsonStr = jsonMatch ? jsonMatch[0] : content;
+
+    // Sanitize common JSON issues from LLM responses
+    // Remove trailing commas before ] or }
+    jsonStr = jsonStr.replace(/,\s*\]/g, ']').replace(/,\s*\}/g, '}');
+
+    try {
+      const result: BookInfographic = JSON.parse(jsonStr);
+      console.log('[getGrokBookInfographic] ✅ Parsed infographic with', result.core_cast?.length || 0, 'core characters,', result.full_character_list?.length || 0, 'total characters,', result.plot_timeline?.length || 0, 'plot events');
+      return result;
+    } catch (parseErr: any) {
+      console.error('[getGrokBookInfographic] ❌ JSON Parse Error:', parseErr.message);
+      console.error('[getGrokBookInfographic] 📄 Attempted to parse:', jsonStr.substring(0, 500) + '...');
+      // Try to find the error location
+      const errorMatch = parseErr.message.match(/position (\d+)/);
+      if (errorMatch) {
+        const pos = parseInt(errorMatch[1]);
+        console.error('[getGrokBookInfographic] 🔍 Error context:', jsonStr.substring(Math.max(0, pos - 50), pos + 50));
+      }
+      return null;
+    }
+  } catch (err: any) {
+    console.error('[getGrokBookInfographic] Error:', err);
+    return null;
   }
 }
 
@@ -6811,6 +6980,12 @@ export default function App() {
   const [researchData, setResearchData] = useState<Map<string, BookResearch>>(new Map());
   const [selectedInsightCategory, setSelectedInsightCategory] = useState<string>('trivia'); // 'trivia' or pillar names from research
   const [isInsightCategoryDropdownOpen, setIsInsightCategoryDropdownOpen] = useState(false);
+  // Book infographic state
+  const [bookInfographics, setBookInfographics] = useState<Map<string, BookInfographic>>(new Map());
+  const [loadingInfographicForBookId, setLoadingInfographicForBookId] = useState<string | null>(null);
+  const [showInfographicModal, setShowInfographicModal] = useState(false);
+  const [infographicSection, setInfographicSection] = useState<'characters' | 'timeline'>('characters');
+  const [isInfographicDropdownOpen, setIsInfographicDropdownOpen] = useState(false);
   const bookshelfGroupingDropdownRef = useRef<HTMLDivElement>(null);
   const [scrollY, setScrollY] = useState(0);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -14348,6 +14523,44 @@ export default function App() {
                           >
                             <Lightbulb size={16} className="text-slate-700" />
                           </button>
+
+                          {/* Infographic button */}
+                          <button
+                            onClick={async () => {
+                              if (!activeBook) return;
+                              // Check if we already have the infographic
+                              if (bookInfographics.has(activeBook.id)) {
+                                setShowInfographicModal(true);
+                                return;
+                              }
+                              // Fetch the infographic
+                              setLoadingInfographicForBookId(activeBook.id);
+                              const infographic = await getGrokBookInfographic(activeBook.title, activeBook.author);
+                              setLoadingInfographicForBookId(null);
+                              if (infographic) {
+                                setBookInfographics(prev => new Map(prev).set(activeBook.id, infographic));
+                                setShowInfographicModal(true);
+                              }
+                            }}
+                            disabled={loadingInfographicForBookId === activeBook?.id}
+                            className="flex items-center justify-center w-8 h-8 rounded-full active:scale-95 transition-all disabled:opacity-50"
+                            style={{
+                              background: 'rgba(255, 255, 255, 0.6)',
+                              backdropFilter: 'blur(9.4px)',
+                              WebkitBackdropFilter: 'blur(9.4px)',
+                              border: '1px solid rgba(255, 255, 255, 0.3)',
+                            }}
+                          >
+                            {loadingInfographicForBookId === activeBook?.id ? (
+                              <motion.div
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full"
+                              />
+                            ) : (
+                              <MapIcon size={16} className="text-slate-700" />
+                            )}
+                          </button>
                         </>
                       )}
                     </div>
@@ -15952,64 +16165,57 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-[100] flex flex-col pt-4"
-              style={{
-                ...backgroundImageStyle,
-                backgroundColor: 'rgba(0, 0, 0, 0.45)',
-              }}
+              className="fixed inset-0 z-[100] bg-white"
+              style={backgroundImageStyle}
             >
-              {/* Header */}
-              <motion.div
-                initial={{ y: -20, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: -20, opacity: 0 }}
-                className="flex items-center justify-between px-4 py-3 mx-4 mt-4 mb-4 rounded-2xl"
-                style={standardGlassmorphicStyle}
-              >
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setShowBookDiscussion(false)}
-                    className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
-                    style={standardGlassmorphicStyle}
-                  >
-                    <X size={18} className="text-slate-950" />
-                  </button>
-                  <div>
-                    <h2 className="font-bold text-slate-950 text-sm">Discussions</h2>
-                    <p className="text-xs text-slate-500 truncate max-w-[200px]">{activeBook.title}</p>
-                  </div>
-                </div>
-                <div className="flex -space-x-1">
-                  {bookReaders.slice(0, 3).map((reader) => (
-                    reader.avatar ? (
-                      <img
-                        key={reader.id}
-                        src={reader.avatar}
-                        alt={reader.name}
-                        className="w-6 h-6 rounded-full border border-white object-cover"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div
-                        key={reader.id}
-                        className="w-6 h-6 rounded-full border border-white bg-slate-300 flex items-center justify-center text-[10px] font-bold text-slate-600"
-                        title={reader.name}
-                      >
-                        {reader.name.charAt(0).toUpperCase()}
-                      </div>
-                    )
-                  ))}
-                </div>
-              </motion.div>
-
-              {/* Discussion Content */}
+              {/* Single scrollable page */}
               <motion.div
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 20, opacity: 0 }}
-                className="flex-1 overflow-y-auto px-4 py-4 space-y-3"
-                style={{ backgroundColor: 'transparent' }}
+                className="h-full overflow-y-auto px-4 pt-8 pb-8 space-y-3 ios-scroll"
               >
+                {/* Header (scrolls with content) */}
+                <div
+                  className="flex items-center justify-between py-3 px-4 rounded-2xl mb-4"
+                  style={standardGlassmorphicStyle}
+                >
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setShowBookDiscussion(false)}
+                      className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                      style={standardGlassmorphicStyle}
+                    >
+                      <X size={18} className="text-slate-950" />
+                    </button>
+                    <div>
+                      <h2 className="font-bold text-slate-950 text-sm">Discussions</h2>
+                      <p className="text-xs text-slate-500 truncate max-w-[200px]">{activeBook.title}</p>
+                    </div>
+                  </div>
+                  <div className="flex -space-x-1">
+                    {bookReaders.slice(0, 3).map((reader) => (
+                      reader.avatar ? (
+                        <img
+                          key={reader.id}
+                          src={reader.avatar}
+                          alt={reader.name}
+                          className="w-6 h-6 rounded-full border border-white object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div
+                          key={reader.id}
+                          className="w-6 h-6 rounded-full border border-white bg-slate-300 flex items-center justify-center text-[10px] font-bold text-slate-600"
+                          title={reader.name}
+                        >
+                          {reader.name.charAt(0).toUpperCase()}
+                        </div>
+                      )
+                    ))}
+                  </div>
+                </div>
+
                 {/* Section header */}
                 <div className="flex items-center gap-2 mb-2">
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg shadow-sm" style={glassmorphicStyle}>
@@ -16083,6 +16289,288 @@ export default function App() {
                   </div>
                 )}
               </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Book Infographic Modal */}
+        <AnimatePresence>
+          {showInfographicModal && activeBook && bookInfographics.has(activeBook.id) && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-[100] bg-white"
+              style={backgroundImageStyle}
+            >
+              {(() => {
+                const infographic = bookInfographics.get(activeBook.id)!;
+                const phaseColors: Record<string, string> = {
+                  'opening': 'bg-emerald-500',
+                  'early_setup': 'bg-blue-500',
+                  'early_story': 'bg-purple-500',
+                  'mid_story': 'bg-amber-500',
+                };
+                const phaseLabels: Record<string, string> = {
+                  'opening': 'Opening',
+                  'early_setup': 'Early Setup',
+                  'early_story': 'Early Story',
+                  'mid_story': 'Mid Story',
+                };
+
+                // Lucide icon mapping for timeline events
+                const iconMap: Record<string, LucideIcon> = {
+                  Sunrise, Sunset, Users, User, UserPlus, MapPin, Compass, MessageCircle,
+                  Swords, Shield, Heart, Eye, AlertTriangle, Home, Building, Skull, Gift,
+                  Lock, Unlock, Flag, Crown, Flame, Footprints, Handshake, Hammer, Key,
+                  Mountain, Ship, Tent, TreePine, Wind, Workflow, Megaphone, ScrollText,
+                  Feather, Scale, Bomb, Ghost, Wand2, Anchor, BellRing, Bird, Briefcase,
+                  Car, Coffee, Drama, Clock, Star, BookOpen, Lightbulb, Target, Search,
+                  Sparkles, X, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2,
+                  CheckCircle2, Circle, ExternalLink, Info, Play, Pencil, Trophy, Rss,
+                  Network, MapIcon, UserCircle,
+                };
+
+                const getTimelineIcon = (iconName?: string): LucideIcon => {
+                  if (!iconName) return Circle;
+                  // Try exact match first
+                  if (iconMap[iconName]) return iconMap[iconName];
+                  // Try case-insensitive match
+                  const lowerName = iconName.toLowerCase();
+                  const matchedKey = Object.keys(iconMap).find(k => k.toLowerCase() === lowerName);
+                  if (matchedKey) return iconMap[matchedKey];
+                  // Default fallback
+                  return Circle;
+                };
+
+                // Glassmorphic card component following design guidelines
+                const GlassCard = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
+                  <div
+                    className={`rounded-xl ${className}`}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.6)',
+                      backdropFilter: 'blur(9.4px)',
+                      WebkitBackdropFilter: 'blur(9.4px)',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                    }}
+                  >
+                    {children}
+                  </div>
+                );
+
+                return (
+                  <motion.div
+                    initial={{ y: 20, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: 20, opacity: 0 }}
+                    className="h-full overflow-y-auto px-4 pt-8 pb-12 ios-scroll"
+                  >
+                    {/* Header */}
+                    <header className="text-center space-y-3 mb-8">
+                      {/* Close button */}
+                      <div className="flex justify-between items-start">
+                        <button
+                          onClick={() => setShowInfographicModal(false)}
+                          className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                          style={standardGlassmorphicStyle}
+                        >
+                          <X size={18} className="text-slate-950" />
+                        </button>
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={glassmorphicStyle}>
+                          <MapIcon size={14} className="text-blue-600" />
+                          <span className="text-[10px] font-black tracking-widest uppercase text-slate-600">Reader's Guide</span>
+                        </div>
+                        <div className="w-8" /> {/* Spacer for centering */}
+                      </div>
+
+                      <h1 className="text-3xl font-black tracking-tight text-slate-900 leading-tight px-4">
+                        {activeBook.title}
+                      </h1>
+                      <p className="text-slate-500 font-bold uppercase tracking-[0.2em] text-[10px]">{activeBook.author}</p>
+
+                      <div className="flex justify-center pt-4">
+                        <motion.div
+                          animate={{ y: [0, 6, 0] }}
+                          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                          className="p-2 rounded-full"
+                          style={glassmorphicStyle}
+                        >
+                          <ChevronDown size={18} className="text-slate-400" />
+                        </motion.div>
+                      </div>
+                    </header>
+
+                    {/* Section 1: Core Cast */}
+                    {infographic.core_cast && infographic.core_cast.length > 0 && (
+                      <section className="space-y-4 mb-10">
+                        <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600 flex items-center gap-2 px-1">
+                          <Star size={14} /> Main Characters
+                        </h2>
+                        <div className="space-y-4">
+                          {infographic.core_cast.map((char, index) => (
+                            <motion.div
+                              key={`core-${index}`}
+                              initial={{ opacity: 0, y: 15 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: index * 0.08 }}
+                            >
+                              <GlassCard className="p-5">
+                                <div className="flex justify-between items-start mb-3">
+                                  <div>
+                                    <h3 className="text-xl font-black text-slate-900 leading-none">{char.name}</h3>
+                                    <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-1.5">{char.role}</p>
+                                  </div>
+                                </div>
+
+                                <div className="space-y-3">
+                                  <p className="text-xs text-slate-600 leading-relaxed italic">"{char.short_identity}"</p>
+
+                                  <div className="grid grid-cols-2 gap-3 border-t border-slate-200/50 pt-3">
+                                    {char.main_goal && (
+                                      <div>
+                                        <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1 flex items-center gap-1">
+                                          <Target size={10} /> Goal
+                                        </h4>
+                                        <p className="text-[11px] text-slate-700 leading-tight font-medium">{char.main_goal}</p>
+                                      </div>
+                                    )}
+                                    {char.key_connections && char.key_connections.length > 0 && (
+                                      <div>
+                                        <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1 flex items-center gap-1">
+                                          <Users size={10} /> Ties
+                                        </h4>
+                                        <p className="text-[11px] text-slate-700 leading-tight font-medium">{char.key_connections.join(', ')}</p>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {char.why_reader_should_track && (
+                                    <div className="bg-blue-50/80 p-2.5 rounded-lg border border-blue-100/50">
+                                      <p className="text-[11px] text-slate-700 leading-relaxed font-medium">
+                                        <span className="text-blue-600 font-black uppercase text-[9px] mr-1">Reader Tip:</span>
+                                        {char.why_reader_should_track}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              </GlassCard>
+                            </motion.div>
+                          ))}
+                        </div>
+                      </section>
+                    )}
+
+                    {/* Section 2: The Ensemble (Other Characters) */}
+                    {infographic.full_character_list && infographic.full_character_list.filter(c => c.importance !== 'major').length > 0 && (
+                      <section className="space-y-4 mb-10">
+                        <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-purple-600 flex items-center gap-2 px-1">
+                          <Users size={14} /> Supporting Characters
+                        </h2>
+                        <div className="space-y-2">
+                          {infographic.full_character_list.filter(c => c.importance !== 'major').map((char, index) => (
+                            <motion.div
+                              key={`ensemble-${index}`}
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: index * 0.04 }}
+                            >
+                              <GlassCard className="p-3 flex items-center gap-3">
+                                <div className={`w-1.5 h-7 rounded-full flex-shrink-0 ${char.importance === 'supporting' ? 'bg-purple-500' : 'bg-slate-300'}`} />
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="text-sm font-black text-slate-900">{char.name}</h4>
+                                  <p className="text-[10px] text-slate-500 leading-tight truncate">{char.short_identity}</p>
+                                </div>
+                                <div className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">
+                                  {char.importance}
+                                </div>
+                              </GlassCard>
+                            </motion.div>
+                          ))}
+                        </div>
+                      </section>
+                    )}
+
+                    {/* Section 3: Journey Roadmap (Timeline) */}
+                    {infographic.plot_timeline && infographic.plot_timeline.length > 0 && (
+                      <section className="space-y-4 mb-10">
+                        <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600 flex items-center gap-2 px-1">
+                          <Clock size={14} /> Timeline
+                        </h2>
+                        <div className="relative ml-3 pl-6 space-y-6 pb-4">
+                          {/* Vertical timeline line - centered with icons */}
+                          <div
+                            className="absolute top-0 bottom-0 w-[2px] rounded-full"
+                            style={{
+                              left: '3px', // Centers with 28px icons at -35px from content
+                              background: 'rgba(255, 255, 255, 0.5)',
+                              border: '1px solid rgba(255, 255, 255, 0.3)',
+                            }}
+                          />
+                          {infographic.plot_timeline.map((event, index) => {
+                            const TimelineIcon = getTimelineIcon(event.icon);
+                            return (
+                              <motion.div
+                                key={`timeline-${index}`}
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: index * 0.06 }}
+                                className="relative"
+                              >
+                                {/* Timeline icon - glassmorphic style, aligned with header */}
+                                <div
+                                  className="absolute -left-[35px] -top-[3px] w-7 h-7 rounded-full flex items-center justify-center shadow-sm"
+                                  style={{
+                                    background: 'rgba(255, 255, 255, 0.7)',
+                                    backdropFilter: 'blur(9.4px)',
+                                    WebkitBackdropFilter: 'blur(9.4px)',
+                                    border: '1px solid rgba(255, 255, 255, 0.4)',
+                                  }}
+                                >
+                                  <TimelineIcon
+                                    size={14}
+                                    strokeWidth={2}
+                                    className={
+                                      event.phase === 'opening' ? 'text-emerald-600' :
+                                      event.phase === 'early_setup' ? 'text-blue-600' :
+                                      event.phase === 'early_story' ? 'text-purple-600' :
+                                      event.phase === 'mid_story' ? 'text-amber-600' :
+                                      'text-slate-600'
+                                    }
+                                  />
+                                </div>
+
+                                <div className="space-y-1">
+                                  <h4 className="text-sm font-bold text-slate-900 tracking-tight">{event.event_label}</h4>
+                                  <GlassCard className="mt-2 p-3">
+                                    <p className="text-[11px] text-slate-600 leading-relaxed mb-2">{event.what_happens}</p>
+                                    {event.characters_involved && event.characters_involved.length > 0 && (
+                                      <div className="flex items-center gap-2 pt-2 border-t border-slate-200/30 text-[9px] font-black uppercase text-slate-400 tracking-tighter">
+                                        <Users size={11} /> {event.characters_involved.join(', ')}
+                                      </div>
+                                    )}
+                                    {event.why_it_helps_orientation && (
+                                      <p className="text-[10px] text-emerald-600 font-medium mt-2 pt-2 border-t border-slate-200/30">
+                                        💡 {event.why_it_helps_orientation}
+                                      </p>
+                                    )}
+                                  </GlassCard>
+                                </div>
+                              </motion.div>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    )}
+
+                    {/* Footer */}
+                    <div className="pt-8 flex flex-col items-center gap-3 opacity-40">
+                      <BookOpen size={20} className="text-slate-500" />
+                      <p className="text-[10px] uppercase font-black tracking-[0.3em] text-slate-500">End of Guide</p>
+                    </div>
+                  </motion.div>
+                );
+              })()}
             </motion.div>
           )}
         </AnimatePresence>
