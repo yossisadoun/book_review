@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Share as CapacitorShare } from '@capacitor/share';
 import {
   Search,
   Star,
@@ -39,6 +40,7 @@ import {
   Lightbulb,
   Cloud,
   Share,
+  MoreVertical,
   ShieldUser,
   PlusCircle,
   Plus,
@@ -4108,15 +4110,14 @@ function convertBookToDb(book: BookWithRatings): Omit<Book, 'id' | 'user_id' | '
 }
 
 function calculateAvg(ratings: BookWithRatings['ratings']): string | null {
-  const values = Object.values(ratings).filter(v => v != null) as number[];
-  if (values.length === 0) return null;
-  return (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1);
+  // Use only the 'writing' rating (single rating system)
+  if (ratings.writing == null) return null;
+  return ratings.writing.toFixed(1);
 }
 
 function calculateScore(ratings: BookWithRatings['ratings']): number {
-  const values = Object.values(ratings).filter(v => v != null) as number[];
-  if (values.length === 0) return 0;
-  return values.reduce((a, b) => a + b, 0) / values.length;
+  // Use only the 'writing' rating (single rating system)
+  return ratings.writing ?? 0;
 }
 
 function getGradient(id: string): string {
@@ -5746,10 +5747,15 @@ interface RatingStarsProps {
 }
 
 const RATING_FEEDBACK: Record<number, string> = {
+  0.5: "REALLY BAD!",
   1: "A BAD BOOK!",
+  1.5: "PRETTY BAD",
   2: "MEH...",
+  2.5: "JUST OK",
   3: "AN OK BOOK",
+  3.5: "NOT BAD",
   4: "A GOOD BOOK",
+  4.5: "A GREAT BOOK!",
   5: "A GREAAAAAT BOOK!",
 };
 
@@ -5768,18 +5774,25 @@ function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dimension]);
 
-  function handleTap(star: number) {
+  function handleStarClick(star: number, e: React.MouseEvent<HTMLButtonElement>) {
     if (isLocked) return;
+
+    // Detect if click is on left or right half of the star
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const isLeftHalf = clickX < rect.width / 2;
+
+    const rating = isLeftHalf ? star - 0.5 : star;
+
     setIsLocked(true);
-    setLocalValue(star);
-    setRatingFeedback(RATING_FEEDBACK[star]);
+    setLocalValue(rating);
+    setRatingFeedback(RATING_FEEDBACK[rating]);
 
     // Delay the onRate call to show feedback first
     setTimeout(() => {
-      // Always pass the star value (never null)
-      onRate(dimension, star);
+      onRate(dimension, rating);
       setIsLocked(false);
-    }, 800);
+    }, 400);
   }
 
   function handleSkip() {
@@ -5792,10 +5805,43 @@ function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
     setTimeout(() => {
       onRate(dimension, null);
       setIsLocked(false);
-    }, 500);
+    }, 250);
   }
 
   const titleText = ratingFeedback || "RATING";
+
+  // Render a star with proper fill based on localValue
+  const renderStar = (star: number) => {
+    const fillAmount = Math.max(0, Math.min(1, localValue - (star - 1)));
+    const isFullyFilled = fillAmount >= 1;
+    const isHalfFilled = fillAmount >= 0.5 && fillAmount < 1;
+    const isEmpty = fillAmount < 0.5;
+
+    return (
+      <div className="relative w-8 h-8">
+        {/* Background (empty) star */}
+        <Star
+          size={32}
+          className="absolute inset-0 text-slate-300 fill-transparent transition-all duration-200"
+        />
+        {/* Filled star with clip for half-star support */}
+        <div
+          className="absolute inset-0 overflow-hidden transition-all duration-200"
+          style={{
+            width: isFullyFilled ? '100%' : isHalfFilled ? '50%' : '0%',
+          }}
+        >
+          <Star
+            size={32}
+            className={`fill-amber-400 text-amber-400 transition-all duration-200 ${
+              fillAmount > 0 ? 'scale-110' : 'scale-100'
+            }`}
+            style={{ transitionDelay: fillAmount > 0 ? `${star * 30}ms` : '0ms' }}
+          />
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col items-center gap-1">
@@ -5813,18 +5859,19 @@ function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
       </AnimatePresence>
       <div className="flex gap-1">
         {[1, 2, 3, 4, 5].map((star) => (
-          <motion.button key={star} onClick={() => handleTap(star)} className="p-1 focus:outline-none" whileTap={{ scale: 0.7 }}>
-            <Star
-              size={32}
-              className={`transition-all duration-200 ease-out ${star <= localValue ? 'fill-amber-400 text-amber-400 scale-110' : 'text-slate-300 fill-transparent scale-100'}`}
-              style={{ transitionDelay: star <= localValue ? `${star * 30}ms` : '0ms' }}
-            />
+          <motion.button
+            key={star}
+            onClick={(e) => handleStarClick(star, e)}
+            className="p-1 focus:outline-none"
+            whileTap={{ scale: 0.7 }}
+          >
+            {renderStar(star)}
           </motion.button>
         ))}
       </div>
       <button
         onClick={handleSkip}
-        className="px-3 py-0.5 text-xs font-medium text-slate-500 hover:text-slate-700 active:scale-95 transition-all"
+        className="px-3 py-0.5 text-xs font-medium text-slate-950 hover:text-slate-700 active:scale-95 transition-all"
       >
         Skip
       </button>
@@ -6958,6 +7005,7 @@ export default function App() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [showShareDialog, setShowShareDialog] = useState(false);
+  const [showBookMenu, setShowBookMenu] = useState(false);
   const [selectingReadingStatusInRating, setSelectingReadingStatusInRating] = useState(false);
   const [selectingReadingStatusForExisting, setSelectingReadingStatusForExisting] = useState(false);
   const [pendingBookMeta, setPendingBookMeta] = useState<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> | null>(null);
@@ -10712,9 +10760,9 @@ export default function App() {
             setEditingDimension(null);
             // Show share dialog for high ratings (4 or 5 stars)
             if (value >= 4) {
-              setTimeout(() => setShowShareDialog(true), 100);
+              setTimeout(() => setShowShareDialog(true), 50);
             }
-          }, 500);
+          }, 250);
         }
       } else if (value === null) {
         // If skipped, move to next dimension
@@ -10727,7 +10775,7 @@ export default function App() {
           setTimeout(() => {
             setIsEditing(false);
             setEditingDimension(null);
-          }, 500);
+          }, 250);
         }
       }
     } catch (err: any) {
@@ -14216,43 +14264,53 @@ export default function App() {
               <AnimatePresence>
                 {showShareDialog && activeBook && (
                   <>
-                    {/* Click outside to close */}
+                    {/* Click outside to close - high z-index to capture all clicks */}
                     <div
-                      className="fixed inset-0 z-30"
+                      className="fixed inset-0 z-[100]"
                       onClick={() => setShowShareDialog(false)}
                     />
                     <motion.div
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 20 }}
-                      className="absolute bottom-16 left-4 right-4 z-40 flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden"
+                      className="absolute bottom-16 left-4 right-4 z-[101] flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden"
                       style={standardGlassmorphicStyle}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex flex-col items-center gap-1">
                         <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950">
-                          A {activeBook.ratings.writing === 5 ? 'GREAAAAAT' : 'GOOD'} BOOK LIKE THIS...
+                          A {activeBook.ratings.writing === 5 ? 'GREAAAAAT' : activeBook.ratings.writing === 4.5 ? 'GREAT' : 'GOOD'} BOOK LIKE THIS...
                         </h3>
-                        <p className="text-xs text-slate-500">someone you know needs to read it</p>
+                        <p className="text-xs text-slate-950">someone you know needs to read it</p>
                         <div className="flex gap-3 mt-2">
                           <button
-                            onClick={async () => {
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const shareText = `I just rated "${activeBook.title}" by ${activeBook.author} - ${RATING_FEEDBACK[activeBook.ratings.writing || 4]}`;
                               try {
-                                if (navigator.share) {
-                                  await navigator.share({
-                                    title: activeBook.title,
-                                    text: `I just rated "${activeBook.title}" by ${activeBook.author} - ${RATING_FEEDBACK[activeBook.ratings.writing || 4]}`,
-                                    url: window.location.href,
-                                  });
-                                } else {
-                                  // Fallback: copy to clipboard
-                                  await navigator.clipboard.writeText(
-                                    `I just rated "${activeBook.title}" by ${activeBook.author} - ${RATING_FEEDBACK[activeBook.ratings.writing || 4]}`
-                                  );
-                                  alert('Copied to clipboard!');
-                                }
+                                // Use Capacitor Share for native mobile sharing
+                                await CapacitorShare.share({
+                                  title: activeBook.title,
+                                  text: shareText,
+                                  url: activeBook.cover_url || undefined,
+                                  dialogTitle: 'Share this book',
+                                });
                               } catch (err) {
-                                console.log('Share cancelled or failed');
+                                // Fallback to Web Share API or clipboard
+                                try {
+                                  if (navigator.share) {
+                                    await navigator.share({
+                                      title: activeBook.title,
+                                      text: shareText,
+                                      url: activeBook.cover_url || undefined,
+                                    });
+                                  } else {
+                                    await navigator.clipboard.writeText(shareText);
+                                    alert('Copied to clipboard!');
+                                  }
+                                } catch {
+                                  console.log('Share cancelled or failed');
+                                }
                               }
                               setShowShareDialog(false);
                             }}
@@ -14262,8 +14320,11 @@ export default function App() {
                             Share
                           </button>
                           <button
-                            onClick={() => setShowShareDialog(false)}
-                            className="px-4 py-2 rounded-xl text-slate-500 text-sm font-medium hover:bg-white/30 active:scale-95 transition-all"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowShareDialog(false);
+                            }}
+                            className="px-4 py-2 rounded-xl text-slate-950 text-sm font-medium hover:bg-white/30 active:scale-95 transition-all"
                           >
                             Skip
                           </button>
@@ -14274,20 +14335,88 @@ export default function App() {
                 )}
               </AnimatePresence>
 
-              {/* Delete button - bottom right */}
+              {/* Menu button - bottom right */}
               <AnimatePresence>
-                {!isShowingNotes && (
-                  <motion.button
+                {!isShowingNotes && activeBook && (
+                  <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3, delay: 0.3 }}
-                    onClick={() => setIsConfirmingDelete(true)}
-                    className="absolute bottom-4 right-4 z-30 p-2.5 rounded-full shadow-lg text-black hover:text-red-600 active:scale-90 transition-all"
-                    style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
+                    className="absolute bottom-4 right-4 z-30"
                   >
-                    <Trash2 size={20} />
-                  </motion.button>
+                    <button
+                      onClick={() => setShowBookMenu(!showBookMenu)}
+                      className="p-2.5 rounded-full shadow-lg text-black active:scale-90 transition-all"
+                      style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
+                    >
+                      <MoreVertical size={20} />
+                    </button>
+
+                    {/* Drop-up menu */}
+                    <AnimatePresence>
+                      {showBookMenu && (
+                        <>
+                          {/* Backdrop to close menu */}
+                          <div
+                            className="fixed inset-0 z-40"
+                            onClick={() => setShowBookMenu(false)}
+                          />
+                          <motion.div
+                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute bottom-12 right-0 z-50 min-w-[140px] rounded-xl overflow-hidden shadow-lg"
+                            style={standardGlassmorphicStyle}
+                          >
+                            <button
+                              onClick={() => {
+                                setShowBookMenu(false);
+                                const shareText = `Check out "${activeBook.title}" by ${activeBook.author}`;
+                                CapacitorShare.share({
+                                  title: activeBook.title,
+                                  text: shareText,
+                                  url: activeBook.cover_url || undefined,
+                                  dialogTitle: 'Share this book',
+                                }).catch(() => {
+                                  if (navigator.share) {
+                                    navigator.share({ title: activeBook.title, text: shareText, url: activeBook.cover_url || undefined });
+                                  }
+                                });
+                              }}
+                              className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-900 font-medium text-sm hover:bg-white/30 active:scale-95 transition-all"
+                            >
+                              <Share size={18} />
+                              Share
+                            </button>
+                            <div className="h-px bg-slate-200/50" />
+                            <button
+                              onClick={() => {
+                                setShowBookMenu(false);
+                                setIsShowingNotes(true);
+                              }}
+                              className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-900 font-medium text-sm hover:bg-white/30 active:scale-95 transition-all"
+                            >
+                              <Pencil size={18} />
+                              Notes
+                            </button>
+                            <div className="h-px bg-slate-200/50" />
+                            <button
+                              onClick={() => {
+                                setShowBookMenu(false);
+                                setIsConfirmingDelete(true);
+                              }}
+                              className="flex items-center gap-3 px-4 py-3 w-full text-left text-red-600 font-medium text-sm hover:bg-white/30 active:scale-95 transition-all"
+                            >
+                              <Trash2 size={18} />
+                              Delete
+                            </button>
+                          </motion.div>
+                        </>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
                 )}
               </AnimatePresence>
 
@@ -14335,15 +14464,6 @@ export default function App() {
                       ) : (
                         <BookOpen size={18} className="text-slate-950 opacity-50" />
                       )}
-                    </button>
-
-                    {/* Notes button */}
-                    <button
-                      onClick={() => setIsShowingNotes(true)}
-                      className="w-10 h-10 rounded-full shadow-lg text-black hover:text-blue-600 active:scale-90 transition-all flex items-center justify-center"
-                      style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
-                    >
-                      <Pencil size={18} />
                     </button>
                   </motion.div>
                 )}
