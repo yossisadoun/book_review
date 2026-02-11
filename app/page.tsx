@@ -16383,7 +16383,7 @@ export default function App() {
               >
                 {/* Header (scrolls with content) */}
                 <div
-                  className="flex items-center justify-between py-3 px-4 rounded-2xl mb-4"
+                  className="flex items-center justify-between py-3 px-4 rounded-2xl mb-4 mt-10"
                   style={standardGlassmorphicStyle}
                 >
                   <div className="flex items-center gap-3">
@@ -16570,39 +16570,49 @@ export default function App() {
                     initial={{ y: 20, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
                     exit={{ y: 20, opacity: 0 }}
-                    className="h-full overflow-y-auto px-4 pt-8 pb-12 ios-scroll"
+                    className="h-full overflow-y-auto px-5 pt-8 pb-16 ios-scroll"
                   >
                     {/* Header */}
-                    <header className="text-center space-y-3 mb-8">
-                      {/* Close button */}
-                      <div className="flex justify-between items-start">
-                        <button
-                          onClick={() => setShowInfographicModal(false)}
-                          className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
-                          style={standardGlassmorphicStyle}
-                        >
-                          <X size={18} className="text-slate-950" />
-                        </button>
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full" style={glassmorphicStyle}>
-                          <MapIcon size={14} className="text-blue-600" />
-                          <span className="text-[10px] font-black tracking-widest uppercase text-slate-600">Reader's Guide</span>
+                    <header className="space-y-4 mb-8 mt-10">
+                      {/* Header bar - same style as discussion topics */}
+                      <div
+                        className="flex items-center justify-between py-3 px-4 rounded-2xl"
+                        style={standardGlassmorphicStyle}
+                      >
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => setShowInfographicModal(false)}
+                            className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                            style={standardGlassmorphicStyle}
+                          >
+                            <X size={18} className="text-slate-950" />
+                          </button>
+                          <div>
+                            <h2 className="font-bold text-slate-950 text-sm">Reader's Guide</h2>
+                            <p className="text-xs text-slate-500 truncate max-w-[200px]">{activeBook.title}</p>
+                          </div>
                         </div>
-                        <div className="w-8" /> {/* Spacer for centering */}
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={glassmorphicStyle}>
+                          <MapIcon size={14} className="text-blue-600" />
+                        </div>
                       </div>
 
-                      <h1 className="text-3xl font-black tracking-tight text-slate-900 leading-tight px-4">
-                        {activeBook.title}
-                      </h1>
-                      <p className="text-slate-500 font-bold uppercase tracking-[0.2em] text-[10px]">{activeBook.author}</p>
+                      {/* Book title and author */}
+                      <div className="text-center pt-4">
+                        <h1 className="text-3xl font-black tracking-tight text-slate-900 leading-tight px-4">
+                          {activeBook.title}
+                        </h1>
+                        <p className="text-slate-500 font-bold uppercase tracking-[0.2em] text-xs mt-2">{activeBook.author}</p>
+                      </div>
 
                       <div className="flex justify-center pt-4">
                         <motion.div
                           animate={{ y: [0, 6, 0] }}
                           transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                          className="p-2 rounded-full"
+                          className="p-2.5 rounded-full"
                           style={glassmorphicStyle}
                         >
-                          <ChevronDown size={18} className="text-slate-400" />
+                          <ChevronDown size={20} className="text-slate-400" />
                         </motion.div>
                       </div>
                     </header>
@@ -16610,8 +16620,8 @@ export default function App() {
                     {/* Section 1: Core Cast */}
                     {infographic.core_cast && infographic.core_cast.length > 0 && (
                       <section className="space-y-4 mb-10">
-                        <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600 flex items-center gap-2 px-1">
-                          <Star size={14} /> Main Characters
+                        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-blue-600 flex items-center gap-2 px-1">
+                          <Star size={16} /> Main Characters
                         </h2>
                         <div className="space-y-4">
                           {infographic.core_cast.map((char, index) => (
@@ -16624,37 +16634,37 @@ export default function App() {
                               <GlassCard className="p-5">
                                 <div className="flex justify-between items-start mb-3">
                                   <div>
-                                    <h3 className="text-xl font-black text-slate-900 leading-none">{char.name}</h3>
-                                    <p className="text-[10px] font-bold text-blue-600 uppercase tracking-widest mt-1.5">{char.role}</p>
+                                    <h3 className="text-xl font-black text-slate-900 leading-tight">{char.name}</h3>
+                                    <p className="text-xs font-bold text-blue-600 uppercase tracking-widest mt-1.5">{char.role}</p>
                                   </div>
                                 </div>
 
-                                <div className="space-y-3">
-                                  <p className="text-xs text-slate-600 leading-relaxed italic">"{char.short_identity}"</p>
+                                <div className="space-y-4">
+                                  <p className="text-sm text-slate-600 leading-relaxed italic">"{char.short_identity}"</p>
 
-                                  <div className="grid grid-cols-2 gap-3 border-t border-slate-200/50 pt-3">
+                                  <div className="grid grid-cols-2 gap-4 border-t border-slate-200/50 pt-4">
                                     {char.main_goal && (
                                       <div>
-                                        <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1 flex items-center gap-1">
-                                          <Target size={10} /> Goal
+                                        <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                                          <Target size={14} /> Goal
                                         </h4>
-                                        <p className="text-[11px] text-slate-700 leading-tight font-medium">{char.main_goal}</p>
+                                        <p className="text-sm text-slate-700 leading-snug">{char.main_goal}</p>
                                       </div>
                                     )}
                                     {char.key_connections && char.key_connections.length > 0 && (
                                       <div>
-                                        <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1 flex items-center gap-1">
-                                          <Users size={10} /> Ties
+                                        <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                                          <Users size={14} /> Ties
                                         </h4>
-                                        <p className="text-[11px] text-slate-700 leading-tight font-medium">{char.key_connections.join(', ')}</p>
+                                        <p className="text-sm text-slate-700 leading-snug">{char.key_connections.join(', ')}</p>
                                       </div>
                                     )}
                                   </div>
 
                                   {char.why_reader_should_track && (
-                                    <div className="bg-blue-50/80 p-2.5 rounded-lg border border-blue-100/50">
-                                      <p className="text-[11px] text-slate-700 leading-relaxed font-medium">
-                                        <span className="text-blue-600 font-black uppercase text-[9px] mr-1">Reader Tip:</span>
+                                    <div className="bg-blue-50/80 p-3 rounded-xl border border-blue-100/50">
+                                      <p className="text-sm text-slate-700 leading-relaxed">
+                                        <span className="text-blue-600 font-black uppercase text-xs mr-1.5">Reader Tip:</span>
                                         {char.why_reader_should_track}
                                       </p>
                                     </div>
@@ -16670,10 +16680,10 @@ export default function App() {
                     {/* Section 2: The Ensemble (Other Characters) */}
                     {infographic.full_character_list && infographic.full_character_list.filter(c => c.importance !== 'major').length > 0 && (
                       <section className="space-y-4 mb-10">
-                        <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-purple-600 flex items-center gap-2 px-1">
-                          <Users size={14} /> Supporting Characters
+                        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-purple-600 flex items-center gap-2 px-1">
+                          <Users size={16} /> Supporting Characters
                         </h2>
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           {infographic.full_character_list.filter(c => c.importance !== 'major').map((char, index) => (
                             <motion.div
                               key={`ensemble-${index}`}
@@ -16681,13 +16691,13 @@ export default function App() {
                               animate={{ opacity: 1, x: 0 }}
                               transition={{ delay: index * 0.04 }}
                             >
-                              <GlassCard className="p-3 flex items-center gap-3">
-                                <div className={`w-1.5 h-7 rounded-full flex-shrink-0 ${char.importance === 'supporting' ? 'bg-purple-500' : 'bg-slate-300'}`} />
+                              <GlassCard className="p-4 flex items-center gap-3">
+                                <div className={`w-1.5 h-10 rounded-full flex-shrink-0 ${char.importance === 'supporting' ? 'bg-purple-500' : 'bg-slate-300'}`} />
                                 <div className="flex-1 min-w-0">
-                                  <h4 className="text-sm font-black text-slate-900">{char.name}</h4>
-                                  <p className="text-[10px] text-slate-500 leading-tight truncate">{char.short_identity}</p>
+                                  <h4 className="text-base font-black text-slate-900">{char.name}</h4>
+                                  <p className="text-sm text-slate-500 leading-snug">{char.short_identity}</p>
                                 </div>
-                                <div className="text-[8px] font-black text-slate-400 uppercase tracking-tighter">
+                                <div className="text-xs font-black text-slate-400 uppercase tracking-tight">
                                   {char.importance}
                                 </div>
                               </GlassCard>
@@ -16700,15 +16710,15 @@ export default function App() {
                     {/* Section 3: Journey Roadmap (Timeline) */}
                     {infographic.plot_timeline && infographic.plot_timeline.length > 0 && (
                       <section className="space-y-4 mb-10">
-                        <h2 className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600 flex items-center gap-2 px-1">
-                          <Clock size={14} /> Timeline
+                        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-emerald-600 flex items-center gap-2 px-1">
+                          <Clock size={16} /> Timeline
                         </h2>
-                        <div className="relative ml-3 pl-6 space-y-6 pb-4">
+                        <div className="relative ml-4 pl-8 space-y-6 pb-4">
                           {/* Vertical timeline line - centered with icons */}
                           <div
                             className="absolute top-0 bottom-0 w-[2px] rounded-full"
                             style={{
-                              left: '3px', // Centers with 28px icons at -35px from content
+                              left: '5px',
                               background: 'rgba(255, 255, 255, 0.5)',
                               border: '1px solid rgba(255, 255, 255, 0.3)',
                             }}
@@ -16725,7 +16735,7 @@ export default function App() {
                               >
                                 {/* Timeline icon - glassmorphic style, aligned with header */}
                                 <div
-                                  className="absolute -left-[35px] -top-[3px] w-7 h-7 rounded-full flex items-center justify-center shadow-sm"
+                                  className="absolute -left-[38px] -top-[2px] w-8 h-8 rounded-full flex items-center justify-center shadow-sm"
                                   style={{
                                     background: 'rgba(255, 255, 255, 0.7)',
                                     backdropFilter: 'blur(9.4px)',
@@ -16734,7 +16744,7 @@ export default function App() {
                                   }}
                                 >
                                   <TimelineIcon
-                                    size={14}
+                                    size={16}
                                     strokeWidth={2}
                                     className={
                                       event.phase === 'opening' ? 'text-emerald-600' :
@@ -16746,17 +16756,17 @@ export default function App() {
                                   />
                                 </div>
 
-                                <div className="space-y-1">
-                                  <h4 className="text-sm font-bold text-slate-900 tracking-tight">{event.event_label}</h4>
-                                  <GlassCard className="mt-2 p-3">
-                                    <p className="text-[11px] text-slate-600 leading-relaxed mb-2">{event.what_happens}</p>
+                                <div className="space-y-2">
+                                  <h4 className="text-base font-bold text-slate-900 tracking-tight">{event.event_label}</h4>
+                                  <GlassCard className="p-4">
+                                    <p className="text-sm text-slate-600 leading-relaxed mb-3">{event.what_happens}</p>
                                     {event.characters_involved && event.characters_involved.length > 0 && (
-                                      <div className="flex items-center gap-2 pt-2 border-t border-slate-200/30 text-[9px] font-black uppercase text-slate-400 tracking-tighter">
-                                        <Users size={11} /> {event.characters_involved.join(', ')}
+                                      <div className="flex items-center gap-2 pt-3 border-t border-slate-200/30 text-xs font-black uppercase text-slate-400 tracking-tight">
+                                        <Users size={14} /> {event.characters_involved.join(', ')}
                                       </div>
                                     )}
                                     {event.why_it_helps_orientation && (
-                                      <p className="text-[10px] text-emerald-600 font-medium mt-2 pt-2 border-t border-slate-200/30">
+                                      <p className="text-sm text-emerald-600 font-medium mt-3 pt-3 border-t border-slate-200/30">
                                         💡 {event.why_it_helps_orientation}
                                       </p>
                                     )}
@@ -16770,9 +16780,9 @@ export default function App() {
                     )}
 
                     {/* Footer */}
-                    <div className="pt-8 flex flex-col items-center gap-3 opacity-40">
-                      <BookOpen size={20} className="text-slate-500" />
-                      <p className="text-[10px] uppercase font-black tracking-[0.3em] text-slate-500">End of Guide</p>
+                    <div className="pt-10 flex flex-col items-center gap-3 opacity-40">
+                      <BookOpen size={24} className="text-slate-500" />
+                      <p className="text-xs uppercase font-black tracking-[0.3em] text-slate-500">End of Guide</p>
                     </div>
                   </motion.div>
                 );
