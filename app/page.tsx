@@ -33,6 +33,7 @@ import {
   Volume2,
   VolumeX,
   Rss,
+  Birdhouse,
   X,
   MessageCircle,
   Lightbulb,
@@ -157,7 +158,7 @@ const feedCardStyle = {
 };
 
 // --- Types & Constants ---
-const RATING_DIMENSIONS = ['writing', 'insights', 'flow', 'world', 'characters'] as const;
+const RATING_DIMENSIONS = ['writing'] as const;
 const grokApiKey = process.env.NEXT_PUBLIC_GROK_API_KEY || "";
 const youtubeApiKey = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY || "";
 
@@ -5742,46 +5743,89 @@ interface RatingStarsProps {
   dimension: string;
 }
 
-function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
-  const [localValue, setLocalValue] = useState(0);
-  const [isLocked, setIsLocked] = useState(false);
+const RATING_FEEDBACK: Record<number, string> = {
+  1: "A BAD BOOK!",
+  2: "MEH...",
+  3: "AN OK BOOK",
+  4: "A GOOD BOOK",
+  5: "A GREAAAAAT BOOK!",
+};
 
+function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
+  const [localValue, setLocalValue] = useState(value || 0);
+  const [isLocked, setIsLocked] = useState(false);
+  const [ratingFeedback, setRatingFeedback] = useState<string | null>(
+    value ? RATING_FEEDBACK[value] : null
+  );
+
+  // Only sync from prop when dimension changes (new rating context)
   useEffect(() => {
     setLocalValue(value || 0);
     setIsLocked(false);
-  }, [dimension, value]);
+    setRatingFeedback(value ? RATING_FEEDBACK[value] : null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dimension]);
 
   function handleTap(star: number) {
     if (isLocked) return;
     setIsLocked(true);
     setLocalValue(star);
-    // Call immediately for snappy response, then unlock after a brief delay
-    onRate(dimension, star);
-    setTimeout(() => setIsLocked(false), 100);
+    setRatingFeedback(RATING_FEEDBACK[star]);
+
+    // Delay the onRate call to show feedback first
+    setTimeout(() => {
+      // Always pass the star value (never null)
+      onRate(dimension, star);
+      setIsLocked(false);
+    }, 800);
   }
 
   function handleSkip() {
     if (isLocked) return;
     setIsLocked(true);
-    // Call immediately for snappy response, then unlock after a brief delay
-    onRate(dimension, null);
-    setTimeout(() => setIsLocked(false), 100);
+    // Clear stars visually first
+    setLocalValue(0);
+    setRatingFeedback("SKIPPED");
+    // Wait for animation then close
+    setTimeout(() => {
+      onRate(dimension, null);
+      setIsLocked(false);
+    }, 500);
   }
 
+  const titleText = ratingFeedback || "RATING";
+
   return (
-    <div className="flex flex-col items-center gap-2">
-      <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950 mb-1">{dimension}</h3>
+    <div className="flex flex-col items-center gap-1">
+      <AnimatePresence mode="wait">
+        <motion.h3
+          key={titleText}
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 10 }}
+          transition={{ duration: 0.2 }}
+          className="text-sm font-bold uppercase tracking-widest text-slate-950"
+        >
+          {titleText}
+        </motion.h3>
+      </AnimatePresence>
       <div className="flex gap-1">
         {[1, 2, 3, 4, 5].map((star) => (
           <motion.button key={star} onClick={() => handleTap(star)} className="p-1 focus:outline-none" whileTap={{ scale: 0.7 }}>
-            <Star 
-              size={32} 
+            <Star
+              size={32}
               className={`transition-all duration-200 ease-out ${star <= localValue ? 'fill-amber-400 text-amber-400 scale-110' : 'text-slate-300 fill-transparent scale-100'}`}
               style={{ transitionDelay: star <= localValue ? `${star * 30}ms` : '0ms' }}
             />
           </motion.button>
         ))}
       </div>
+      <button
+        onClick={handleSkip}
+        className="px-3 py-0.5 text-xs font-medium text-slate-500 hover:text-slate-700 active:scale-95 transition-all"
+      >
+        Skip
+      </button>
     </div>
   );
 }
@@ -11136,7 +11180,7 @@ export default function App() {
                   featureFlags.hand_drawn_icons ? (
                     <img src={getAssetPath("/feed.svg")} alt="Feed" className="w-[24px] h-[24px]" />
                   ) : (
-                    <Rss size={24} className="text-slate-950" />
+                    <Birdhouse size={24} className="text-slate-950" />
                   )
                 ) : showSortingResults ? (
                   <Star size={24} className="text-slate-950" />
@@ -11740,7 +11784,7 @@ export default function App() {
                     border: '1px solid rgba(255, 255, 255, 0.2)',
                   }}
                 >
-                  <Rss size={32} className="mx-auto mb-3 text-slate-400" />
+                  <Birdhouse size={32} className="mx-auto mb-3 text-slate-400" />
                   <p className="text-slate-800 font-medium mb-2">Your feed is empty</p>
                   <p className="text-sm text-slate-500">Add books and mark them as read to see personalized content here.</p>
                 </div>
@@ -11758,7 +11802,7 @@ export default function App() {
                     border: '1px solid rgba(255, 255, 255, 0.2)',
                   }}
                 >
-                  <Rss size={32} className="mx-auto mb-3 text-slate-400" />
+                  <Birdhouse size={32} className="mx-auto mb-3 text-slate-400" />
                   <p className="text-slate-800 font-medium mb-2">No matching items</p>
                   <p className="text-sm text-slate-500">Try adjusting your filters to see more content.</p>
                 </div>
@@ -14137,37 +14181,11 @@ export default function App() {
                       exit={{ opacity: 0, scale: 0.9 }} 
                       className="w-full"
                     >
-                      <RatingStars 
-                        dimension={currentEditingDimension} 
-                        value={activeBook.ratings[currentEditingDimension]} 
-                        onRate={(dim, val) => handleRate(activeBook.id, dim, val)} 
+                      <RatingStars
+                        dimension={currentEditingDimension}
+                        value={activeBook.ratings[currentEditingDimension]}
+                        onRate={(dim, val) => handleRate(activeBook.id, dim, val)}
                       />
-                    {/* Navigation dots and Skip button */}
-                    <div className="flex items-center justify-center gap-3 mt-3">
-                      <div className="flex gap-1.5">
-                        {RATING_DIMENSIONS.map((dim, idx) => (
-                          <button
-                            key={dim}
-                            onClick={() => setEditingDimension(dim)}
-                            className={`w-2 h-2 rounded-full transition-all ${
-                              dim === currentEditingDimension 
-                                ? 'bg-blue-600 w-6' 
-                                : 'bg-slate-400'
-                            }`}
-                          />
-                        ))}
-                      </div>
-                      <button
-                        onClick={() => {
-                          if (activeBook && currentEditingDimension) {
-                            handleRate(activeBook.id, currentEditingDimension, null);
-                          }
-                        }}
-                        className="px-3 py-1 text-xs font-medium text-black hover:text-slate-800 active:scale-95 transition-all"
-                      >
-                        Skip
-                      </button>
-                    </div>
                       </motion.div>
                     ) : null}
                   </motion.div>
@@ -15214,7 +15232,7 @@ export default function App() {
             {featureFlags.hand_drawn_icons ? (
               <img src={getAssetPath("/feed.svg")} alt="Feed" className="w-[18px] h-[18px]" />
             ) : (
-              <Rss size={18} className="text-slate-700" />
+              <Birdhouse size={18} className="text-slate-700" />
             )}
           </button>
 
