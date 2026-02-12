@@ -4,8 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import Lottie from 'lottie-react';
 import { useAuth } from '@/contexts/AuthContext';
-import HelloAnimation from './HelloAnimation';
 import heartAnimation from '@/public/heart_anim.json';
+import vectorAnimation from '@/public/vector-anim-export.json';
 import heartInsideAnimation from '@/public/heart_inside.json';
 
 // Heart animation with speed control via ref
@@ -83,13 +83,11 @@ export function LoginScreen() {
         animate={{ opacity: 1, y: 0 }}
         className="flex flex-col items-center justify-center text-center max-w-sm w-full"
       >
-        {/* Animation - 30% smaller */}
-        <div className="w-full max-w-md mb-8" style={{ transform: 'scale(0.7)' }}>
-          <HelloAnimation
-            color="#ffffff"
-            strokeWidth={40}
-            duration={3}
-            delay={0}
+        {/* Animation */}
+        <div className="w-full max-w-md mb-8" style={{ transform: 'scale(0.91) translateY(30px)' }}>
+          <Lottie
+            animationData={vectorAnimation}
+            loop={false}
             className="w-full h-auto"
           />
         </div>
