@@ -40,6 +40,14 @@ interface TelegramMessage {
       username?: string
     }
   }>
+  reply_to_message?: {
+    message_id: number
+    from?: {
+      id: number
+      username?: string
+      is_bot?: boolean
+    }
+  }
 }
 
 interface TelegramUpdate {
@@ -200,21 +208,52 @@ async function sendTelegramReply(
   }
 }
 
+interface BotInfo {
+  id: number
+  username: string
+}
+
 /**
- * Get bot info to determine username
+ * Get bot info (username and ID)
  */
-async function getBotUsername(): Promise<string | null> {
+async function getBotInfo(): Promise<BotInfo | null> {
   try {
     const response = await fetch(`${TELEGRAM_API}/getMe`)
     const data = await response.json()
-    if (data.ok && data.result?.username) {
-      return data.result.username
+    if (data.ok && data.result?.username && data.result?.id) {
+      return {
+        id: data.result.id,
+        username: data.result.username,
+      }
     }
     return null
   } catch (error) {
     console.error('Error getting bot info:', error)
     return null
   }
+}
+
+/**
+ * Check if the message is a direct reply to one of the bot's messages
+ * (using Telegram's native reply function, not just any message in the thread)
+ */
+function isReplyToBot(message: TelegramMessage, botId: number): boolean {
+  // Must have reply_to_message set (user used native reply function)
+  if (!message.reply_to_message) {
+    return false
+  }
+
+  // The replied-to message must have a sender
+  if (!message.reply_to_message.from) {
+    return false
+  }
+
+  // The sender of the replied-to message must be the bot
+  const isFromBot = message.reply_to_message.from.id === botId
+
+  console.log(`[isReplyToBot] reply_to_message.from.id: ${message.reply_to_message.from.id}, botId: ${botId}, isFromBot: ${isFromBot}`)
+
+  return isFromBot
 }
 
 serve(async (req) => {
@@ -249,24 +288,30 @@ serve(async (req) => {
       })
     }
 
-    // Get bot username to check for mentions
-    const botUsername = await getBotUsername()
-    if (!botUsername) {
-      console.error('Could not get bot username')
+    // Get bot info to check for mentions and replies
+    const botInfo = await getBotInfo()
+    if (!botInfo) {
+      console.error('Could not get bot info')
       return new Response(JSON.stringify({ ok: true }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // Check if bot is mentioned
-    if (!isBotMentioned(message, botUsername)) {
-      console.log('Bot not mentioned, ignoring message')
+    // Check if bot is mentioned OR if message is a direct reply to bot's message
+    const mentioned = isBotMentioned(message, botInfo.username)
+    const replyToBot = isReplyToBot(message, botInfo.id)
+
+    console.log(`[Webhook] Message from ${message.from?.username || 'unknown'}: mentioned=${mentioned}, replyToBot=${replyToBot}, hasReplyTo=${!!message.reply_to_message}`)
+
+    if (!mentioned && !replyToBot) {
+      console.log('[Webhook] Bot not mentioned and not a direct reply to bot, ignoring message')
       return new Response(JSON.stringify({ ok: true }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    console.log(`Bot mentioned by ${message.from?.username || 'unknown'} in thread ${message.message_thread_id}`)
+    const triggerType = mentioned ? 'mentioned' : 'replied to'
+    console.log(`[Webhook] Bot ${triggerType} by ${message.from?.username || 'unknown'} in thread ${message.message_thread_id}`)
 
     // Look up the book from the topic
     const bookInfo = await getBookFromTopic(message.message_thread_id)
@@ -286,7 +331,7 @@ serve(async (req) => {
     console.log(`Found book: "${bookInfo.bookTitle}" by ${bookInfo.bookAuthor}`)
 
     // Extract the user's question
-    const question = extractQuestion(message, botUsername)
+    const question = extractQuestion(message, botInfo.username)
     if (!question) {
       await sendTelegramReply(
         message.chat.id,

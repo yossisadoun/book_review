@@ -1228,7 +1228,7 @@ async function getGrokDidYouKnow(bookTitle: string, author: string): Promise<Did
 // Get "Did You Know?" insights using Grok with web search (AI SDK)
 interface DidYouKnowWithSourcesResult {
   insights: DidYouKnowItem[];
-  sources: Array<{ url: string; title?: string }>;
+  sources: any[]; // Sources from AI SDK (LanguageModelV3Source[])
 }
 
 async function getGrokDidYouKnowWithSearch(bookTitle: string, author: string): Promise<DidYouKnowWithSourcesResult> {
@@ -14673,17 +14673,27 @@ export default function App() {
                                 src={userAvatar}
                                 alt={userName}
                                 className="w-8 h-8 rounded-full border-2 border-emerald-400 object-cover"
-                                style={{ zIndex: 6 }}
+                                style={{ zIndex: 7 }}
                                 title={`${userName} (you)`}
                                 referrerPolicy="no-referrer"
                               />
                             ) : (
                               <div
                                 className="w-8 h-8 rounded-full border-2 border-emerald-400 bg-emerald-100 flex items-center justify-center text-xs font-bold text-emerald-600"
-                                style={{ zIndex: 6 }}
+                                style={{ zIndex: 7 }}
                                 title={`${userName} (you)`}
                               >
                                 {userName.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            {/* Bot reader - shown when Telegram topic exists */}
+                            {activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id) && (
+                              <div
+                                className="w-8 h-8 rounded-full border-2 border-sky-400 bg-gradient-to-br from-sky-100 to-sky-200 flex items-center justify-center"
+                                style={{ zIndex: 6 }}
+                                title="Book Expert Bot"
+                              >
+                                <Bot className="w-4 h-4 text-sky-600" />
                               </div>
                             )}
                             {/* Other readers */}
@@ -14694,7 +14704,7 @@ export default function App() {
                                   src={reader.avatar}
                                   alt={reader.name}
                                   className="w-8 h-8 rounded-full border-2 border-white object-cover"
-                                  style={{ zIndex: 5 - index }}
+                                  style={{ zIndex: 4 - index }}
                                   title={reader.name}
                                   referrerPolicy="no-referrer"
                                 />
@@ -14702,7 +14712,7 @@ export default function App() {
                                 <div
                                   key={reader.id}
                                   className="w-8 h-8 rounded-full border-2 border-white bg-slate-300 flex items-center justify-center text-xs font-bold text-slate-600"
-                                  style={{ zIndex: 5 - index }}
+                                  style={{ zIndex: 4 - index }}
                                   title={reader.name}
                                 >
                                   {reader.name.charAt(0).toUpperCase()}
@@ -14719,7 +14729,7 @@ export default function App() {
                             )}
                           </div>
                           <span className="text-xs text-slate-600 ml-1">
-                            {bookReaders.length + 1} {bookReaders.length === 0 ? 'reader' : 'readers'}
+                            {bookReaders.length + 1 + (activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id) ? 1 : 0)} {bookReaders.length === 0 && !(activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id)) ? 'reader' : 'readers'}
                           </span>
                         </>
                       )}
@@ -16476,6 +16486,15 @@ export default function App() {
                     </div>
                   </div>
                   <div className="flex -space-x-1">
+                    {/* Bot reader in discussions header */}
+                    {activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id) && (
+                      <div
+                        className="w-6 h-6 rounded-full border border-sky-400 bg-gradient-to-br from-sky-100 to-sky-200 flex items-center justify-center"
+                        title="Book Expert Bot"
+                      >
+                        <Bot className="w-3 h-3 text-sky-600" />
+                      </div>
+                    )}
                     {bookReaders.slice(0, 3).map((reader) => (
                       reader.avatar ? (
                         <img
