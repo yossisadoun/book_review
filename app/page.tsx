@@ -109,6 +109,8 @@ import { supabase } from '@/lib/supabase';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerErrorHaptic, openSystemBrowser, isNativePlatform, storageSet, storageGet, listenForAppStateChange } from '@/lib/capacitor';
 import { featureFlags } from '@/lib/feature-flags';
+import { createXai } from '@ai-sdk/xai';
+import { generateText } from 'ai';
 
 // Helper function to get the correct path for static assets (handles basePath)
 function getAssetPath(path: string): string {
@@ -1223,6 +1225,75 @@ async function getGrokDidYouKnow(bookTitle: string, author: string): Promise<Did
   }
 }
 
+// Get "Did You Know?" insights using Grok with web search (AI SDK)
+interface DidYouKnowWithSourcesResult {
+  insights: DidYouKnowItem[];
+  sources: Array<{ url: string; title?: string }>;
+}
+
+async function getGrokDidYouKnowWithSearch(bookTitle: string, author: string): Promise<DidYouKnowWithSourcesResult> {
+  console.log('[getGrokDidYouKnowWithSearch] Called for:', bookTitle, 'by', author);
+
+  if (!grokApiKey) {
+    console.warn('[getGrokDidYouKnowWithSearch] API key is missing!');
+    return { insights: [], sources: [] };
+  }
+
+  try {
+    // Create xai provider with API key
+    const xai = createXai({ apiKey: grokApiKey });
+
+    const prompts = await loadPrompts();
+    const basePrompt = prompts.did_you_know?.prompt || '';
+    const prompt = formatPrompt(basePrompt, { bookTitle, author });
+
+    // Add instruction to search the web for verified facts
+    const searchPrompt = `${prompt}
+
+IMPORTANT: Use web search to find and verify real, factual information about this book.
+Search for interviews with the author, book reviews, literary analysis, and historical context.
+Only include facts you can verify through search results.
+
+Return your response as valid JSON in this exact format:
+{
+  "did_you_know_top10": [
+    { "rank": 1, "notes": ["First sentence of insight", "Second sentence with more detail", "Third sentence with context or impact"] },
+    { "rank": 2, "notes": ["...", "...", "..."] }
+  ]
+}`;
+
+    console.log('[getGrokDidYouKnowWithSearch] 🔵 Making request with web search...');
+
+    const { text, sources } = await generateText({
+      model: xai.responses('grok-4-1-fast-reasoning'),
+      prompt: searchPrompt,
+      tools: {
+        web_search: xai.tools.webSearch(),
+      },
+    });
+
+    console.log('[getGrokDidYouKnowWithSearch] 📦 Response received, sources:', sources?.length || 0);
+
+    // Parse the JSON response
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error('[getGrokDidYouKnowWithSearch] ❌ Could not find JSON in response');
+      return { insights: [], sources: sources || [] };
+    }
+
+    const result: DidYouKnowResponse = JSON.parse(jsonMatch[0]);
+    console.log('[getGrokDidYouKnowWithSearch] ✅ Parsed', result.did_you_know_top10?.length || 0, 'insights with', sources?.length || 0, 'sources');
+
+    return {
+      insights: result.did_you_know_top10 || [],
+      sources: sources || [],
+    };
+  } catch (err: any) {
+    console.error('[getGrokDidYouKnowWithSearch] Error:', err);
+    return { insights: [], sources: [] };
+  }
+}
+
 // Get "Did You Know?" insights with caching
 async function getDidYouKnow(bookTitle: string, author: string): Promise<DidYouKnowItem[]> {
   console.log(`[getDidYouKnow] 🔄 Fetching "Did You Know?" insights for "${bookTitle}" by ${author}`);
@@ -1251,8 +1322,12 @@ async function getDidYouKnow(bookTitle: string, author: string): Promise<DidYouK
     // Continue to fetch from Grok
   }
 
-  // Fetch from Grok API
-  const insights = await getGrokDidYouKnow(bookTitle, author);
+  // Fetch from Grok API with web search
+  const { insights, sources } = await getGrokDidYouKnowWithSearch(bookTitle, author);
+
+  if (sources && sources.length > 0) {
+    console.log(`[getDidYouKnow] 📚 Sources used:`, sources.map(s => s.url || s).slice(0, 5));
+  }
 
   // Save to cache
   await saveDidYouKnowToCache(bookTitle, author, insights);
@@ -9063,17 +9138,18 @@ export default function App() {
     const bookTitle = currentBook.title;
     const bookAuthor = currentBook.author;
     
-    // Check if facts already exist in local state - if so, don't fetch again
-    const hasFacts = currentBook.author_facts && 
-                     Array.isArray(currentBook.author_facts) && 
+    // Check if facts or first_issue_year already exist in local state - if so, don't fetch again
+    const hasFacts = currentBook.author_facts &&
+                     Array.isArray(currentBook.author_facts) &&
                      currentBook.author_facts.length > 0;
-    
+    const hasFirstIssueYear = currentBook.first_issue_year != null;
+
     // Check if we're currently fetching for this book (to prevent concurrent fetches)
     const isCurrentlyFetching = fetchingFactsForBooksRef.current.has(bookId);
-    
-    if (hasFacts) {
-      // Facts already loaded in state, no need to fetch again
-        setLoadingFactsForBookId(null);
+
+    if (hasFacts || hasFirstIssueYear) {
+      // Facts or first_issue_year already loaded in state, no need to fetch again
+      setLoadingFactsForBookId(null);
       return;
     }
     
@@ -9103,17 +9179,17 @@ export default function App() {
         setLoadingFactsForBookId(null);
         fetchingFactsForBooksRef.current.delete(bookId);
         
-        if (result.facts.length > 0) {
-          console.log(`[Author Facts] ✅ Received ${result.facts.length} facts for "${bookTitle}"`);
-          
+        if (result.facts.length > 0 || result.first_issue_year) {
+          console.log(`[Author Facts] ✅ Received ${result.facts.length} facts, first_issue_year: ${result.first_issue_year} for "${bookTitle}"`);
+
           // Update local state for display (cache is already saved by getAuthorFacts)
           // Only update if the book is still the active one
-            setBooks(prev => prev.map(book => 
-              book.id === bookId 
+          setBooks(prev => prev.map(book =>
+            book.id === bookId
               ? { ...book, author_facts: result.facts, first_issue_year: result.first_issue_year || book.first_issue_year }
-                : book
-            ));
-          
+              : book
+          ));
+
           // Save first_issue_year to database if we got it
           if (result.first_issue_year && user) {
             try {
@@ -9122,18 +9198,18 @@ export default function App() {
                 .update({ first_issue_year: result.first_issue_year, updated_at: new Date().toISOString() })
                 .eq('id', bookId)
                 .eq('user_id', user.id);
-              
+
               if (updateError) {
                 console.error('[Author Facts] ❌ Error saving first_issue_year:', updateError);
               } else {
                 console.log(`[Author Facts] 💾 Saved first_issue_year ${result.first_issue_year} to database for "${bookTitle}"`);
               }
-          } catch (err) {
+            } catch (err) {
               console.error('[Author Facts] ❌ Error saving first_issue_year:', err);
             }
           }
         } else {
-          console.log(`[Author Facts] ⚠️ No facts received for "${bookTitle}"`);
+          console.log(`[Author Facts] ⚠️ No facts or first_issue_year received for "${bookTitle}"`);
         }
       }).catch(err => {
         if (!cancelled) {

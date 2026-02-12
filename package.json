@@ -17,6 +17,7 @@
     "cap:open:android": "npx cap open android"
   },
   "dependencies": {
+    "@ai-sdk/xai": "^3.0.54",
     "@capacitor/android": "^6.1.2",
     "@capacitor/app": "^6.0.2",
     "@capacitor/browser": "^6.0.2",
@@ -33,6 +34,7 @@
     "@supabase/auth-helpers-nextjs": "^0.15.0",
     "@supabase/supabase-js": "^2.90.1",
     "@types/js-yaml": "^4.0.9",
+    "ai": "^6.0.81",
     "capacitor-secure-storage-plugin": "0.10.0",
     "framer-motion": "^11.11.17",
     "html-to-image": "^1.11.13",

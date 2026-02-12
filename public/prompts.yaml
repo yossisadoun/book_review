@@ -37,17 +37,8 @@ book_search:
 
 author_facts:
   prompt: |
-    You are a literary expert. Generate exactly 10 interesting, fun facts about the book "{bookTitle}" by "{author}" or about the author specifically in the context of the book itself.
-
-    Requirements:
-    - Return exactly 20 facts
-    - Each fact should be concise (1-2 sentences max)
-    - Focus on interesting, lesser-known details
-    - Connect facts to the book when possible
-    - Make facts engaging and fun
-    - add a url for the reference where you got the fact when relevant.
-    - Also provide the original publication year (earliest known) for this book in its earliest version. This should be the year the book was first published in any language or format.
-    - Return ONLY valid JSON in this format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 20"], "first_issue_year": 1925 }
+    You are a literary expert. Return the original publication year (earliest known) for "{bookTitle}" by {author}. This should be the year the book was first published in any language or format.
+    Return ONLY valid JSON in this format: { "first_issue_year": 1925 }
 
 book_influences:
   prompt: |
@@ -495,7 +486,7 @@ book_infographic:
     Include all named characters who appear more than briefly. One line each. No spoilers.
 
     PLOT_TIMELINE:
-    Give an ordered sequence of early-to-late story events that help the reader stay oriented. Focus on setup and direction, not outcomes. Generate at least 10 events.
+    Give an ordered sequence of early-to-late story events that help the reader stay oriented. Focus on setup and direction, not outcomes. Generate at least 10 events the start at the beginning of the story and end at the end of the story.
 
     For each event, pick ONE icon from this list that best represents the event:
     - Sunrise (beginnings, morning, new start)

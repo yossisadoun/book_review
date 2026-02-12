@@ -10,7 +10,7 @@ export const featureFlags = {
   // Insights feature flags - control which insight types are fetched/displayed
   // When false: not fetched, not shown in book page, not added to feed
   insights: {
-    author_facts: false,      // Trivia facts about author
+    author_facts: true,       // Trivia facts about author (includes first_issue_year)
     book_influences: false,   // Literary influences
     book_domain: false,       // Domain/subject matter insights
     book_context: false,      // Historical/cultural context

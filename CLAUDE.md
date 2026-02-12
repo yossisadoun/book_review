@@ -328,6 +328,24 @@ case 'your_new_type':
 | Feed card rendering (switch) | `app/page.tsx` ~line 11428 |
 | feedTypeFilter state | `app/page.tsx` ~line 6708 |
 
+## Deployment & Store Listings
+
+### Web (GitHub Pages)
+- **URL:** https://yossisadoun.github.io/book_review/
+- **Privacy Policy:** https://yossisadoun.github.io/book_review/privacy/
+- **Support Email:** yossi.sadoun@gmail.com
+
+### iOS (App Store)
+- **Bundle ID:** `com.bookreview.app`
+- **App Name:** BOOK
+
+### Android (Google Play)
+- **Application ID:** `com.bookreview.app`
+- **Keystore:** `android/book-review-release.keystore`
+- **Keystore Properties:** `android/keystore.properties`
+- **Build AAB:** `cd android && JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew bundleRelease`
+- **Output:** `android/app/build/outputs/bundle/release/app-release.aab`
+
 ## Design Guidelines
 
 See `DESIGN_GUIDELINES.md` for:
