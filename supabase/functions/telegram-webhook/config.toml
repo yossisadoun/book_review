@@ -1,0 +1,3 @@
+# Disable JWT verification - allow unauthenticated requests
+# Required for Telegram webhook callbacks
+verify_jwt = false
