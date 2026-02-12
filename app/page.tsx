@@ -1469,6 +1469,71 @@ async function getGrokBookInfographic(bookTitle: string, author: string): Promis
   }
 }
 
+// Get book infographic using Grok with web search (AI SDK)
+async function getGrokBookInfographicWithSearch(bookTitle: string, author: string): Promise<BookInfographic | null> {
+  console.log('[getGrokBookInfographicWithSearch] Called for:', bookTitle, 'by', author);
+
+  if (!grokApiKey) {
+    console.warn('[getGrokBookInfographicWithSearch] API key is missing!');
+    return null;
+  }
+
+  try {
+    // Create xai provider with API key
+    const xai = createXai({ apiKey: grokApiKey });
+
+    const prompts = await loadPrompts();
+    const basePrompt = prompts.book_infographic?.prompt || '';
+    const prompt = formatPrompt(basePrompt, {
+      book_title: bookTitle,
+      author_name: author
+    });
+
+    // Add instruction to search the web for accurate information
+    const searchPrompt = `${prompt}
+
+IMPORTANT: Use web search to verify character names, plot details, and timeline events.
+Search for plot summaries, character lists, and book analyses to ensure accuracy.
+Only include verified information from reliable sources.`;
+
+    console.log('[getGrokBookInfographicWithSearch] 🔵 Making request with web search...');
+
+    const { text, sources } = await generateText({
+      model: xai.responses('grok-4-1-fast-reasoning'),
+      prompt: searchPrompt,
+      tools: {
+        web_search: xai.tools.webSearch(),
+      },
+    });
+
+    console.log('[getGrokBookInfographicWithSearch] 📦 Response received, sources:', sources?.length || 0);
+
+    // Try to extract JSON from the response
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error('[getGrokBookInfographicWithSearch] ❌ Could not find JSON in response');
+      return null;
+    }
+
+    let jsonStr = jsonMatch[0];
+    // Sanitize common JSON issues from LLM responses
+    jsonStr = jsonStr.replace(/,\s*\]/g, ']').replace(/,\s*\}/g, '}');
+
+    try {
+      const result: BookInfographic = JSON.parse(jsonStr);
+      console.log('[getGrokBookInfographicWithSearch] ✅ Parsed infographic with', result.core_cast?.length || 0, 'core characters,', result.full_character_list?.length || 0, 'total characters,', result.plot_timeline?.length || 0, 'plot events, and', sources?.length || 0, 'sources');
+      return result;
+    } catch (parseErr: any) {
+      console.error('[getGrokBookInfographicWithSearch] ❌ JSON Parse Error:', parseErr.message);
+      console.error('[getGrokBookInfographicWithSearch] 📄 Attempted to parse:', jsonStr.substring(0, 500) + '...');
+      return null;
+    }
+  } catch (err: any) {
+    console.error('[getGrokBookInfographicWithSearch] Error:', err);
+    return null;
+  }
+}
+
 // Discussion questions interface and functions
 interface DiscussionQuestion {
   id: number;
@@ -4206,6 +4271,8 @@ interface InsightItem {
   text: string;
   sourceUrl?: string;
   label: string;
+  noteIndex?: number;  // For did_you_know: 1, 2, or 3
+  totalNotes?: number; // For did_you_know: always 3
 }
 
 interface InsightsCardsProps {
@@ -4378,6 +4445,12 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
               className="relative rounded-2xl overflow-hidden"
               style={glassmorphicStyle}
             >
+            {/* Note indicator for did_you_know (top right corner) */}
+            {currentInsight.noteIndex && currentInsight.totalNotes && (
+              <div className="absolute top-2 right-3 px-2 py-0.5 rounded-full text-[10px] font-bold text-slate-500 bg-white/60 backdrop-blur-sm">
+                {currentInsight.noteIndex}/{currentInsight.totalNotes}
+              </div>
+            )}
             {/* Header */}
             <div className="flex items-center gap-3 px-4 pt-3 pb-2">
               <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
@@ -14825,9 +14898,9 @@ export default function App() {
                                 setShowInfographicModal(true);
                                 return;
                               }
-                              // Fetch the infographic
+                              // Fetch the infographic with web search for accuracy
                               setLoadingInfographicForBookId(activeBook.id);
-                              const infographic = await getGrokBookInfographic(activeBook.title, activeBook.author);
+                              const infographic = await getGrokBookInfographicWithSearch(activeBook.title, activeBook.author);
                               setLoadingInfographicForBookId(null);
                               if (infographic) {
                                 setBookInfographics(prev => new Map(prev).set(activeBook.id, infographic));
@@ -14974,8 +15047,14 @@ export default function App() {
                     isLoading = isLoadingContext;
                   } else if (currentCategory?.id === 'did_you_know') {
                     // For "Did you know?", combine all 3 notes per item into separate insights
+                    // Include noteIndex (1-3) to show position indicator on each card
                     currentInsights = didYouKnowInsights.flatMap(item =>
-                      item.notes.map(note => ({ text: note, label: 'Did you know?' }))
+                      item.notes.map((note, idx) => ({
+                        text: note,
+                        label: 'Did you know?',
+                        noteIndex: idx + 1,
+                        totalNotes: 3
+                      }))
                     );
                     isLoading = isLoadingDidYouKnow;
                   } else if (currentCategory && hasResearch) {

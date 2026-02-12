@@ -45,8 +45,10 @@ interface TelegramMessage {
     from?: {
       id: number
       username?: string
+      first_name?: string
       is_bot?: boolean
     }
+    text?: string
   }
 }
 
@@ -105,13 +107,19 @@ async function getBookFromTopic(threadId: number): Promise<{ bookTitle: string; 
   }
 }
 
+interface ConversationContext {
+  previousBotMessage?: string
+  userName?: string
+}
+
 /**
  * Call Grok API to generate a response as a book expert
  */
 async function getBookExpertResponse(
   bookTitle: string,
   bookAuthor: string,
-  userQuestion: string
+  userQuestion: string,
+  context?: ConversationContext
 ): Promise<string> {
   if (!GROK_API_KEY) {
     console.error('GROK_API_KEY is not configured')
@@ -120,23 +128,41 @@ async function getBookExpertResponse(
 
   const systemPrompt = `You are an expert on the book "${bookTitle}" by ${bookAuthor}. You have deep knowledge of the book's themes, characters, plot, writing style, historical context, and literary significance.
 
-Respond to questions about this book in a helpful, engaging, and insightful way. Keep responses concise but informative - aim for 2-3 paragraphs max unless the question requires more detail.
+Be concise. Respond in 2-4 sentences unless the user explicitly asks for more detail, a longer explanation, or says something like "elaborate", "explain more", or "go deeper". Only then should you provide a fuller response.
 
-If asked about something unrelated to the book or literature in general, politely redirect the conversation back to the book.
+If asked about something unrelated to the book, briefly redirect back to the book.
 
-Format your response for Telegram (use simple text, avoid markdown that Telegram doesn't support well).`
+Use plain text suitable for Telegram chat.`
+
+  // Build messages array with conversation context if available
+  const messages: Array<{ role: string; content: string }> = [
+    {
+      role: 'system',
+      content: systemPrompt,
+    },
+  ]
+
+  // If this is a reply to a previous bot message, include that context
+  if (context?.previousBotMessage) {
+    messages.push({
+      role: 'assistant',
+      content: context.previousBotMessage,
+    })
+    // Frame the user's reply with their name for context
+    const userLabel = context.userName ? `${context.userName} replies` : 'User replies'
+    messages.push({
+      role: 'user',
+      content: `${userLabel}: ${userQuestion}`,
+    })
+  } else {
+    messages.push({
+      role: 'user',
+      content: userQuestion,
+    })
+  }
 
   const payload = {
-    messages: [
-      {
-        role: 'system',
-        content: systemPrompt,
-      },
-      {
-        role: 'user',
-        content: userQuestion,
-      },
-    ],
+    messages,
     model: 'grok-4-1-fast-non-reasoning',
     stream: false,
     temperature: 0.7,
@@ -243,6 +269,14 @@ function isReplyToBot(message: TelegramMessage, botId: number): boolean {
     return false
   }
 
+  // In forum topics, messages automatically have reply_to_message set to the topic's
+  // first message (which has message_id === message_thread_id). Filter these out.
+  // We only want explicit replies where the user chose to reply to a specific message.
+  if (message.reply_to_message.message_id === message.message_thread_id) {
+    console.log(`[isReplyToBot] Ignoring automatic topic reply (reply_to_message.message_id === message_thread_id)`)
+    return false
+  }
+
   // The replied-to message must have a sender
   if (!message.reply_to_message.from) {
     return false
@@ -251,7 +285,7 @@ function isReplyToBot(message: TelegramMessage, botId: number): boolean {
   // The sender of the replied-to message must be the bot
   const isFromBot = message.reply_to_message.from.id === botId
 
-  console.log(`[isReplyToBot] reply_to_message.from.id: ${message.reply_to_message.from.id}, botId: ${botId}, isFromBot: ${isFromBot}`)
+  console.log(`[isReplyToBot] reply_to_message.message_id: ${message.reply_to_message.message_id}, thread_id: ${message.message_thread_id}, from.id: ${message.reply_to_message.from.id}, botId: ${botId}, isFromBot: ${isFromBot}`)
 
   return isFromBot
 }
@@ -344,11 +378,22 @@ serve(async (req) => {
       })
     }
 
+    // Build conversation context if this is a reply to the bot
+    let conversationContext: ConversationContext | undefined
+    if (replyToBot && message.reply_to_message?.text) {
+      conversationContext = {
+        previousBotMessage: message.reply_to_message.text,
+        userName: message.from?.first_name || message.from?.username,
+      }
+      console.log(`[Webhook] Including conversation context - previous bot message: "${message.reply_to_message.text.substring(0, 100)}..."`)
+    }
+
     // Get AI response
     const aiResponse = await getBookExpertResponse(
       bookInfo.bookTitle,
       bookInfo.bookAuthor,
-      question
+      question,
+      conversationContext
     )
 
     // Send reply
