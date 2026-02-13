@@ -6787,8 +6787,8 @@ function collectTriviaNotes(books: BookWithRatings[]): TriviaNote[] {
 }
 
 // Generate trivia questions from trivia notes using Grok
-// Generate trivia questions for a single book when author_facts are available
-async function generateTriviaQuestionsForBook(bookTitle: string, bookAuthor: string, facts: string[]): Promise<Array<{
+// Generate trivia questions for a single book (facts are optional - Grok will use web search)
+async function generateTriviaQuestionsForBook(bookTitle: string, bookAuthor: string, facts?: string[]): Promise<Array<{
   question: string;
   correct_answer: string;
   wrong_answers: string[];
@@ -6797,19 +6797,14 @@ async function generateTriviaQuestionsForBook(bookTitle: string, bookAuthor: str
   url?: string;
 }>> {
   console.log(`[generateTriviaQuestionsForBook] Generating trivia questions for "${bookTitle}" by ${bookAuthor}...`);
-  
+
   if (!grokApiKey) {
     console.warn('[generateTriviaQuestionsForBook] API key is missing!');
     return [];
   }
-  
-  if (!facts || facts.length === 0) {
-    console.warn('[generateTriviaQuestionsForBook] No facts provided');
-    return [];
-  }
-  
-  // Format facts as JSON array
-  const factsJson = facts.map(fact => ({ author_facts: [fact] }));
+
+  // Format facts as JSON array (empty if none provided)
+  const factsJson = (facts && facts.length > 0) ? facts.map(fact => ({ author_facts: [fact] })) : [];
   
   // Load prompt from prompts.yaml
   const prompts = await loadPrompts();
@@ -6955,52 +6950,101 @@ async function saveTriviaQuestionsToCache(bookTitle: string, bookAuthor: string,
   }
 }
 
-// Count books with trivia questions in cache
-async function countBooksWithTriviaQuestions(): Promise<number> {
+// Check if a book has trivia questions cached, if not generate them (fire-and-forget)
+async function ensureTriviaQuestionsForBook(bookTitle: string, bookAuthor: string): Promise<void> {
+  const normalizedTitle = bookTitle.toLowerCase().trim();
+  const normalizedAuthor = bookAuthor.toLowerCase().trim();
+
   try {
-    const { count, error } = await supabase
+    const { data: existing } = await supabase
       .from('trivia_questions_cache')
-      .select('*', { count: 'exact', head: true });
-    
+      .select('id')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+
+    if (existing) {
+      console.log(`[ensureTriviaQuestionsForBook] ✅ Trivia already cached for "${bookTitle}"`);
+      return;
+    }
+
+    console.log(`[ensureTriviaQuestionsForBook] 🎲 No trivia cached for "${bookTitle}", generating...`);
+    const questions = await generateTriviaQuestionsForBook(bookTitle, bookAuthor);
+    if (questions.length > 0) {
+      await saveTriviaQuestionsToCache(bookTitle, bookAuthor, questions);
+    }
+  } catch (err: any) {
+    console.error('[ensureTriviaQuestionsForBook] ❌ Error:', err);
+  }
+}
+
+// Count books with trivia questions in cache (only from user's "read" books)
+async function countBooksWithTriviaQuestions(readBooks: Array<{ title: string; author: string }>): Promise<number> {
+  try {
+    if (readBooks.length === 0) return 0;
+
+    const { data, error } = await supabase
+      .from('trivia_questions_cache')
+      .select('book_title, book_author');
+
     if (error) {
       console.error('[countBooksWithTriviaQuestions] ❌ Error counting books:', error);
       return 0;
     }
-    
-    return count || 0;
+
+    if (!data) return 0;
+
+    // Match cache entries against user's read books
+    const readSet = new Set(readBooks.map(b => `${b.title.toLowerCase().trim()}|||${b.author.toLowerCase().trim()}`));
+    const matchCount = data.filter(row => readSet.has(`${row.book_title}|||${row.book_author}`)).length;
+    return matchCount;
   } catch (err: any) {
     console.error('[countBooksWithTriviaQuestions] ❌ Error:', err);
     return 0;
   }
 }
 
-// Load random trivia questions from cache (11 questions from all available books)
-async function loadRandomTriviaQuestions(): Promise<Array<{
+// Load random trivia questions from cache (11 questions, only from user's "read" books)
+async function loadRandomTriviaQuestions(readBooks: Array<{ title: string; author: string }>): Promise<Array<{
   question: string;
   correct_answer: string;
   wrong_answers: string[];
   book_title?: string;
   book_author?: string;
 }>> {
-  console.log('[loadRandomTriviaQuestions] Loading random trivia questions from cache...');
-  
+  console.log('[loadRandomTriviaQuestions] Loading random trivia questions from cache (read books only)...');
+
   try {
+    if (readBooks.length === 0) {
+      console.warn('[loadRandomTriviaQuestions] ⚠️ No read books provided');
+      return [];
+    }
+
     // Get all trivia questions from cache
     const { data: allQuestions, error } = await supabase
       .from('trivia_questions_cache')
       .select('questions, book_title, book_author');
-    
+
     if (error) {
       console.error('[loadRandomTriviaQuestions] ❌ Error loading questions:', error);
       return [];
     }
-    
+
     if (!allQuestions || allQuestions.length === 0) {
       console.warn('[loadRandomTriviaQuestions] ⚠️ No trivia questions found in cache');
       return [];
     }
-    
-    // Flatten all questions from all books
+
+    // Filter to only the user's read books
+    const readSet = new Set(readBooks.map(b => `${b.title.toLowerCase().trim()}|||${b.author.toLowerCase().trim()}`));
+    const matchedQuestions = allQuestions.filter(row => readSet.has(`${row.book_title}|||${row.book_author}`));
+
+    if (matchedQuestions.length === 0) {
+      console.warn('[loadRandomTriviaQuestions] ⚠️ No trivia questions found for read books');
+      return [];
+    }
+
+    // Flatten all questions from matched books
     const allQuestionsFlat: Array<{
       question: string;
       correct_answer: string;
@@ -7008,11 +7052,10 @@ async function loadRandomTriviaQuestions(): Promise<Array<{
       book_title?: string;
       book_author?: string;
     }> = [];
-    
-    for (const record of allQuestions) {
+
+    for (const record of matchedQuestions) {
       if (record.questions && Array.isArray(record.questions)) {
         for (const q of record.questions) {
-          // Extract only the fields we need for the game
           allQuestionsFlat.push({
             question: q.question,
             correct_answer: q.correct_answer,
@@ -7023,17 +7066,17 @@ async function loadRandomTriviaQuestions(): Promise<Array<{
         }
       }
     }
-    
+
     if (allQuestionsFlat.length === 0) {
       console.warn('[loadRandomTriviaQuestions] ⚠️ No questions found after flattening');
       return [];
     }
-    
+
     // Shuffle and take 11 random questions
     const shuffled = [...allQuestionsFlat].sort(() => Math.random() - 0.5);
     const selected = shuffled.slice(0, Math.min(11, shuffled.length));
-    
-    console.log(`[loadRandomTriviaQuestions] ✅ Loaded ${selected.length} random trivia questions from ${allQuestions.length} books`);
+
+    console.log(`[loadRandomTriviaQuestions] ✅ Loaded ${selected.length} random trivia questions from ${matchedQuestions.length} read books`);
     return selected;
   } catch (err: any) {
     console.error('[loadRandomTriviaQuestions] ❌ Error:', err);
@@ -8479,7 +8522,8 @@ export default function App() {
   useEffect(() => {
     const refreshCount = () => {
       if (isLoaded && user) {
-        countBooksWithTriviaQuestions().then(count => {
+        const readBooks = books.filter(b => b.reading_status === 'read_it').map(b => ({ title: b.title, author: b.author || '' }));
+        countBooksWithTriviaQuestions(readBooks).then(count => {
           setBooksWithTriviaQuestions(count);
         }).catch(err => {
           console.error('[App] Error counting books with trivia questions:', err);
@@ -8498,6 +8542,15 @@ export default function App() {
       setTriviaQuestionsCountRefreshCallback(null);
     };
   }, [isLoaded, user, books.length, triviaQuestionsRefreshTrigger]); // Update when books change or refresh is triggered
+
+  // Ensure trivia answers are shuffled when question changes
+  useEffect(() => {
+    if (triviaQuestions.length > 0 && currentTriviaQuestionIndex < triviaQuestions.length && triviaShuffledAnswers.length === 0) {
+      const q = triviaQuestions[currentTriviaQuestionIndex];
+      const shuffled = [q.correct_answer, ...q.wrong_answers].sort(() => Math.random() - 0.5);
+      setTriviaShuffledAnswers(shuffled);
+    }
+  }, [triviaQuestions, currentTriviaQuestionIndex, triviaShuffledAnswers.length]);
 
   // Fire confetti when trivia game completes
   useEffect(() => {
@@ -10742,6 +10795,8 @@ export default function App() {
             readingStatus,
             newBook.summary || null
           );
+          // Generate trivia questions if not already cached (fire-and-forget)
+          ensureTriviaQuestionsForBook(newBook.title, newBook.author || '');
           // Switch to books view (in case we're on bookshelf/notes screen)
           setShowBookshelf(false);
           setShowBookshelfCovers(false);
@@ -10800,6 +10855,9 @@ export default function App() {
         readingStatus,
         newBook.summary || null
       );
+
+      // Generate trivia questions if not already cached (fire-and-forget)
+      ensureTriviaQuestionsForBook(newBook.title, newBook.author || '');
 
       // If status is "read_it", integrate the new book into the merge sort game
       if (readingStatus === 'read_it') {
@@ -15462,16 +15520,9 @@ export default function App() {
           <div className="relative group">
             {(() => {
               const minBooks = 5;
-              const minBooksWithQuestions = 5;
               const hasEnoughBooks = books.length >= minBooks;
-              const hasEnoughQuestions = booksWithTriviaQuestions >= minBooksWithQuestions;
-              const isDisabled = !hasEnoughBooks || !hasEnoughQuestions;
-              
-              // Calculate remaining books needed (whichever is higher)
-              const remainingBooks = Math.max(
-                hasEnoughBooks ? 0 : minBooks - books.length,
-                hasEnoughQuestions ? 0 : minBooksWithQuestions - booksWithTriviaQuestions
-              );
+              const isDisabled = !hasEnoughBooks;
+              const remainingBooks = minBooks - books.length;
               
               return (
                 <>
@@ -16140,9 +16191,10 @@ export default function App() {
                         
                         if (shouldFetchNew) {
                           // Load new random questions from cache
-                          const questions = await loadRandomTriviaQuestions();
+                          const readBooks = books.filter(b => b.reading_status === 'read_it').map(b => ({ title: b.title, author: b.author || '' }));
+                          const questions = await loadRandomTriviaQuestions(readBooks);
                           if (questions.length === 0) {
-                            alert('No trivia questions available yet. Add more books with author facts to generate questions!');
+                            alert('No trivia questions available yet. Mark books as "Read" to generate questions!');
                             setIsTriviaLoading(false);
                             return;
                           }
@@ -16152,6 +16204,13 @@ export default function App() {
                           }
                           
                           setTriviaQuestions(questions);
+                          // Pre-shuffle answers for first question
+                          const firstQ = questions[0];
+                          const firstAnswers = [
+                            firstQ.correct_answer,
+                            ...firstQ.wrong_answers
+                          ].sort(() => Math.random() - 0.5);
+                          setTriviaShuffledAnswers(firstAnswers);
                         }
                         
                         // Set first play timestamp if not already set (when user first plays)
@@ -16219,7 +16278,7 @@ export default function App() {
                         <ChevronLeft size={16} className="text-slate-700 rotate-90" />
                       </button>
                     </div>
-                    <div className="rounded-xl p-4 mb-4 shadow-sm" style={standardGlassmorphicStyle}>
+                    <div className="rounded-xl p-4 mb-4 shadow-sm" style={{ background: 'rgba(255,255,255,0.5)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)' }}>
                       <p className="text-xs font-medium text-slate-700 text-center mb-2">Your Score</p>
                       <p className="text-slate-950 text-center text-2xl font-bold mb-2">{triviaScore} / {triviaQuestions.length}</p>
                       <p className="text-xs text-slate-600 text-center">
@@ -16234,7 +16293,7 @@ export default function App() {
                   </div>
                   
                     {/* Answers Summary */}
-                    <div className="rounded-xl p-4 space-y-3 max-h-[50vh] overflow-y-auto shadow-sm" style={standardGlassmorphicStyle}>
+                    <div className="rounded-xl p-4 space-y-3 max-h-[50vh] overflow-y-auto shadow-sm" style={{ background: 'rgba(255,255,255,0.5)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)' }}>
                       <h3 className="text-xs font-medium text-slate-700 mb-3">Answers Summary</h3>
                     {triviaQuestions.map((question, qIdx) => {
                       const selectedAnswer = triviaSelectedAnswers.get(qIdx);
@@ -16244,14 +16303,14 @@ export default function App() {
                         <div key={qIdx} className="border-b border-white/30 pb-3 last:border-b-0 last:pb-0">
                           <p className="text-xs font-bold text-slate-950 mb-2">{qIdx + 1}. {question.question}</p>
                           <div className="space-y-1.5">
-                            <div className={`px-3 py-2 rounded-xl ${isCorrect ? 'bg-green-50/80 border border-green-200/30' : 'bg-red-50/80 border border-red-200/30'} backdrop-blur-md shadow-sm`}>
+                            <div className="px-3 py-2 rounded-xl shadow-sm" style={{ background: isCorrect ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)', border: '1px solid rgba(255,255,255,0.2)' }}>
                               <p className="text-[10px] font-bold text-slate-950 mb-1">
                                 {isCorrect ? '✓ Correct' : '✗ Incorrect'}
                               </p>
                               <p className="text-xs text-slate-800">Your answer: <span className="font-bold">{selectedAnswer || 'No answer'}</span></p>
                             </div>
                             {!isCorrect && (
-                              <div className="px-3 py-2 rounded-xl bg-green-50/80 border border-green-200/30 backdrop-blur-md shadow-sm">
+                              <div className="px-3 py-2 rounded-xl shadow-sm" style={{ background: 'rgba(34,197,94,0.5)', border: '1px solid rgba(255,255,255,0.2)' }}>
                                 <p className="text-xs text-slate-800">Correct answer: <span className="font-bold">{question.correct_answer}</span></p>
                               </div>
                             )}
@@ -16319,22 +16378,9 @@ export default function App() {
                     className="space-y-4"
                     style={{ minHeight: '200px' }}
                   >
-                    {(() => {
-                      // Shuffle answers only when question changes
-                      const currentQuestion = triviaQuestions[currentTriviaQuestionIndex];
-                      if (triviaShuffledAnswers.length === 0 || 
-                          (triviaShuffledAnswers.length > 0 && 
-                           !triviaShuffledAnswers.includes(currentQuestion.correct_answer))) {
-                        const allAnswers = [
-                          currentQuestion.correct_answer,
-                          ...currentQuestion.wrong_answers
-                        ].sort(() => Math.random() - 0.5);
-                        setTriviaShuffledAnswers(allAnswers);
-                      }
-                      return null;
-                    })()}
+                    {/* Shuffle is now done when advancing to next question */}
                     
-                      <div className="rounded-xl p-3 mb-3 shadow-sm" style={standardGlassmorphicStyle}>
+                      <div className="rounded-xl p-3 mb-3 shadow-sm" style={{ background: 'rgba(255,255,255,0.5)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)' }}>
                         <div className="flex items-center justify-between">
                           <h2 className="text-sm font-bold text-slate-950">Trivia Game</h2>
                           <div className="flex items-center gap-2">
@@ -16356,7 +16402,7 @@ export default function App() {
                         </div>
                       </div>
                       
-                      <div className="rounded-xl p-4 mb-4 shadow-sm" style={standardGlassmorphicStyle}>
+                      <div className="rounded-xl p-4 mb-4 shadow-sm" style={{ background: 'rgba(255,255,255,0.5)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)' }}>
                         {(() => {
                           const currentQuestion = triviaQuestions[currentTriviaQuestionIndex];
                           const normalizedTitle = (currentQuestion.book_title || '').toLowerCase().trim();
@@ -16400,42 +16446,30 @@ export default function App() {
                           const isCorrect = answer === currentQuestion.correct_answer;
                           const showFeedback = triviaAnswerFeedback !== null;
                           
-                          // Determine background color based on state
-                          let bgColor = 'bg-white/80 backdrop-blur-md hover:bg-white/85';
-                          if (isSelected) {
-                            if (showFeedback) {
-                              // Show feedback color immediately
-                              bgColor = isCorrect 
-                                ? 'bg-green-200/80' 
-                                : 'bg-red-200/80';
-                            } else {
-                              // Just selected, waiting for feedback
-                              bgColor = 'bg-slate-200/80';
-                            }
-                          } else if (selectedTriviaAnswer !== null) {
-                            // Another answer was selected
-                            if (showFeedback && isCorrect) {
-                              // Highlight correct answer even if not selected
-                              bgColor = 'bg-green-100/80';
-                            } else {
-                              bgColor = 'bg-white/50 opacity-50';
-                            }
-                          }
+                          // Determine feedback state for rendering
+                          const feedbackState = isSelected && showFeedback
+                            ? (isCorrect ? 'correct' : 'incorrect')
+                            : isSelected ? 'selected'
+                            : (selectedTriviaAnswer !== null && showFeedback && isCorrect) ? 'reveal-correct'
+                            : (selectedTriviaAnswer !== null) ? 'dimmed'
+                            : 'default';
+                          let extraClass = feedbackState === 'dimmed' ? 'opacity-50' : '';
                           
                           return (
-                            <button
+                            <div
                               key={idx}
+                              role="button"
+                              tabIndex={0}
                               onClick={(e) => {
                                 e.preventDefault();
                                 if (selectedTriviaAnswer === null) {
                                   setSelectedTriviaAnswer(answer);
-                                  // Store selected answer
                                   setTriviaSelectedAnswers(prev => {
                                     const newMap = new Map(prev);
                                     newMap.set(currentTriviaQuestionIndex, answer);
                                     return newMap;
                                   });
-                                  
+
                                   const wasCorrect = answer === currentQuestion.correct_answer;
                                   if (wasCorrect) {
                                     triggerSuccessHaptic();
@@ -16444,45 +16478,57 @@ export default function App() {
                                     triggerErrorHaptic();
                                   }
 
-                                  // Show feedback immediately
                                   setTriviaAnswerFeedback(wasCorrect ? 'correct' : 'incorrect');
-                                  
-                                  // Auto-advance after showing feedback (0.5 seconds)
+
                                   setTimeout(() => {
                                     setIsTriviaTransitioning(true);
                                     setTimeout(() => {
                                       if (currentTriviaQuestionIndex < triviaQuestions.length - 1) {
+                                        // Pre-shuffle answers for next question
+                                        const nextQ = triviaQuestions[currentTriviaQuestionIndex + 1];
+                                        const nextAnswers = [
+                                          nextQ.correct_answer,
+                                          ...nextQ.wrong_answers
+                                        ].sort(() => Math.random() - 0.5);
+                                        setTriviaShuffledAnswers(nextAnswers);
                                         setCurrentTriviaQuestionIndex(prev => prev + 1);
                                         setSelectedTriviaAnswer(null);
                                         setTriviaAnswerFeedback(null);
                                         setIsTriviaTransitioning(false);
-                                        setTriviaShuffledAnswers([]); // Reset for next question
                                       } else {
                                         setTriviaGameComplete(true);
                                       }
-                                    }, 150); // Wait for fade out
-                                  }, 500); // Show feedback for 0.5 seconds
+                                    }, 150);
+                                  }, 500);
                                 }
                               }}
-                              disabled={selectedTriviaAnswer !== null}
-                              className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-950 shadow-sm ${
-                                selectedTriviaAnswer === null ? 'cursor-pointer' : 'cursor-not-allowed'
-                              } ${bgColor}`}
-                              style={{ 
-                                minHeight: '40px',
-                                display: 'flex',
-                                alignItems: 'center'
-                              }}
+                              className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold shadow-sm transition-all duration-200 relative overflow-hidden ${
+                                selectedTriviaAnswer === null ? 'cursor-pointer active:scale-[0.98]' : 'pointer-events-none'
+                              } ${extraClass}`}
+                              style={{ minHeight: '40px', display: 'flex', alignItems: 'center' }}
                             >
-                              <div className="flex items-center justify-between w-full">
+                              {/* Background layer */}
+                              <div
+                                className="absolute inset-0 rounded-xl transition-all duration-200"
+                                style={{
+                                  background: feedbackState === 'incorrect' ? 'rgba(239,68,68,0.5)'
+                                    : feedbackState === 'correct' ? 'rgba(34,197,94,0.5)'
+                                    : feedbackState === 'selected' ? 'rgba(226,232,240,0.8)'
+                                    : feedbackState === 'reveal-correct' ? '#86efac'
+                                    : 'rgba(255,255,255,1)',
+                                }}
+                              />
+                              <div className={`flex items-center justify-between w-full relative z-10 ${
+                                feedbackState === 'incorrect' || feedbackState === 'correct' ? 'text-slate-950' : 'text-slate-950'
+                              }`}>
                                 <span>{answer}</span>
                                 {isSelected && showFeedback && (
-                                  <span className="text-sm">
+                                  <span className="text-sm font-black">
                                     {isCorrect ? '✓' : '✗'}
                                   </span>
                                 )}
                               </div>
-                            </button>
+                            </div>
                           );
                         })}
                       </div>
