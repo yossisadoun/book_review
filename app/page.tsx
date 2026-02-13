@@ -3219,7 +3219,12 @@ async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouT
     if (!cacheError && cachedData && cachedData.videos && Array.isArray(cachedData.videos)) {
       if (cachedData.videos.length > 0) {
         console.log(`[getYouTubeVideos] ✅ Found ${cachedData.videos.length} cached videos in database`);
-        return cachedData.videos as YouTubeVideo[];
+        return (cachedData.videos as YouTubeVideo[]).map(v => ({
+          ...v,
+          title: decodeHtmlEntities(v.title),
+          description: decodeHtmlEntities(v.description || ''),
+          channelTitle: decodeHtmlEntities(v.channelTitle),
+        }));
       } else {
         // Empty array means "no results" was already cached - don't try again
         console.log(`[getYouTubeVideos] ✅ Found cached "no results" - skipping YouTube API call`);
@@ -3264,10 +3269,10 @@ async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouT
           videos.push({
             id: item.id.videoId,
             videoId: item.id.videoId,
-            title: item.snippet.title,
-            description: item.snippet.description || '',
+            title: decodeHtmlEntities(item.snippet.title),
+            description: decodeHtmlEntities(item.snippet.description || ''),
             thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url || '',
-            channelTitle: item.snippet.channelTitle,
+            channelTitle: decodeHtmlEntities(item.snippet.channelTitle),
             publishedAt: item.snippet.publishedAt,
           });
         });
@@ -3330,10 +3335,10 @@ async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouT
             videos.push({
               id: item.id.videoId,
               videoId: item.id.videoId,
-              title: item.snippet.title,
-              description: item.snippet.description || '',
+              title: decodeHtmlEntities(item.snippet.title),
+              description: decodeHtmlEntities(item.snippet.description || ''),
               thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url || '',
-              channelTitle: item.snippet.channelTitle,
+              channelTitle: decodeHtmlEntities(item.snippet.channelTitle),
               publishedAt: item.snippet.publishedAt,
             });
           }
@@ -12439,7 +12444,7 @@ export default function App() {
                           </button>
                         )}
                         <div className="px-4 py-3">
-                          <p className="font-bold text-slate-900 text-sm mb-3 line-clamp-2">{video?.title || 'YouTube Video'}</p>
+                          <p className="font-bold text-slate-900 text-sm mb-3 line-clamp-2">{decodeHtmlEntities(video?.title || 'YouTube Video')}</p>
                           <button
                             onClick={openSourceBookOverlay}
                             className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
@@ -13353,59 +13358,6 @@ export default function App() {
                       </>
                     )}
                   </div>
-                  {/* Play/Results Button - only show when grouping by rating */}
-                  {bookshelfGrouping === 'rating' && (() => {
-                    const availableBooks = books.filter(b => b.reading_status === 'read_it');
-                    const isComplete = availableBooks.length >= 2 && !getNextMergePair(availableBooks);
-                    
-                    return (
-                              <button
-                                onClick={() => {
-                          if (isComplete) {
-                            // Show results in glassmorphic dialog
-                            setIsPlayingGame(true);
-                            setShowGameResults(true);
-                            setIsGameCompleting(false);
-                          } else {
-                            // Initialize game
-                            if (availableBooks.length < 2) {
-                              alert('You need at least 2 books with "Read it" status to play!');
-                              return;
-                            }
-                            
-                            // Get next merge sort comparison pair
-                            const mergePair = getNextMergePair(availableBooks);
-                            if (!mergePair) {
-                              // Sorting is complete - just return, don't show alert
-                              return;
-                            }
-                            
-                            const [book1, book2] = mergePair;
-                            setGameBook1(book1);
-                            setGameBook2(book2);
-                            setGameShownBooks(new Set([book1.id, book2.id]));
-                            setGameRound(1);
-                            setIsPlayingGame(true);
-                            setShowGameResults(false);
-                            setIsGameCompleting(false);
-                          }
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95"
-                      >
-                        {isComplete ? (
-                          <>
-                            <Star size={16} />
-                            <span>Results</span>
-                          </>
-                        ) : (
-                          <>
-                            <Play size={16} />
-                            <span>Play</span>
-                          </>
-                        )}
-                      </button>
-                    );
-                  })()}
                 </div>
                 )}
 
