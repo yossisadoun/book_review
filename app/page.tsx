@@ -16233,7 +16233,8 @@ export default function App() {
                         setIsTriviaLoading(false);
                       }
                     }}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95 shadow-sm"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all text-white active:scale-95 shadow-sm"
+                    style={{ background: '#2563eb' }}
                   >
                     <Play size={16} />
                     <span>Play</span>
