@@ -16257,9 +16257,6 @@ export default function App() {
                           <p className="text-xs font-bold text-slate-950 mb-2">{qIdx + 1}. {question.question}</p>
                           <div className="space-y-1.5">
                             <div className="px-3 py-2 rounded-xl shadow-sm" style={{ background: isCorrect ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)', border: '1px solid rgba(255,255,255,0.2)' }}>
-                              <p className="text-[10px] font-bold text-slate-950 mb-1">
-                                {isCorrect ? '✓ Correct' : '✗ Incorrect'}
-                              </p>
                               <p className="text-xs text-slate-800">Your answer: <span className="font-bold">{selectedAnswer || 'No answer'}</span></p>
                             </div>
                             {!isCorrect && (
@@ -16373,7 +16370,7 @@ export default function App() {
                                   src={sourceBook.cover_url}
                                   alt={sourceBook.title}
                                   className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
-                                  style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                                  style={{ border: '2px solid rgba(255, 255, 255, 0.6)' }}
                                 />
                               ) : (
                                 <div className="w-10 h-14 bg-white/60 rounded-lg flex-shrink-0 flex items-center justify-center">
