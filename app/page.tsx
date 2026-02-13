@@ -5486,7 +5486,8 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
                   {onAddBook && (
                     <button
                       onClick={handleAddBook}
-                      className="py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded-lg transition-all duration-200 active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                      className="py-1.5 px-3 text-white text-[10px] font-bold rounded-lg transition-all duration-200 active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
+                      style={{ background: '#2563eb' }}
                     >
                       <CheckCircle2 size={10} />
                       Add Book
@@ -16991,6 +16992,13 @@ export default function App() {
                 className="relative flex flex-col items-center pointer-events-auto z-10 p-4"
                 style={{ maxHeight: '80vh' }}
               >
+                {/* Close button - top right */}
+                <button
+                  onClick={() => setViewingBookFromOtherUser(null)}
+                  className="absolute top-[-50px] right-0 w-8 h-8 rounded-full bg-white/80 backdrop-blur-md hover:bg-white/85 border border-white/30 active:scale-95 transition-all flex items-center justify-center shadow-sm"
+                >
+                  <X size={16} className="text-slate-700" />
+                </button>
                 {/* Book Cover - matching book page style */}
                 <div
                   className="relative w-[272px] aspect-[2/3] overflow-hidden rounded-lg cursor-pointer"
