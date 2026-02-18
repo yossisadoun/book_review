@@ -14845,16 +14845,18 @@ export default function App() {
                               }
 
                               // Returning user: open topic directly
+                              // Check if we already have the topic cached locally
+                              const cachedTopic = telegramTopics.get(activeBook.canonical_book_id);
+                              if (cachedTopic) {
+                                window.open(cachedTopic.inviteLink, '_blank');
+                                return;
+                              }
+
+                              // Open window synchronously to avoid popup blocker,
+                              // then set the URL after the async call resolves
+                              const newWindow = window.open('', '_blank');
                               setIsLoadingTelegramTopic(true);
                               try {
-                                // Check if we already have the topic cached locally
-                                const cachedTopic = telegramTopics.get(activeBook.canonical_book_id);
-                                if (cachedTopic) {
-                                  window.open(cachedTopic.inviteLink, '_blank');
-                                  return;
-                                }
-
-                                // Get or create the topic
                                 const topic = await getOrCreateTelegramTopic(
                                   activeBook.title,
                                   activeBook.author,
@@ -14864,13 +14866,18 @@ export default function App() {
                                 );
 
                                 if (topic) {
-                                  // Cache locally
                                   setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
-                                  // Open the invite link
-                                  window.open(topic.inviteLink, '_blank');
+                                  if (newWindow) {
+                                    newWindow.location.href = topic.inviteLink;
+                                  } else {
+                                    window.open(topic.inviteLink, '_blank');
+                                  }
+                                } else {
+                                  newWindow?.close();
                                 }
                               } catch (err) {
                                 console.error('Error opening Telegram topic:', err);
+                                newWindow?.close();
                               } finally {
                                 setIsLoadingTelegramTopic(false);
                               }
