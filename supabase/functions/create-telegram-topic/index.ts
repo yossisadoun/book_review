@@ -154,6 +154,14 @@ interface CreateTopicRequest {
   genre?: string
 }
 
+// Escape text for Telegram HTML parse mode
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -170,7 +178,11 @@ serve(async (req) => {
       )
     }
 
-    // Create the topic name (Telegram limits to 128 chars)
+    // Escape title and author for HTML messages
+    const safeTitle = escapeHtml(bookTitle)
+    const safeAuthor = escapeHtml(bookAuthor)
+
+    // Create the topic name (Telegram limits to 128 chars) - plain text, no escaping
     const topicName = `${bookTitle} - ${bookAuthor}`.substring(0, 128)
 
     // Get a random emoji based on the book's genre
@@ -190,11 +202,35 @@ serve(async (req) => {
     const createData = await createResponse.json()
 
     if (!createData.ok) {
-      console.error('Telegram API error:', createData)
-      return new Response(
-        JSON.stringify({ error: createData.description || 'Failed to create topic' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      console.error('Telegram createForumTopic error:', JSON.stringify(createData))
+
+      // If the custom emoji failed, retry without it
+      if (createData.description?.includes('emoji') || createData.description?.includes('CUSTOM_EMOJI')) {
+        console.log('Retrying without custom emoji...')
+        const retryResponse = await fetch(`${TELEGRAM_API}/createForumTopic`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: CHAT_ID,
+            name: topicName,
+          }),
+        })
+        const retryData = await retryResponse.json()
+        if (!retryData.ok) {
+          console.error('Telegram createForumTopic retry error:', JSON.stringify(retryData))
+          return new Response(
+            JSON.stringify({ error: retryData.description || 'Failed to create topic' }),
+            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          )
+        }
+        // Use retry result
+        Object.assign(createData, retryData)
+      } else {
+        return new Response(
+          JSON.stringify({ error: createData.description || 'Failed to create topic' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
     }
 
     const topicId = createData.result.message_thread_id
@@ -206,66 +242,78 @@ serve(async (req) => {
 
     // Send cover image if provided
     if (coverUrl) {
-      await fetch(`${TELEGRAM_API}/sendPhoto`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: CHAT_ID,
-          message_thread_id: topicId,
-          photo: coverUrl,
-          caption: `📖 <b>${bookTitle}</b>\nby ${bookAuthor}`,
-          parse_mode: 'HTML',
-        }),
-      })
+      try {
+        await fetch(`${TELEGRAM_API}/sendPhoto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: CHAT_ID,
+            message_thread_id: topicId,
+            photo: coverUrl,
+            caption: `📖 <b>${safeTitle}</b>\nby ${safeAuthor}`,
+            parse_mode: 'HTML',
+          }),
+        })
+      } catch (photoErr) {
+        console.error('sendPhoto error (non-fatal):', photoErr)
+      }
     }
 
     // Send a welcome message to the topic
-    let welcomeText = `📚 <b>Welcome to the discussion for "${bookTitle}" by ${bookAuthor}!</b>\n\nShare your thoughts, questions, and insights about this book.`
+    let welcomeText = `📚 <b>Welcome to the discussion for "${safeTitle}" by ${safeAuthor}!</b>\n\nShare your thoughts, questions, and insights about this book.`
 
     // Add discussion questions if provided
     if (discussionQuestions && discussionQuestions.length > 0) {
       welcomeText += '\n\n💬 <b>Discussion Starters:</b>\n'
       discussionQuestions.forEach((q, idx) => {
         const categoryEmoji = getCategoryEmoji(q.category)
-        welcomeText += `\n${idx + 1}. ${categoryEmoji} ${q.question}`
+        welcomeText += `\n${idx + 1}. ${categoryEmoji} ${escapeHtml(q.question)}`
       })
     }
 
-    await fetch(`${TELEGRAM_API}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: CHAT_ID,
-        message_thread_id: topicId,
-        text: welcomeText,
-        parse_mode: 'HTML',
-      }),
-    })
-
-    // Send bot tip message and pin it
-    const botTipText = `🤖 <b>Tip:</b> To chat with the Book.luv bot, @mention it or reply to one of its messages.`
-    const botTipResponse = await fetch(`${TELEGRAM_API}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: CHAT_ID,
-        message_thread_id: topicId,
-        text: botTipText,
-        parse_mode: 'HTML',
-      }),
-    })
-
-    const botTipData = await botTipResponse.json()
-    if (botTipData.ok && botTipData.result?.message_id) {
-      await fetch(`${TELEGRAM_API}/pinChatMessage`, {
+    try {
+      await fetch(`${TELEGRAM_API}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: CHAT_ID,
-          message_id: botTipData.result.message_id,
-          disable_notification: true,
+          message_thread_id: topicId,
+          text: welcomeText,
+          parse_mode: 'HTML',
         }),
       })
+    } catch (msgErr) {
+      console.error('sendMessage (welcome) error (non-fatal):', msgErr)
+    }
+
+    // Send bot tip message and pin it
+    try {
+      const botTipText = `🤖 <b>Tip:</b> To chat with the Book.luv bot, @mention it or reply to one of its messages.`
+      const botTipResponse = await fetch(`${TELEGRAM_API}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: CHAT_ID,
+          message_thread_id: topicId,
+          text: botTipText,
+          parse_mode: 'HTML',
+        }),
+      })
+
+      const botTipData = await botTipResponse.json()
+      if (botTipData.ok && botTipData.result?.message_id) {
+        await fetch(`${TELEGRAM_API}/pinChatMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: CHAT_ID,
+            message_id: botTipData.result.message_id,
+            disable_notification: true,
+          }),
+        })
+      }
+    } catch (tipErr) {
+      console.error('sendMessage/pin (bot tip) error (non-fatal):', tipErr)
     }
 
     return new Response(
@@ -278,9 +326,11 @@ serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (error) {
-    console.error('Error:', error)
+    const errMsg = error instanceof Error ? error.message : String(error)
+    const errStack = error instanceof Error ? error.stack : undefined
+    console.error('Edge function error:', errMsg, errStack)
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
+      JSON.stringify({ error: `Internal server error: ${errMsg}` }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
