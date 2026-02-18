@@ -242,6 +242,32 @@ serve(async (req) => {
       }),
     })
 
+    // Send bot tip message and pin it
+    const botTipText = `🤖 <b>Tip:</b> To chat with the Book.luv bot, @mention it or reply to one of its messages.`
+    const botTipResponse = await fetch(`${TELEGRAM_API}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: CHAT_ID,
+        message_thread_id: topicId,
+        text: botTipText,
+        parse_mode: 'HTML',
+      }),
+    })
+
+    const botTipData = await botTipResponse.json()
+    if (botTipData.ok && botTipData.result?.message_id) {
+      await fetch(`${TELEGRAM_API}/pinChatMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: CHAT_ID,
+          message_id: botTipData.result.message_id,
+          disable_notification: true,
+        }),
+      })
+    }
+
     return new Response(
       JSON.stringify({
         success: true,

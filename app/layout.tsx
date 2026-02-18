@@ -9,7 +9,7 @@ import Script from "next/script";
 const basePath = '';
 
 export const metadata: Metadata = {
-  title: "BOOK - Book Review App",
+  title: "Book.luv",
   description: "A mobile-first book review app powered by Wikipedia",
   viewport: {
     width: 'device-width',
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'BOOK',
+    title: 'Book.luv',
   },
   manifest: '/manifest.json',
   other: {

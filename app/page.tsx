@@ -7372,6 +7372,7 @@ export default function App() {
   }
   const [telegramTopics, setTelegramTopics] = useState<Map<string, TelegramTopic>>(new Map());
   const [isLoadingTelegramTopic, setIsLoadingTelegramTopic] = useState(false);
+  const [showTelegramJoinModal, setShowTelegramJoinModal] = useState(false);
 
   // Reading book picker state (for empty Reading group)
   const [showReadingBookPicker, setShowReadingBookPicker] = useState(false);
@@ -14836,6 +14837,14 @@ export default function App() {
                           <button
                             onClick={async () => {
                               if (!activeBook?.canonical_book_id) return;
+
+                              // First-time: show join modal
+                              if (!localStorage.getItem('hasJoinedTelegramGroup')) {
+                                setShowTelegramJoinModal(true);
+                                return;
+                              }
+
+                              // Returning user: open topic directly
                               setIsLoadingTelegramTopic(true);
                               try {
                                 // Check if we already have the topic cached locally
@@ -17100,6 +17109,61 @@ export default function App() {
               </motion.div>
             </motion.div>
           )}
+      </AnimatePresence>
+
+      {/* Telegram Join Modal */}
+      <AnimatePresence>
+        {showTelegramJoinModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center px-4"
+            onClick={() => setShowTelegramJoinModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="w-full max-w-sm rounded-2xl shadow-2xl p-6 text-center"
+              style={{
+                background: 'rgba(255, 255, 255, 0.85)',
+                backdropFilter: 'blur(9.4px)',
+                WebkitBackdropFilter: 'blur(9.4px)',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MessagesSquare size={32} className="text-blue-600 mx-auto mb-3" />
+              <h3 className="text-lg font-bold text-slate-950 mb-2">Join the Book Chat</h3>
+              <p className="text-sm text-slate-600 mb-5">
+                To discuss this book with others, first join our Telegram group. Then come back and tap the chat button again to jump straight to the conversation.
+              </p>
+              <button
+                onClick={() => {
+                  localStorage.setItem('hasJoinedTelegramGroup', 'true');
+                  window.open('https://t.me/bookluvgroup', '_blank');
+                  setShowTelegramJoinModal(false);
+                }}
+                className="w-full py-2.5 rounded-xl text-white font-bold text-sm active:scale-95 transition-all"
+                style={{
+                  background: 'rgba(59, 130, 246, 0.85)',
+                  backdropFilter: 'blur(9.4px)',
+                  border: '1px solid rgba(59, 130, 246, 0.3)',
+                }}
+              >
+                Join Group
+              </button>
+              <button
+                onClick={() => setShowTelegramJoinModal(false)}
+                className="mt-2 text-sm text-slate-500 hover:text-slate-700 transition-colors"
+              >
+                Cancel
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       {/* About Screen Modal */}
