@@ -538,6 +538,10 @@ async function getGrokDidYouKnowWithSearch(bookTitle: string, author: string): P
 
     const prompts = await loadPrompts();
     const basePrompt = prompts.did_you_know?.prompt || '';
+    console.log('[getGrokDidYouKnowWithSearch] 🔵 did_you_know prompt loaded:', basePrompt ? `${basePrompt.length} chars` : 'EMPTY/MISSING');
+    if (!basePrompt) {
+      console.error('[getGrokDidYouKnowWithSearch] ❌ did_you_know prompt is empty! Available prompts:', Object.keys(prompts));
+    }
     const prompt = formatPrompt(basePrompt, { bookTitle, author });
 
     // Add instruction to search the web for verified facts
@@ -556,8 +560,9 @@ Return your response as valid JSON in this exact format:
 }`;
 
     console.log('[getGrokDidYouKnowWithSearch] 🔵 Making request with web search...');
+    console.log('[getGrokDidYouKnowWithSearch] 🔵 Prompt length:', searchPrompt.length);
 
-    const { text, sources } = await generateText({
+    const response = await generateText({
       model: xai.responses('grok-4-1-fast-reasoning'),
       prompt: searchPrompt,
       tools: {
@@ -565,12 +570,21 @@ Return your response as valid JSON in this exact format:
       },
     });
 
-    console.log('[getGrokDidYouKnowWithSearch] 📦 Response received, sources:', sources?.length || 0);
+    const { text, sources } = response;
+    console.log('[getGrokDidYouKnowWithSearch] 📦 Response received, text length:', text?.length || 0, ', sources:', sources?.length || 0);
+    console.log('[getGrokDidYouKnowWithSearch] 📦 Raw text (first 500 chars):', text?.substring(0, 500));
+
+    if (!text || text.trim().length === 0) {
+      console.error('[getGrokDidYouKnowWithSearch] ❌ Empty text response from AI SDK');
+      console.error('[getGrokDidYouKnowWithSearch] Full response keys:', Object.keys(response));
+      return { insights: [], sources: sources || [] };
+    }
 
     // Parse the JSON response
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       console.error('[getGrokDidYouKnowWithSearch] ❌ Could not find JSON in response');
+      console.error('[getGrokDidYouKnowWithSearch] ❌ Full text:', text.substring(0, 1000));
       return { insights: [], sources: sources || [] };
     }
 
@@ -582,7 +596,10 @@ Return your response as valid JSON in this exact format:
       sources: sources || [],
     };
   } catch (err: any) {
-    console.error('[getGrokDidYouKnowWithSearch] Error:', err);
+    console.error('[getGrokDidYouKnowWithSearch] ❌ Error:', err?.message || err);
+    console.error('[getGrokDidYouKnowWithSearch] ❌ Error name:', err?.name);
+    console.error('[getGrokDidYouKnowWithSearch] ❌ Error stack:', err?.stack?.substring(0, 500));
+    if (err?.cause) console.error('[getGrokDidYouKnowWithSearch] ❌ Error cause:', err.cause);
     return { insights: [], sources: [] };
   }
 }

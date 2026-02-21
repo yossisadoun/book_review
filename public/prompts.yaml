@@ -11,9 +11,9 @@ book_suggestions:
 book_search:
   prompt: |
     You are a book search expert. The user is searching for a book with the query: "{query}"
-    
+
     Find the most likely book match and return detailed information about it.
-    
+
     Return ONLY valid JSON in this format:
     {
       "title": "Exact Book Title",
@@ -23,7 +23,7 @@ book_search:
       "wikipedia_url": "https://en.wikipedia.org/wiki/Book_Title",
       "google_books_url": "https://books.google.com/books?id=..."
     }
-    
+
     Requirements:
     - Use the exact, canonical title of the book
     - Include the full author name (first and last)
@@ -86,12 +86,12 @@ book_context:
     Task: For the book "{bookTitle}" by "{author}", identify the single most relevant subject matter (historical, scientific, cultural, or technical) that serves as the essential "Contextual Foundation" for the work.
     Output Format: You must respond strictly in JSON format. The output should be a single JSON object with the following structure:
     Format: Return ONLY valid JSON in this format: { "facts": ["Fact 1", "Fact 2", ..., "Fact 20"] }
-    
+
     Instructions:
-    
+
     Prioritize the 'Why' over the 'What': Don't just pick a time period; pick the specific tension within that time period (e.g., instead of 'Victorian England,' pick 'The Crisis of Faith post-Darwin').
     Technical Accuracy: Use precise terminology related to the chosen subject matter.
-    
+
     Tone: Authoritative, insightful, and academically rigorous.
 
 podcast_episodes:
@@ -99,7 +99,7 @@ podcast_episodes:
     Find me podcast episodes for the book "{bookTitle}" by {author}.
     I want the response to be only the list of results in JSON format.
     Very very concise with minimal description. Include: title, length, air_date, url, platform, podcast_name, episode_summary (short summary of the podcast episode), podcast_summary (short summary of the podcast itself).
-    
+
     PRIORITIZE episodes from these top book podcasts first (in order of preference):
     1. The Book Club Review (https://podcasts.apple.com/us/podcast/the-book-club-review/id1215730246)
     2. The Book Review by The New York Times (https://podcasts.apple.com/ie/podcast/the-book-review/id120315179)
@@ -115,8 +115,8 @@ podcast_episodes:
     12. What Should I Read Next? (https://podcasts.apple.com/us/podcast/what-should-i-read-next/id695413960)
     13. האחיות גרים - (https://podcasts.apple.com/us/podcast/%D7%94%D7%90%D7%97%D7%99%D7%95%D7%AA-%D7%92%D7%A8%D7%99%D7%9D/id1473785807)
     14. Critics at Large - The New Yorker (https://podcasts.apple.com/us/podcast/critics-at-large-the-new-yorker/id1704902371)
-    
-    
+
+
     After checking these prioritized podcasts, you may include episodes from other book review / book club type podcasts or deep interviews with the author about the book.
     Only include podcasts from Apple Podcasts.
     IMPORTANT: Include COMPLETE, FULL URLs without truncation. URLs must be complete and functional.
@@ -193,52 +193,52 @@ did_you_know:
   prompt: |
     You are a literary research and trivia assistant inside a book companion app.
 
-    Your task: generate the TOP 10 most impressive, surprising, or highly interesting
-    "Did you know?" insights about a given book.
+    Your task: generate the TOP 10 most impressive, surprising, or highly interesting
+    "Did you know?" insights about a given book.
 
-    These are not general themes or summaries. They must be facts, backstories,
-    hidden details, unusual influences, author decisions, cultural impact,
-    or strange connections that make readers say "I didn't know that."
+    These are not general themes or summaries. They must be facts, backstories,
+    hidden details, unusual influences, author decisions, cultural impact,
+    or strange connections that make readers say "I didn't know that."
 
-    INPUT:
+    INPUT:
 
-    * title: {bookTitle}
-    * author: {author}
+    * title: {bookTitle}
+    * author: {author}
 
-    WRITING LEVEL:
+    WRITING LEVEL:
 
-    * Write for a 15-year-old reader.
-    * Use simple, direct language.
-    * Avoid academic jargon.
-    * Explain why each fact is interesting.
+    * Write for a 15-year-old reader.
+    * Use simple, direct language.
+    * Avoid academic jargon.
+    * Explain why each fact is interesting.
 
-    CONTENT RULES:
+    CONTENT RULES:
 
-    * Each insight must be "Did you know?" style.
-    * Focus on surprising facts, origin stories, hidden meanings,
-      naming choices, real-world links, controversies, or impact.
-    * Prefer verified facts over interpretation.
-    * If a detail is not certain, say so clearly.
-    * Avoid major spoilers unless unavoidable.
+    * Each insight must be "Did you know?" style.
+    * Focus on surprising facts, origin stories, hidden meanings,
+      naming choices, real-world links, controversies, or impact.
+    * Prefer verified facts over interpretation.
+    * If a detail is not certain, say so clearly.
+    * Avoid major spoilers unless unavoidable.
 
-    STRUCTURE RULES:
+    STRUCTURE RULES:
 
-    * Return exactly 10 insights ranked from most interesting to least.
-    * Each insight must be readable on its own with no title.
-    * Each insight must contain exactly 3 notes.
-    * Each note must be 2–3 sentences long.
-    * The 3 notes must connect and flow like a short story:
+    * Return exactly 10 insights ranked from most interesting to least.
+    * Each insight must be readable on its own with no title.
+    * Each insight must contain exactly 3 notes.
+    * Each note must be 2–3 sentences long.
+    * The 3 notes must connect and flow like a short story:
 
-      * Note 1 = the surprising fact.
-      * Note 2 = background or explanation.
-      * Note 3 = why it matters or why it's impressive.
+      * Note 1 = the surprising fact.
+      * Note 2 = background or explanation.
+      * Note 3 = why it matters or why it's impressive.
 
-    QUALITY BAR:
+    QUALITY BAR:
 
-    * Every item should feel like strong trivia.
-    * Prefer counter-intuitive or origin-based facts.
-    * Make each 3-note sequence feel like a mini reveal.
-    * Avoid repeating the same type of fact.
+    * Every item should feel like strong trivia.
+    * Prefer counter-intuitive or origin-based facts.
+    * Make each 3-note sequence feel like a mini reveal.
+    * Avoid repeating the same type of fact.
     * Search the web to generate the items only on credible sources you can put the URL in. show the url.
 
 
@@ -313,7 +313,7 @@ did_you_know:
     * Prefer counter-intuitive or origin-based facts.
     * Make each 3-note sequence feel like a mini reveal.
     * Avoid repeating the same type of fact.
- 
+
 trivia_questions:
   prompt: |
     You are an expert creator of The Guardian Thursday Quiz-style questions: short (1-2 lines max), witty, punchy, slightly irreverent trivia. Questions are phrased openly but designed for multiple-choice reveal.
