@@ -568,6 +568,7 @@ Return your response as valid JSON in this exact format:
       tools: {
         web_search: xai.tools.webSearch(),
       },
+      maxRetries: 1,
     });
 
     const { text, sources } = response;
@@ -631,11 +632,20 @@ export async function getDidYouKnow(bookTitle: string, author: string): Promise<
     // Continue to fetch from Grok
   }
 
-  // Fetch from Grok API with web search
-  const { insights, sources } = await getGrokDidYouKnowWithSearch(bookTitle, author);
+  // Try web search version first, fall back to regular chat completions on failure
+  let insights: DidYouKnowItem[] = [];
 
-  if (sources && sources.length > 0) {
-    console.log(`[getDidYouKnow] 📚 Sources used:`, sources.map(s => s.url || s).slice(0, 5));
+  const { insights: searchInsights, sources } = await getGrokDidYouKnowWithSearch(bookTitle, author);
+
+  if (searchInsights.length > 0) {
+    insights = searchInsights;
+    if (sources && sources.length > 0) {
+      console.log(`[getDidYouKnow] 📚 Sources used:`, sources.map(s => s.url || s).slice(0, 5));
+    }
+  } else {
+    // Fallback to regular chat completions (no web search, cheaper, more reliable)
+    console.log('[getDidYouKnow] ⚠️ Web search returned no results, falling back to chat completions...');
+    insights = await getGrokDidYouKnow(bookTitle, author);
   }
 
   // Save to cache
