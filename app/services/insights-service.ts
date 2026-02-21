@@ -641,21 +641,8 @@ export async function getDidYouKnow(bookTitle: string, author: string): Promise<
     // Continue to fetch from Grok
   }
 
-  // Try web search version first, fall back to regular chat completions on failure
-  let insights: DidYouKnowItem[] = [];
-
-  const { insights: searchInsights, sources } = await getGrokDidYouKnowWithSearch(bookTitle, author);
-
-  if (searchInsights.length > 0) {
-    insights = searchInsights;
-    if (sources && sources.length > 0) {
-      console.log(`[getDidYouKnow] 📚 Sources used:`, sources.map(s => s.url || s).slice(0, 5));
-    }
-  } else {
-    // Fallback to regular chat completions (no web search, cheaper, more reliable)
-    console.log('[getDidYouKnow] ⚠️ Web search returned no results, falling back to chat completions...');
-    insights = await getGrokDidYouKnow(bookTitle, author);
-  }
+  // Use regular chat completions (cheaper, more reliable, no rate limit issues)
+  const insights = await getGrokDidYouKnow(bookTitle, author);
 
   // Save to cache
   await saveDidYouKnowToCache(bookTitle, author, insights);
