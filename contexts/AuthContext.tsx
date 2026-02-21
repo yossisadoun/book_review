@@ -101,12 +101,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  useEffect(() => {
-    if (!isNativePlatform || !user) return;
-    registerForPushNotifications().catch((error) => {
-      console.warn('Push notification registration failed:', error);
-    });
-  }, [user]);
+  // Push notifications disabled — registration code exists but backend is not wired up yet.
+  // Re-enable when token storage + FCM/APNS delivery is implemented.
+  // useEffect(() => {
+  //   if (!isNativePlatform || !user) return;
+  //   registerForPushNotifications().catch((error) => {
+  //     console.warn('Push notification registration failed:', error);
+  //   });
+  // }, [user]);
 
   async function signInWithGoogle() {
     // Calculate base path: empty for localhost, /book_review for GitHub Pages

@@ -107,7 +107,11 @@ export async function registerForPushNotifications(): Promise<void> {
   if (!isNativePlatform) return;
   const permission = await PushNotifications.requestPermissions();
   if (permission.receive !== 'granted') return;
-  await PushNotifications.register();
+  try {
+    await PushNotifications.register();
+  } catch (e) {
+    console.warn('PushNotifications.register() failed (Firebase may not be configured):', e);
+  }
 }
 
 export async function secureSet(key: string, value: string): Promise<void> {

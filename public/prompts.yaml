@@ -191,7 +191,7 @@ book_research:
 
 did_you_know:
   prompt: |
-You are a literary research and trivia assistant inside a book companion app.
+    You are a literary research and trivia assistant inside a book companion app.
 
     Your task: generate the TOP 10 most impressive, surprising, or highly interesting
     "Did you know?" insights about a given book.
