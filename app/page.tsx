@@ -4688,7 +4688,19 @@ export default function App() {
                         return (
                           <div key={idx} className="text-xs text-slate-700 py-1 border-b border-slate-100 last:border-0">
                             <div className="flex items-center justify-between">
-                              <span className="font-medium">{log.function}</span>
+                              <span className="font-medium">{
+                                log.function
+                                  .replace('getGrokDidYouKnowWithSearch', 'Did You Know (web)')
+                                  .replace('getGrokDidYouKnow', 'Did You Know')
+                                  .replace('getGrokAuthorFacts', 'Author Facts')
+                                  .replace('getGrokBookInfluences', 'Influences')
+                                  .replace('getGrokBookDomain', 'Domain')
+                                  .replace('getGrokBookContext', 'Context')
+                                  .replace('getGrokPodcastEpisodes', 'Podcasts')
+                                  .replace('getRelatedBooks', 'Related Books')
+                                  .replace('getDiscussionQuestions', 'Discussion')
+                                  .replace('generateTriviaQuestions', 'Trivia')
+                              }</span>
                               <span className="text-slate-500">{dateStr} {timeStr}</span>
                             </div>
                             <div className="flex items-center justify-between mt-0.5">

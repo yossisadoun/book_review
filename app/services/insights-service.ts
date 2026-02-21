@@ -571,9 +571,18 @@ Return your response as valid JSON in this exact format:
       maxRetries: 1,
     });
 
-    const { text, sources } = response;
+    const { text, sources, usage } = response;
     console.log('[getGrokDidYouKnowWithSearch] 📦 Response received, text length:', text?.length || 0, ', sources:', sources?.length || 0);
     console.log('[getGrokDidYouKnowWithSearch] 📦 Raw text (first 500 chars):', text?.substring(0, 500));
+
+    // Log usage for cost tracking
+    if (usage) {
+      logGrokUsage('getGrokDidYouKnowWithSearch', {
+        prompt_tokens: usage.inputTokens || 0,
+        completion_tokens: usage.outputTokens || 0,
+        total_tokens: (usage.inputTokens || 0) + (usage.outputTokens || 0),
+      }, sources?.length || 0);
+    }
 
     if (!text || text.trim().length === 0) {
       console.error('[getGrokDidYouKnowWithSearch] ❌ Empty text response from AI SDK');
