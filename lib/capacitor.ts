@@ -156,6 +156,26 @@ export async function storageRemove(key: string): Promise<void> {
   }
 }
 
+// Android hardware back button listener
+export function listenForBackButton(handler: () => void): () => void {
+  if (!isNativePlatform) return () => {};
+  let removeListener = () => {};
+
+  App.addListener('backButton', () => {
+    handler();
+  }).then((listener) => {
+    removeListener = () => listener.remove();
+  });
+
+  return () => removeListener();
+}
+
+// Exit the app (Android)
+export function exitApp(): void {
+  if (!isNativePlatform) return;
+  App.exitApp();
+}
+
 // App lifecycle listener for background/foreground events
 export function listenForAppStateChange(handler: (isActive: boolean) => void): () => void {
   if (!isNativePlatform) return () => {};

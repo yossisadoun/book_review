@@ -4,8 +4,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { closeSystemBrowser, isNativePlatform, listenForAppUrlOpen, openSystemBrowser, registerForPushNotifications } from '@/lib/capacitor';
-// Dynamically imported in signInWithApple() — static import breaks CI (no native modules)
-type AppleSignInModule = typeof import('@capacitor-community/apple-sign-in');
+// @capacitor-community/apple-sign-in is dynamically imported in signInWithApple()
+// Static imports break CI where the native module can't resolve.
 
 interface AuthContextType {
   user: User | null;
@@ -154,7 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function signInWithApple() {
     try {
-      const { SignInWithApple } = await import('@capacitor-community/apple-sign-in') as AppleSignInModule;
+      const { SignInWithApple } = await import('@capacitor-community/apple-sign-in');
 
       const options = {
         clientId: 'com.bookreview.app',
