@@ -4,12 +4,16 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { closeSystemBrowser, isNativePlatform, listenForAppUrlOpen, openSystemBrowser, registerForPushNotifications } from '@/lib/capacitor';
+import { SignInWithApple, SignInWithAppleOptions, SignInWithAppleResponse } from '@capacitor-community/apple-sign-in';
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  isReviewer: boolean;
   signInWithGoogle: () => Promise<void>;
+  signInWithApple: () => Promise<void>;
+  signInAsReviewer: () => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -19,6 +23,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const isReviewer = user?.email === 'reviewer@bookreview.app';
 
   useEffect(() => {
     let mounted = true;
@@ -146,6 +151,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function signInWithApple() {
+    try {
+      const options: SignInWithAppleOptions = {
+        clientId: 'com.bookreview.app',
+        redirectURI: 'https://bookreview.app',
+        scopes: 'email name',
+      };
+
+      const result: SignInWithAppleResponse = await SignInWithApple.authorize(options);
+
+      const identityToken = result.response.identityToken;
+      if (!identityToken) {
+        throw new Error('No identity token returned from Apple');
+      }
+
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'apple',
+        token: identityToken,
+      });
+
+      if (error) {
+        console.error('Error signing in with Apple:', error);
+        throw error;
+      }
+
+      // Apple only sends name on first sign-in — capture it and update the user profile
+      const givenName = result.response.givenName;
+      const familyName = result.response.familyName;
+      if (data?.user && (givenName || familyName)) {
+        const fullName = [givenName, familyName].filter(Boolean).join(' ');
+        await supabase.auth.updateUser({
+          data: { full_name: fullName },
+        });
+      }
+    } catch (error: any) {
+      // User cancelled the Apple sign-in sheet
+      if (error?.message?.includes('cancel') || error?.code === 'ERR_REQUEST_CANCELED') {
+        return;
+      }
+      console.error('Error in signInWithApple:', error);
+      throw error;
+    }
+  }
+
+  async function signInAsReviewer() {
+    const { error } = await supabase.auth.signInWithPassword({
+      email: 'reviewer@bookreview.app',
+      password: 'BookLuv!Review2025',
+    });
+    if (error) {
+      console.error('Error signing in as reviewer:', error);
+      throw error;
+    }
+  }
+
   async function signOut() {
     try {
       // Try local signout first (signs out from this device only)
@@ -167,7 +227,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ user, session, loading, isReviewer, signInWithGoogle, signInWithApple, signInAsReviewer, signOut }}>
       {children}
     </AuthContext.Provider>
   );

@@ -104,7 +104,7 @@ import { LoginScreen } from '@/components/LoginScreen';
 import { BookLoading } from '@/components/BookLoading';
 import { CachedImage } from '@/components/CachedImage';
 import { supabase } from '@/lib/supabase';
-import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerErrorHaptic, isNativePlatform, listenForAppStateChange } from '@/lib/capacitor';
+import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerErrorHaptic, isNativePlatform, listenForAppStateChange, listenForBackButton, exitApp } from '@/lib/capacitor';
 import { featureFlags } from '@/lib/feature-flags';
 import { getAssetPath, decodeHtmlEntities } from './components/utils';
 import InsightsCards from './components/InsightsCards';
@@ -173,7 +173,7 @@ import { getRelatedBooks } from './services/related-books-service';
 import { createFriendBookFeedItem, generateFeedItemsForBook, getPersonalizedFeed, markFeedItemsAsShown, getReadFeedItems, setFeedItemReadStatus, getSpoilerRevealedFromStorage, loadSpoilerRevealedFromStorage, saveSpoilerRevealedToStorage } from './services/feed-service';
 
 export default function App() {
-  const { user, loading: authLoading, signOut } = useAuth();
+  const { user, loading: authLoading, signOut, isReviewer } = useAuth();
   const [books, setBooks] = useState<BookWithRatings[]>([]);
   const [viewingUserId, setViewingUserId] = useState<string | null>(null);
 
@@ -1411,6 +1411,49 @@ export default function App() {
       });
     }
   }, [isLoaded, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage, showFollowingPage, showFeedPage]);
+
+  // Android hardware back button
+  const backButtonStateRef = useRef({
+    isPlayingTrivia, showAboutScreen, isAdding, showShareDialog, showBookMenu,
+    isEditing, isShowingNotes, isConfirmingDelete,
+    showAccountPage, showFollowingPage, showFeedPage, showSortingResults, showNotesView,
+    showBookshelf, showBookshelfCovers,
+  });
+  useEffect(() => {
+    backButtonStateRef.current = {
+      isPlayingTrivia, showAboutScreen, isAdding, showShareDialog, showBookMenu,
+      isEditing, isShowingNotes, isConfirmingDelete,
+      showAccountPage, showFollowingPage, showFeedPage, showSortingResults, showNotesView,
+      showBookshelf, showBookshelfCovers,
+    };
+  });
+  useEffect(() => {
+    return listenForBackButton(() => {
+      const s = backButtonStateRef.current;
+      // 1. Dismiss modals/overlays (topmost first)
+      if (s.isPlayingTrivia) { setIsPlayingTrivia(false); return; }
+      if (s.showAboutScreen) { setShowAboutScreen(false); return; }
+      if (s.isAdding) { setIsAdding(false); return; }
+      if (s.showShareDialog) { setShowShareDialog(false); return; }
+      if (s.showBookMenu) { setShowBookMenu(false); return; }
+      if (s.isConfirmingDelete) { setIsConfirmingDelete(false); return; }
+      // 2. Close inline overlays on book detail
+      if (s.isEditing) { setIsEditing(false); return; }
+      if (s.isShowingNotes) { setIsShowingNotes(false); return; }
+      // 3. Sub-pages → back to bookshelf covers
+      if (s.showAccountPage) { setShowAccountPage(false); setShowBookshelfCovers(true); return; }
+      if (s.showFollowingPage) { setShowFollowingPage(false); setShowBookshelfCovers(true); return; }
+      if (s.showFeedPage) { setShowFeedPage(false); setShowBookshelfCovers(true); return; }
+      if (s.showSortingResults) { setShowSortingResults(false); setShowBookshelfCovers(true); return; }
+      if (s.showNotesView) { setShowNotesView(false); setShowBookshelfCovers(true); return; }
+      // 4. Book detail → bookshelf covers
+      if (!s.showBookshelf && !s.showBookshelfCovers) { setShowBookshelfCovers(true); return; }
+      // 5. Spines view → covers view
+      if (s.showBookshelf && !s.showBookshelfCovers) { setShowBookshelf(false); setShowBookshelfCovers(true); return; }
+      // 6. At root (bookshelf covers) → exit app
+      exitApp();
+    });
+  }, []);
 
   // Load Grok usage logs when account page is shown
   useEffect(() => {
@@ -4166,9 +4209,102 @@ export default function App() {
     return <LoginScreen />;
   }
 
-  // Show loading animation while loading books (only if user is authenticated)
+  // Show skeleton bookshelf while loading books (only if user is authenticated)
   if (!isLoaded) {
-    return <BookLoading />;
+    const skeletonGlassmorphic: React.CSSProperties = {
+      background: 'rgba(255, 255, 255, 0.45)',
+      borderRadius: '16px',
+      boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+      backdropFilter: 'blur(9.4px)',
+      WebkitBackdropFilter: 'blur(9.4px)',
+      border: '1px solid rgba(255, 255, 255, 0.2)',
+    };
+    return (
+      <div
+        className="fixed inset-0 text-slate-900 font-sans select-none overflow-hidden flex flex-col"
+        style={{
+          backgroundImage: `url(${getAssetPath('/bg.webp')})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+          width: '100vw',
+          height: '100dvh',
+          minHeight: '-webkit-fill-available',
+        } as React.CSSProperties}
+      >
+        <div className="flex-1 flex flex-col items-center relative pt-20 overflow-hidden">
+          <div className="w-full flex flex-col items-center px-4">
+            <div className="w-full max-w-[1600px] flex flex-col gap-2.5 py-8">
+              {/* Profile skeleton */}
+              <motion.div
+                animate={{ opacity: [0.5, 0.8, 0.5] }}
+                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                className="rounded-2xl p-4 mb-4"
+                style={skeletonGlassmorphic}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-full bg-slate-300/50" />
+                  <div className="flex-1 flex gap-6">
+                    <div className="text-center">
+                      <div className="w-8 h-7 bg-slate-300/50 rounded mx-auto mb-1" />
+                      <div className="w-10 h-4 bg-slate-300/50 rounded mx-auto" />
+                    </div>
+                    <div className="text-center">
+                      <div className="w-8 h-7 bg-slate-300/50 rounded mx-auto mb-1" />
+                      <div className="w-14 h-4 bg-slate-300/50 rounded mx-auto" />
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+              {/* Grouping selector skeleton */}
+              <div className="flex items-center justify-between px-4 mb-1.5">
+                <motion.div
+                  animate={{ opacity: [0.5, 0.8, 0.5] }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.1 }}
+                  className="w-20 h-10 bg-slate-300/30 rounded-lg"
+                />
+              </div>
+              {/* Bookshelf group skeleton - Reading */}
+              <motion.div
+                animate={{ opacity: [0.5, 0.8, 0.5] }}
+                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
+                className="rounded-2xl p-4"
+                style={skeletonGlassmorphic}
+              >
+                <div className="w-24 h-5 bg-slate-300/50 rounded mb-4" />
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i}>
+                      <div className="w-full aspect-[2/3] bg-slate-300/50 rounded-lg mb-2" />
+                      <div className="w-full h-3 bg-slate-300/50 rounded mb-1" />
+                      <div className="w-2/3 h-3 bg-slate-300/50 rounded" />
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+              {/* Bookshelf group skeleton - Read it */}
+              <motion.div
+                animate={{ opacity: [0.5, 0.8, 0.5] }}
+                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
+                className="rounded-2xl p-4"
+                style={skeletonGlassmorphic}
+              >
+                <div className="w-32 h-5 bg-slate-300/50 rounded mb-4" />
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
+                  {[1, 2, 3, 4, 5, 6].map((i) => (
+                    <div key={i}>
+                      <div className="w-full aspect-[2/3] bg-slate-300/50 rounded-lg mb-2" />
+                      <div className="w-full h-3 bg-slate-300/50 rounded mb-1" />
+                      <div className="w-2/3 h-3 bg-slate-300/50 rounded" />
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const userEmail = user?.email || user?.user_metadata?.email || 'User';
@@ -4407,13 +4543,14 @@ export default function App() {
               >
                 <ChevronLeft size={18} className="text-slate-950" />
               </motion.button>
-            ) : (showNotesView || showFollowingPage) && (
+            ) : (showNotesView || showFollowingPage || showAccountPage) && (
               <button
                 onClick={() => {
                   setScrollY(0);
                   setShowBookshelfCovers(true);
                   setShowNotesView(false);
                   setShowFollowingPage(false);
+                  setShowAccountPage(false);
                 }}
                 className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
                 style={{ ...standardGlassmorphicStyle, borderRadius: '50%' }}
@@ -4495,11 +4632,10 @@ export default function App() {
             </AnimatePresence>
           </div>
         
-        {/* Back button when on account page or sorting results */}
-        {(showAccountPage || showSortingResults) && (
+        {/* Back button when on sorting results */}
+        {showSortingResults && (
           <button
             onClick={() => {
-              setShowAccountPage(false);
               setShowSortingResults(false);
             }}
             className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
@@ -6383,7 +6519,7 @@ export default function App() {
                     className="flex flex-col items-center justify-center text-center py-[30px] rounded-2xl"
                     style={glassmorphicStyle}
                   >
-                    <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto" />
+                    <img src={getAssetPath("/logo.png")} alt="Book.luv" className="object-contain mx-auto" />
                     <button
                       onClick={() => setIsAdding(true)}
                       className="px-6 py-3 rounded-xl font-bold text-white active:scale-95 transition-all"
@@ -6402,7 +6538,7 @@ export default function App() {
                     className="flex flex-col items-center justify-center text-center space-y-6 py-[30px] rounded-2xl"
                     style={glassmorphicStyle}
                   >
-                    <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto" />
+                    <img src={getAssetPath("/logo.png")} alt="Book.luv" className="object-contain mx-auto" />
                     <p className="text-sm text-slate-600">
                       {viewingUserIsPrivate ? "This user's bookshelf is private." : "This user hasn't added any books yet."}
                     </p>
@@ -6556,7 +6692,7 @@ export default function App() {
             >
               {booksForBookshelf.length === 0 ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 py-20">
-                  <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
+                  <img src={getAssetPath("/logo.png")} alt="Book.luv" className="object-contain mx-auto mb-4" />
                   {viewingUserId ? (
                     <p className="text-sm text-slate-600">
                       {viewingUserIsPrivate ? "This user's bookshelf is private." : "This user hasn't added any books yet."}
@@ -7033,7 +7169,7 @@ export default function App() {
           </motion.div>
         {booksForBookshelf.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
-            <img src={getAssetPath("/logo.png")} alt="BOOK" className="object-contain mx-auto mb-4" />
+            <img src={getAssetPath("/logo.png")} alt="Book.luv" className="object-contain mx-auto mb-4" />
             {viewingUserId ? (
               <p className="text-sm text-slate-600">
                 {viewingUserIsPrivate ? "This user's bookshelf is private." : "This user hasn't added any books yet."}
@@ -7461,30 +7597,27 @@ export default function App() {
                           <button
                             onClick={async (e) => {
                               e.stopPropagation();
-                              const shareText = `I just rated "${activeBook.title}" by ${activeBook.author} - ${RATING_FEEDBACK[activeBook.ratings.writing || 4]}`;
+                              const bookUrl = activeBook.google_books_url || '';
+                              const shareText = `I just rated "${activeBook.title}" by ${activeBook.author} - ${RATING_FEEDBACK[activeBook.ratings.writing || 4]}${bookUrl ? `\n${bookUrl}` : ''}\n\nDownload Book.luv: https://yossisadoun.github.io/book_review/`;
                               try {
                                 // Use Capacitor Share for native mobile sharing
                                 await CapacitorShare.share({
                                   title: activeBook.title,
                                   text: shareText,
-                                  url: activeBook.cover_url || undefined,
                                   dialogTitle: 'Share this book',
                                 });
-                              } catch (err) {
-                                // Fallback to Web Share API or clipboard
-                                try {
-                                  if (navigator.share) {
-                                    await navigator.share({
-                                      title: activeBook.title,
-                                      text: shareText,
-                                      url: activeBook.cover_url || undefined,
-                                    });
-                                  } else {
+                              } catch (err: any) {
+                                // Don't fallback if user just cancelled the share dialog
+                                if (err?.message?.includes('cancel') || err?.message?.includes('dismiss')) {
+                                  console.log('Share cancelled by user');
+                                } else {
+                                  // Fallback to clipboard for non-native platforms
+                                  try {
                                     await navigator.clipboard.writeText(shareText);
                                     alert('Copied to clipboard!');
+                                  } catch {
+                                    console.log('Share failed');
                                   }
-                                } catch {
-                                  console.log('Share cancelled or failed');
                                 }
                               }
                               setShowShareDialog(false);
@@ -7548,15 +7681,15 @@ export default function App() {
                             <button
                               onClick={() => {
                                 setShowBookMenu(false);
-                                const shareText = `Check out "${activeBook.title}" by ${activeBook.author}`;
+                                const bookUrl = activeBook.google_books_url || '';
+                                const shareText = `Check out "${activeBook.title}" by ${activeBook.author}${bookUrl ? `\n${bookUrl}` : ''}\n\nDownload Book.luv: https://yossisadoun.github.io/book_review/`;
                                 CapacitorShare.share({
                                   title: activeBook.title,
                                   text: shareText,
-                                  url: activeBook.cover_url || undefined,
                                   dialogTitle: 'Share this book',
                                 }).catch(() => {
                                   if (navigator.share) {
-                                    navigator.share({ title: activeBook.title, text: shareText, url: activeBook.cover_url || undefined });
+                                    navigator.share({ title: activeBook.title, text: shareText });
                                   }
                                 });
                               }}
@@ -7739,7 +7872,7 @@ export default function App() {
             )}
 
             {/* Readers section - profile pictures and chat button */}
-            {!showRatingOverlay && (
+            {!showRatingOverlay && !isReviewer && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -7917,6 +8050,7 @@ export default function App() {
                           </button>
 
                           {/* Discussion button */}
+                          {!isReviewer && (
                           <button
                             onClick={() => setShowBookDiscussion(true)}
                             className="flex items-center justify-center w-8 h-8 rounded-full active:scale-95 transition-all"
@@ -7929,6 +8063,7 @@ export default function App() {
                           >
                             <Cloud size={16} className="text-slate-700" />
                           </button>
+                          )}
 
                           {/* Infographic button */}
                           <button
@@ -8500,19 +8635,20 @@ export default function App() {
           </button>
 
           {/* Game button - trivia game */}
+          {!isReviewer && (
           <div className="relative group">
             {(() => {
               const minBooks = 5;
               const hasEnoughBooks = books.length >= minBooks;
               const isDisabled = !hasEnoughBooks;
               const remainingBooks = minBooks - books.length;
-              
+
               return (
                 <>
                   <button
                     onClick={() => {
                       if (isDisabled) return;
-                      
+
                       // Don't navigate away - just open trivia dialog on top of current page
                       // If we have questions and are mid-game, resume from where we left off
                       if (triviaQuestions.length > 0 && currentTriviaQuestionIndex < triviaQuestions.length && !triviaGameComplete) {
@@ -8565,8 +8701,10 @@ export default function App() {
               );
             })()}
           </div>
+          )}
 
           {/* Clubs button */}
+          {!isReviewer && (
           <div className="relative group">
             <button
               onClick={() => {}}
@@ -8592,6 +8730,7 @@ export default function App() {
               Clubs coming soon
             </div>
           </div>
+          )}
 
           {/* Feed button */}
           <button
@@ -9560,7 +9699,7 @@ export default function App() {
 
         {/* Book Discussion Modal */}
         <AnimatePresence>
-          {showBookDiscussion && activeBook && (
+          {!isReviewer && showBookDiscussion && activeBook && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -10707,6 +10846,7 @@ export default function App() {
               className="fixed top-[200px] left-[26px] z-[9999] rounded-lg min-w-[140px] overflow-hidden"
               style={glassmorphicStyle}
             >
+              {!isReviewer && (
               <button
                 onClick={() => {
                   setShowAccountPage(true);
@@ -10717,6 +10857,7 @@ export default function App() {
                 <User size={16} className="text-slate-600" />
                 <span>Account</span>
               </button>
+              )}
               <button
                 onClick={async () => {
                   await signOut();
