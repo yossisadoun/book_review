@@ -6,6 +6,24 @@ import { generateTriviaQuestionsForBook, saveTriviaQuestionsToCache } from './tr
 import { createXai } from '@ai-sdk/xai';
 import { generateText } from 'ai';
 
+// Attempt to repair common LLM JSON issues (unescaped control chars, trailing commas)
+function safeJsonParse<T>(jsonStr: string): T {
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    // Remove trailing commas before ] or }
+    let fixed = jsonStr.replace(/,\s*([\]}])/g, '$1');
+    // Escape unescaped control characters inside strings
+    fixed = fixed.replace(/[\x00-\x1f]/g, (ch) => {
+      if (ch === '\n') return '\\n';
+      if (ch === '\r') return '\\r';
+      if (ch === '\t') return '\\t';
+      return '';
+    });
+    return JSON.parse(fixed);
+  }
+}
+
 // --- Author Facts ---
 
 async function getGrokAuthorFacts(bookTitle: string, author: string): Promise<AuthorFactsResult> {
@@ -63,7 +81,7 @@ async function getGrokAuthorFacts(bookTitle: string, author: string): Promise<Au
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? jsonMatch[0] : content;
-    const result = JSON.parse(jsonStr);
+    const result = safeJsonParse<any>(jsonStr);
     console.log('[getGrokAuthorFacts] 🔵 PARSED JSON:', result);
     console.log('[getGrokAuthorFacts] Parsed facts:', result.facts?.length || 0, 'facts');
     console.log('[getGrokAuthorFacts] Parsed first_issue_year:', result.first_issue_year);
@@ -191,7 +209,7 @@ async function getGrokBookInfluences(bookTitle: string, author: string): Promise
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? jsonMatch[0] : content;
-    const result = JSON.parse(jsonStr);
+    const result = safeJsonParse<any>(jsonStr);
     console.log('[getGrokBookInfluences] ✅ Parsed', result.facts?.length || 0, 'influences');
     return result.facts || [];
   } catch (err: any) {
@@ -297,7 +315,7 @@ async function getGrokBookDomain(bookTitle: string, author: string): Promise<Dom
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? jsonMatch[0] : content;
-    const result = JSON.parse(jsonStr);
+    const result = safeJsonParse<any>(jsonStr);
     const label = result.label || 'Domain';
     const facts = result.facts || [];
     console.log('[getGrokBookDomain] ✅ Parsed', facts.length, 'domain insights with label:', label);
@@ -409,7 +427,7 @@ async function getGrokBookContext(bookTitle: string, author: string): Promise<st
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? jsonMatch[0] : content;
-    const result = JSON.parse(jsonStr);
+    const result = safeJsonParse<any>(jsonStr);
     console.log('[getGrokBookContext] ✅ Parsed', result.facts?.length || 0, 'context insights');
     return result.facts || [];
   } catch (err: any) {
@@ -515,7 +533,7 @@ async function getGrokDidYouKnow(bookTitle: string, author: string): Promise<Did
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     const jsonStr = jsonMatch ? jsonMatch[0] : content;
-    const result: DidYouKnowResponse = JSON.parse(jsonStr);
+    const result: DidYouKnowResponse = safeJsonParse<DidYouKnowResponse>(jsonStr);
     console.log('[getGrokDidYouKnow] ✅ Parsed', result.did_you_know_top10?.length || 0, '"Did You Know?" insights');
     return result.did_you_know_top10 || [];
   } catch (err: any) {
@@ -598,7 +616,7 @@ Return your response as valid JSON in this exact format:
       return { insights: [], sources: sources || [] };
     }
 
-    const result: DidYouKnowResponse = JSON.parse(jsonMatch[0]);
+    const result: DidYouKnowResponse = safeJsonParse<DidYouKnowResponse>(jsonMatch[0]);
     console.log('[getGrokDidYouKnowWithSearch] ✅ Parsed', result.did_you_know_top10?.length || 0, 'insights with', sources?.length || 0, 'sources');
 
     return {
