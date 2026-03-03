@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import Lottie from 'lottie-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { isNativePlatform } from '@/lib/capacitor';
+import { Capacitor } from '@capacitor/core';
 import heartAnimation from '@/public/heart_anim.json';
 import vectorAnimation from '@/public/vector-anim-export.json';
 import heartInsideAnimation from '@/public/heart_inside.json';
@@ -43,9 +45,14 @@ function getAssetPath(path: string): string {
 }
 
 export function LoginScreen() {
-  const { signInWithGoogle, loading } = useAuth();
+  const { signInWithGoogle, signInWithApple, signInAsReviewer, signInAnonymously, loading } = useAuth();
   const [showHearts, setShowHearts] = useState(false);
   const [showHeartInside, setShowHeartInside] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
+  const [reviewerLoading, setReviewerLoading] = useState(false);
+  const [guestLoading, setGuestLoading] = useState(false);
+  const appleInFlight = useRef(false);
+  const isIOS = isNativePlatform && Capacitor.getPlatform() === 'ios';
 
   // Start heart animation after HelloAnimation finishes (3s)
   useEffect(() => {
@@ -61,7 +68,7 @@ export function LoginScreen() {
 
   return (
     <div
-      className="fixed inset-0 flex flex-col items-center justify-center p-4"
+      className="fixed inset-0 flex flex-col items-center justify-center p-4 overflow-y-auto"
       style={{
         backgroundImage: `url(${getAssetPath('/bg.png')})`,
         backgroundSize: 'cover',
@@ -94,7 +101,7 @@ export function LoginScreen() {
 
         {/* Logo with Heart Animation */}
         <div className="relative mb-4" style={{ marginTop: '-15px' }}>
-          <img src={getAssetPath("/logo_tight.png")} alt="BOOK" className="h-32 object-contain mx-auto" />
+          <img src={getAssetPath("/logo_tight.png")} alt="Book.luv" className="h-32 object-contain mx-auto" />
           {showHearts && (
             <>
               <div className="absolute top-[18px] left-1/2 pointer-events-none" style={{ transform: 'translateX(calc(-50% - 6px)) scale(0.8)', opacity: 1, mixBlendMode: 'overlay' }}>
@@ -135,12 +142,33 @@ export function LoginScreen() {
           )}
         </div>
 
-        {/* Google Sign-In Button - Standard Design */}
+        {/* Apple Sign-In Button - iOS only (Apple HIG compliant) */}
+        {isIOS && (
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={async () => {
+              if (appleInFlight.current) return;
+              appleInFlight.current = true;
+              try { await signInWithApple(); } finally { appleInFlight.current = false; }
+            }}
+            style={{ WebkitTapHighlightColor: 'transparent', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' } as any}
+            className="w-[200px] md:w-[240px] h-[44px] mb-3 bg-black rounded-lg flex items-center justify-center gap-2 cursor-pointer active:scale-95 transition-transform"
+          >
+            <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24" fill="white">
+              <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+            </svg>
+            <span className="text-white font-medium text-[16px] tracking-tight">Sign in with Apple</span>
+          </div>
+        )}
+
+        {/* Google Sign-In Button */}
         <motion.button
           onClick={signInWithGoogle}
           disabled={loading}
-          whileTap={{ scale: 0.98 }}
-          className="w-[200px] bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 rounded-lg shadow-sm hover:shadow-md transition-shadow py-3 px-4 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+          whileTap={{ scale: 0.97 }}
+          style={{ WebkitTapHighlightColor: 'transparent' }}
+          className="w-[200px] md:w-[240px] h-[44px] bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 border border-white/30 rounded-lg shadow-sm hover:shadow-md transition-shadow flex items-center justify-center gap-2"
         >
           {loading ? (
             <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
@@ -165,10 +193,51 @@ export function LoginScreen() {
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                 />
               </svg>
-              <span className="text-gray-700 font-medium text-sm">Sign in with Google</span>
+              <span className="text-gray-700 font-medium text-[16px] tracking-tight">Sign in with Google</span>
             </>
           )}
         </motion.button>
+
+        {/* Review Account Button - iOS only, for App Store reviewers */}
+        {isIOS && (
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={async () => {
+              if (reviewerLoading) return;
+              setReviewerLoading(true);
+              try { await signInAsReviewer(); } finally { setReviewerLoading(false); }
+            }}
+            style={{ WebkitTapHighlightColor: 'transparent', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', backgroundColor: '#ED23E3' } as any}
+            className="mt-3 w-[200px] md:w-[240px] h-[44px] rounded-lg flex items-center justify-center cursor-pointer active:scale-95 transition-transform z-50 relative"
+          >
+            {reviewerLoading ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <span className="text-white font-medium text-[16px] tracking-tight">Review account</span>
+            )}
+          </div>
+        )}
+
+        {/* Start as guest - text link under all buttons, mobile only */}
+        {isNativePlatform && (
+          <button
+            onClick={async () => {
+              if (guestLoading) return;
+              setGuestLoading(true);
+              try { await signInAnonymously(); } finally { setGuestLoading(false); }
+            }}
+            disabled={guestLoading}
+            style={{ WebkitTapHighlightColor: 'transparent' } as any}
+            className="mt-5 flex items-center justify-center"
+          >
+            {guestLoading ? (
+              <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <span className="text-gray-300 text-[14px] underline underline-offset-2">Start as guest</span>
+            )}
+          </button>
+        )}
       </motion.div>
     </div>
   );

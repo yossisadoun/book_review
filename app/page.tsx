@@ -93,6 +93,8 @@ import {
   Car,
   Coffee,
   Drama,
+  Check,
+  Minus,
   type LucideIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -104,7 +106,7 @@ import { LoginScreen } from '@/components/LoginScreen';
 import { BookLoading } from '@/components/BookLoading';
 import { CachedImage } from '@/components/CachedImage';
 import { supabase } from '@/lib/supabase';
-import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerErrorHaptic, isNativePlatform, listenForAppStateChange, listenForBackButton, exitApp } from '@/lib/capacitor';
+import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerErrorHaptic, isNativePlatform, listenForAppStateChange, listenForBackButton, exitApp, storageGet, storageSet } from '@/lib/capacitor';
 import { featureFlags } from '@/lib/feature-flags';
 import { getAssetPath, decodeHtmlEntities } from './components/utils';
 import InsightsCards from './components/InsightsCards';
@@ -119,6 +121,7 @@ import LightbulbAnimation from './components/LightbulbAnimation';
 import InfoPageTooltips from './components/InfoPageTooltips';
 import RatingStars, { RATING_FEEDBACK } from './components/RatingStars';
 import AddBookSheet from './components/AddBookSheet';
+import ConnectAccountModal from './components/ConnectAccountModal';
 
 // Helper function to get the correct path for static assets (handles basePath)
 // getAssetPath imported from ./components/utils
@@ -173,7 +176,7 @@ import { getRelatedBooks } from './services/related-books-service';
 import { createFriendBookFeedItem, generateFeedItemsForBook, getPersonalizedFeed, markFeedItemsAsShown, getReadFeedItems, setFeedItemReadStatus, getSpoilerRevealedFromStorage, loadSpoilerRevealedFromStorage, saveSpoilerRevealedToStorage } from './services/feed-service';
 
 export default function App() {
-  const { user, loading: authLoading, signOut, isReviewer } = useAuth();
+  const { user, loading: authLoading, signOut, isReviewer, isAnonymous } = useAuth();
   const [books, setBooks] = useState<BookWithRatings[]>([]);
   const [viewingUserId, setViewingUserId] = useState<string | null>(null);
 
@@ -201,6 +204,9 @@ export default function App() {
     return 0;
   });
   const [isAdding, setIsAdding] = useState(false);
+  const [showConnectAccountModal, setShowConnectAccountModal] = useState(false);
+  const [connectAccountReason, setConnectAccountReason] = useState<'book_limit' | 'follow' | 'feed'>('book_limit');
+  const [nudgeBannerDismissed, setNudgeBannerDismissed] = useState(true); // Default true, loaded on mount
   const [isLoaded, setIsLoaded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [showShareDialog, setShowShareDialog] = useState(false);
@@ -392,14 +398,23 @@ export default function App() {
   const [isLoadingFollowing, setIsLoadingFollowing] = useState(false);
   const [followingSortOrder, setFollowingSortOrder] = useState<'recent_desc' | 'recent_asc' | 'name_desc' | 'name_asc'>('recent_desc');
   const [editingNoteBookId, setEditingNoteBookId] = useState<string | null>(null);
-  const [bookshelfGrouping, setBookshelfGrouping] = useState<'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year'>(() => {
+  const [bookshelfGrouping, setBookshelfGrouping] = useState<'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year' | 'list'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('bookshelfGrouping');
-      const validOptions: ('reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year')[] = ['reading_status', 'added', 'rating', 'title', 'author', 'genre', 'publication_year'];
-      return (validOptions.includes(saved as any) ? saved : 'reading_status') as 'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year';
+      const validOptions: ('reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year' | 'list')[] = ['reading_status', 'added', 'rating', 'title', 'author', 'genre', 'publication_year', 'list'];
+      return (validOptions.includes(saved as any) ? saved : 'reading_status') as 'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year' | 'list';
     }
     return 'reading_status';
   });
+
+  // Book lists (selection mode) state
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedBookIds, setSelectedBookIds] = useState<Set<string>>(new Set());
+  const [showListSheet, setShowListSheet] = useState(false);
+  const [showNewListInput, setShowNewListInput] = useState(false);
+  const [newListName, setNewListName] = useState('');
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const longPressFiredRef = useRef(false);
   const [isBookshelfGroupingDropdownOpen, setIsBookshelfGroupingDropdownOpen] = useState(false);
   const [backgroundGradient, setBackgroundGradient] = useState<string>('241,245,249,226,232,240'); // Default slate colors as RGB
   const [previousGradient, setPreviousGradient] = useState<string | null>(null);
@@ -1398,6 +1413,14 @@ export default function App() {
     }
   }, [isLoaded, user, books.length]);
 
+  // Load nudge banner dismissed state for anonymous users
+  useEffect(() => {
+    if (!isAnonymous) return;
+    storageGet('nudge_banner_dismissed').then((val) => {
+      setNudgeBannerDismissed(val === 'true');
+    });
+  }, [isAnonymous]);
+
   // Save page state to localStorage whenever it changes
   useEffect(() => {
     if (isLoaded) {
@@ -1892,10 +1915,55 @@ export default function App() {
     return 'T-Z';
   };
 
+  // Update a book's lists (optimistic update) — supports single or batch
+  const handleUpdateBookLists = async (bookId: string | string[], lists: string[]) => {
+    if (!user) return;
+    const bookIds = Array.isArray(bookId) ? bookId : [bookId];
+    // Enforce Top 5 max limit
+    if (lists.includes(DEFAULT_LIST)) {
+      const currentTop5Count = books.filter(b => b.lists?.includes(DEFAULT_LIST) && !bookIds.includes(b.id)).length;
+      if (currentTop5Count >= 5) {
+        lists = lists.filter(l => l !== DEFAULT_LIST);
+      }
+    }
+    const prevBooks = [...books];
+    setBooks(prev => prev.map(b => bookIds.includes(b.id) ? { ...b, lists } : b));
+    const now = new Date().toISOString();
+    const results = await Promise.all(
+      bookIds.map(id =>
+        supabase
+          .from('books')
+          .update({ lists, updated_at: now })
+          .eq('id', id)
+          .eq('user_id', user.id)
+      )
+    );
+    if (results.some(r => r.error)) {
+      console.error('[handleUpdateBookLists] Error in batch update:', results.filter(r => r.error).map(r => r.error));
+      setBooks(prevBooks);
+    }
+  };
+
   // Group books for bookshelf view based on selected grouping
   // Determine which books to use for bookshelf display
   const booksForBookshelf = viewingUserId ? viewingUserBooks : books;
-  
+
+  // Default list that always exists and cannot be deleted
+  const DEFAULT_LIST = 'Top 5';
+
+  // All unique list names across all books (for the list sheet)
+  const allListNames = useMemo(() => {
+    const names = new Set<string>();
+    names.add(DEFAULT_LIST);
+    books.forEach(book => {
+      if (book.lists && Array.isArray(book.lists)) {
+        book.lists.forEach(name => names.add(name));
+      }
+    });
+    // "Top 5" always first, rest alphabetical
+    return [DEFAULT_LIST, ...Array.from(names).filter(n => n !== DEFAULT_LIST).sort((a, b) => a.localeCompare(b))];
+  }, [books]);
+
   const groupedBooksForBookshelf = useMemo(() => {
     if (bookshelfGrouping === 'reading_status') {
       const groups: { label: string; books: BookWithRatings[] }[] = [
@@ -2151,6 +2219,45 @@ export default function App() {
           return decadeB - decadeA; // Descending order
         });
       
+      return groups;
+    } else if (bookshelfGrouping === 'list') {
+      // Group by user-defined lists
+      const listMap = new Map<string, BookWithRatings[]>();
+
+      booksForBookshelf.forEach(book => {
+        const bookLists = book.lists && Array.isArray(book.lists) && book.lists.length > 0 ? book.lists : null;
+        if (bookLists) {
+          bookLists.forEach(listName => {
+            if (!listMap.has(listName)) {
+              listMap.set(listName, []);
+            }
+            listMap.get(listName)!.push(book);
+          });
+        } else {
+          if (!listMap.has('No List')) {
+            listMap.set('No List', []);
+          }
+          listMap.get('No List')!.push(book);
+        }
+      });
+
+      const groups: { label: string; books: BookWithRatings[] }[] = Array.from(listMap.entries())
+        .map(([listName, books]) => ({
+          label: listName,
+          books: books.sort((a, b) => {
+            const titleA = (a.title || '').toUpperCase();
+            const titleB = (b.title || '').toUpperCase();
+            return titleA.localeCompare(titleB);
+          })
+        }))
+        .sort((a, b) => {
+          if (a.label === DEFAULT_LIST) return -1;
+          if (b.label === DEFAULT_LIST) return 1;
+          if (a.label === 'No List') return 1;
+          if (b.label === 'No List') return -1;
+          return a.label.localeCompare(b.label);
+        });
+
       return groups;
     }
     // Default fallback (should never happen)
@@ -3495,7 +3602,7 @@ export default function App() {
 
   // Load personalized feed when feed page is shown (only if not already loaded)
   useEffect(() => {
-    if (!showFeedPage || !user) return;
+    if (!showFeedPage || !user || isAnonymous) return;
 
     // Don't reload if we already have feed items (prevents reload on app resume)
     if (feedLoadedRef.current && personalizedFeedItems.length > 0) {
@@ -3608,8 +3715,26 @@ export default function App() {
     return `${normalizedTitle}|${normalizedAuthor}`;
   }
 
+  const ANONYMOUS_BOOK_LIMIT = 20;
+
+  function openAddBookSheet() {
+    if (isAnonymous && books.length >= ANONYMOUS_BOOK_LIMIT) {
+      setConnectAccountReason('book_limit');
+      setShowConnectAccountModal(true);
+      return;
+    }
+    setIsAdding(true);
+  }
+
   async function handleAddBook(meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) {
     if (!user) return;
+    // Safety net: block adding beyond limit even if AddBookSheet was already open
+    if (isAnonymous && books.length >= ANONYMOUS_BOOK_LIMIT) {
+      setIsAdding(false);
+      setConnectAccountReason('book_limit');
+      setShowConnectAccountModal(true);
+      return;
+    }
 
     // Store the book metadata and add the book, then show rating overlay with reading status selection
     setPendingBookMeta(meta);
@@ -4161,6 +4286,12 @@ export default function App() {
   async function handleToggleFollow() {
     if (!viewingUserId || !user) return;
 
+    if (isAnonymous) {
+      setConnectAccountReason('follow');
+      setShowConnectAccountModal(true);
+      return;
+    }
+
     setIsFollowLoading(true);
     try {
       if (isFollowingViewingUser) {
@@ -4200,17 +4331,13 @@ export default function App() {
     }
   }
 
-  // Show loading animation during initial auth check
-  if (authLoading) {
-    return <BookLoading />;
-  }
-
-  if (!user) {
+  // Show login screen only when auth is done and there's no user
+  if (!authLoading && !user) {
     return <LoginScreen />;
   }
 
-  // Show skeleton bookshelf while loading books (only if user is authenticated)
-  if (!isLoaded) {
+  // Show skeleton bookshelf during auth loading or while loading books
+  if (authLoading || !isLoaded) {
     const skeletonGlassmorphic: React.CSSProperties = {
       background: 'rgba(255, 255, 255, 0.45)',
       borderRadius: '16px',
@@ -4669,57 +4796,104 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
             }}
           >
             {/* Account Page */}
-            <div className="w-full max-w-[600px] flex flex-col gap-4 px-4 py-8">
+            <div className="w-full max-w-[600px] md:max-w-[800px] flex flex-col gap-4 px-4 py-8">
               {/* User Info Card */}
               <div className="rounded-2xl p-6" style={standardGlassmorphicStyle}>
-                <div className="flex items-center gap-4 mb-6">
-                  {userAvatar ? (
-                    <img 
-                      src={userAvatar} 
-                      alt={userName}
-                      className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className="w-16 h-16 rounded-full bg-slate-300 flex items-center justify-center border-2 border-white/50">
-                      <span className="text-2xl font-bold text-slate-600">
-                        {userName.charAt(0).toUpperCase()}
-                      </span>
+                {isAnonymous ? (
+                  <>
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="w-16 h-16 rounded-full bg-slate-200 flex items-center justify-center border-2 border-white/50">
+                        <User size={28} className="text-slate-400" />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-bold text-slate-950">Guest Account</h2>
+                        <p className="text-sm text-slate-500">Limited features</p>
+                      </div>
                     </div>
-                  )}
-                  <div>
-                    <h2 className="text-lg font-bold text-slate-950">{userName}</h2>
-                    <p className="text-sm text-slate-600">{user?.email}</p>
-                  </div>
-                </div>
 
-                {/* Stats */}
-                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
-                  <div>
-                    <p className="text-xs text-slate-600 mb-1">Total Books</p>
-                    <p className="text-2xl font-bold text-slate-950">{books.length}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-600 mb-1">Books with Ratings</p>
-                    <p className="text-2xl font-bold text-slate-950">
-                      {books.filter(book => {
-                        const values = Object.values(book.ratings).filter(v => v != null) as number[];
-                        return values.length > 0;
-                      }).length}
-                    </p>
-                  </div>
-                </div>
+                    {/* Book usage */}
+                    <div className="mb-4">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-xs text-slate-600">Books used</p>
+                        <p className="text-xs font-bold text-slate-700">{books.length} / {ANONYMOUS_BOOK_LIMIT}</p>
+                      </div>
+                      <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${Math.min(100, (books.length / ANONYMOUS_BOOK_LIMIT) * 100)}%`,
+                            background: books.length >= ANONYMOUS_BOOK_LIMIT ? '#ef4444' : 'rgba(59, 130, 246, 0.85)',
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setConnectAccountReason('book_limit');
+                        setShowConnectAccountModal(true);
+                      }}
+                      className="w-full py-2.5 rounded-lg font-bold text-sm text-white active:scale-95 transition-all"
+                      style={{
+                        background: 'rgba(59, 130, 246, 0.85)',
+                        border: '1px solid rgba(59, 130, 246, 0.3)',
+                      }}
+                    >
+                      Connect account
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-4 mb-6">
+                      {userAvatar ? (
+                        <img
+                          src={userAvatar}
+                          alt={userName}
+                          className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="w-16 h-16 rounded-full bg-slate-300 flex items-center justify-center border-2 border-white/50">
+                          <span className="text-2xl font-bold text-slate-600">
+                            {userName.charAt(0).toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+                      <div>
+                        <h2 className="text-lg font-bold text-slate-950">{userName}</h2>
+                        <p className="text-sm text-slate-600">{user?.email}</p>
+                      </div>
+                    </div>
+
+                    {/* Stats */}
+                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+                      <div>
+                        <p className="text-xs text-slate-600 mb-1">Total Books</p>
+                        <p className="text-2xl font-bold text-slate-950">{books.length}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-600 mb-1">Books with Ratings</p>
+                        <p className="text-2xl font-bold text-slate-950">
+                          {books.filter(book => {
+                            const values = Object.values(book.ratings).filter(v => v != null) as number[];
+                            return values.length > 0;
+                          }).length}
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
-              {/* Privacy */}
-              <div className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
+              {/* Privacy - hidden for anonymous users */}
+              {!isAnonymous && <div className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <h3 className="text-sm font-bold text-slate-950">Privacy</h3>
@@ -4778,10 +4952,10 @@ export default function App() {
                 <p className="text-[11px] text-slate-500 mt-2">
                   Private hides your bookshelf and removes your added books from other users' feeds.
                 </p>
-              </div>
+              </div>}
 
-              {/* Grok API Usage Logs */}
-              <div className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
+              {/* Grok API Usage Logs - hidden for anonymous users */}
+              {!isAnonymous && <div className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
                 <h3 className="text-sm font-bold text-slate-950 mb-3">Grok API Usage</h3>
                 {isLoadingGrokLogs ? (
                   <motion.div
@@ -4853,11 +5027,22 @@ export default function App() {
                     </div>
                   </div>
                 )}
-              </div>
+              </div>}
 
               {/* Actions */}
+              {isAnonymous && (
+                <p className="text-[11px] text-amber-600 mb-1 px-3">
+                  Signing out will permanently lose your guest data.
+                </p>
+              )}
               <button
                 onClick={async () => {
+                  if (isAnonymous) {
+                    const confirmed = window.confirm(
+                      `You have ${books.length} book${books.length !== 1 ? 's' : ''} saved as a guest. Signing out will permanently lose this data. Continue?`
+                    );
+                    if (!confirmed) return;
+                  }
                   await signOut();
                   setShowAccountPage(false);
                 }}
@@ -4877,14 +5062,14 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
             }}
           >
             {/* Following Page */}
-            <div className="w-full max-w-[600px] flex flex-col gap-4 px-4 py-8">
+            <div className="w-full max-w-[600px] md:max-w-[800px] flex flex-col gap-4 px-4 py-8">
               {isLoadingFollowing ? (
                 <motion.div
                   animate={{ opacity: [0.5, 0.8, 0.5] }}
@@ -4997,7 +5182,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -5020,7 +5205,39 @@ export default function App() {
             }}
           >
             {/* Feed Page */}
-            <div className="w-full flex flex-col gap-4 px-3 pt-8">
+            <div className="w-full max-w-[700px] md:mx-auto flex flex-col gap-4 px-3 pt-8">
+              {/* Anonymous user feed empty state */}
+              {isAnonymous ? (
+                <div
+                  className="w-full rounded-2xl overflow-hidden p-8 text-center"
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.45)',
+                    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
+                    backdropFilter: 'blur(9.4px)',
+                    WebkitBackdropFilter: 'blur(9.4px)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                  }}
+                >
+                  <Birdhouse size={32} className="mx-auto mb-3 text-slate-400" />
+                  <p className="text-slate-800 font-medium mb-2">Your personalized feed</p>
+                  <p className="text-sm text-slate-500 mb-5">Connect an account to unlock your feed with insights, podcasts, and more for your books.</p>
+                  <button
+                    onClick={() => {
+                      setConnectAccountReason('feed');
+                      setShowConnectAccountModal(true);
+                    }}
+                    className="px-6 py-2.5 rounded-lg font-bold text-sm text-white active:scale-95 transition-all"
+                    style={{
+                      background: 'rgba(59, 130, 246, 0.85)',
+                      backdropFilter: 'blur(9.4px)',
+                      WebkitBackdropFilter: 'blur(9.4px)',
+                      border: '1px solid rgba(59, 130, 246, 0.3)',
+                    }}
+                  >
+                    Connect account
+                  </button>
+                </div>
+              ) : (<>
               {/* Feed filter pills */}
               <div key={`filters-${feedFilter}`} className="flex items-center gap-2 mb-1">
                 {/* Read status filter */}
@@ -5966,6 +6183,7 @@ export default function App() {
                 <p className="text-center text-xs text-slate-400 py-4">You've reached the end</p>
               )}
 
+              </>)}
             </div>
           </motion.main>
         ) : showSortingResults ? (
@@ -5977,14 +6195,14 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
             }}
           >
             {/* Sorting Results View */}
-            <div className="w-full max-w-[600px] flex flex-col gap-4 px-4 py-8">
+            <div className="w-full max-w-[600px] md:max-w-[800px] flex flex-col gap-4 px-4 py-8">
               <div className="flex items-center justify-between mb-4">
                 <h1 className="text-2xl font-bold text-slate-950">RANKED BY YOU</h1>
                 <button
@@ -6089,14 +6307,14 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
             }}
           >
             {/* Notes View */}
-            <div className="w-full max-w-[600px] flex flex-col gap-4 px-4 py-8">
+            <div className="w-full max-w-[600px] md:max-w-[800px] flex flex-col gap-4 px-4 py-8">
               {(() => {
                 // Filter books with notes and sort by title
                 const booksWithNotes = books
@@ -6226,7 +6444,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -6449,6 +6667,7 @@ export default function App() {
                       className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 hover:opacity-80"
                       style={glassmorphicStyle}
                     >
+                      <span className="text-slate-400 font-normal">Group by</span>
                       <span>
                         {bookshelfGrouping === 'reading_status' ? 'Status' :
                          bookshelfGrouping === 'added' ? 'Added' :
@@ -6456,7 +6675,8 @@ export default function App() {
                          bookshelfGrouping === 'title' ? 'Title' :
                          bookshelfGrouping === 'author' ? 'Author' :
                          bookshelfGrouping === 'genre' ? 'Genre' :
-                         bookshelfGrouping === 'publication_year' ? 'Year' : 'Status'}
+                         bookshelfGrouping === 'publication_year' ? 'Year' :
+                         bookshelfGrouping === 'list' ? 'List' : 'Status'}
                       </span>
                       <ChevronDown 
                         size={16} 
@@ -6485,14 +6705,15 @@ export default function App() {
                             { value: 'rating', label: 'Rating' },
                             { value: 'title', label: 'Title' },
                             { value: 'author', label: 'Author' },
-                            { value: 'genre', label: 'Genre' },
+
                             { value: 'publication_year', label: 'Year' },
+                            { value: 'list', label: 'List' },
                           ].map((option, idx) => (
                             <button
                               key={option.value}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setBookshelfGrouping(option.value as 'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year');
+                                setBookshelfGrouping(option.value as 'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year' | 'list');
                                 setIsBookshelfGroupingDropdownOpen(false);
                               }}
                               className={`w-full px-4 py-3 flex items-center gap-2 text-sm font-medium transition-colors ${
@@ -6510,6 +6731,26 @@ export default function App() {
                       </>
                     )}
                   </div>
+                  {/* Select / Done button */}
+                  {!viewingUserId && (
+                    <button
+                      onClick={() => {
+                        if (isSelectMode) {
+                          setIsSelectMode(false);
+                          setSelectedBookIds(new Set());
+                        } else {
+                          setIsSelectMode(true);
+                        }
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                        isSelectMode
+                          ? 'text-blue-600'
+                          : 'text-slate-600'
+                      }`}
+                    >
+                      {isSelectMode ? 'Done' : 'Select'}
+                    </button>
+                  )}
                 </div>
                 )}
 
@@ -6521,7 +6762,7 @@ export default function App() {
                   >
                     <img src={getAssetPath("/logo.png")} alt="Book.luv" className="object-contain mx-auto" />
                     <button
-                      onClick={() => setIsAdding(true)}
+                      onClick={() => openAddBookSheet()}
                       className="px-6 py-3 rounded-xl font-bold text-white active:scale-95 transition-all"
                       style={{
                         background: 'rgba(59, 130, 246, 0.85)',
@@ -6545,6 +6786,49 @@ export default function App() {
                   </div>
                 ) : null}
 
+                {/* Anonymous nudge banner */}
+                {isAnonymous && books.length >= 10 && !nudgeBannerDismissed && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="rounded-2xl p-4 flex items-start gap-3"
+                    style={{
+                      background: 'rgba(59, 130, 246, 0.08)',
+                      backdropFilter: 'blur(9.4px)',
+                      WebkitBackdropFilter: 'blur(9.4px)',
+                      border: '1px solid rgba(59, 130, 246, 0.15)',
+                    }}
+                  >
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-slate-800">Enjoying the app?</p>
+                      <p className="text-xs text-slate-500 mt-1">Connect an account to unlock all features and keep your books safe.</p>
+                      <button
+                        onClick={() => {
+                          setConnectAccountReason('book_limit');
+                          setShowConnectAccountModal(true);
+                        }}
+                        className="mt-2 px-4 py-1.5 rounded-lg text-xs font-bold text-white active:scale-95 transition-all"
+                        style={{
+                          background: 'rgba(59, 130, 246, 0.85)',
+                          border: '1px solid rgba(59, 130, 246, 0.3)',
+                        }}
+                      >
+                        Connect
+                      </button>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        setNudgeBannerDismissed(true);
+                        await storageSet('nudge_banner_dismissed', 'true');
+                      }}
+                      className="w-6 h-6 flex items-center justify-center rounded-full active:scale-90 transition-transform flex-shrink-0"
+                    >
+                      <X size={14} className="text-slate-400" />
+                    </button>
+                  </motion.div>
+                )}
+
                 {groupedBooksForBookshelf.map((group, groupIdx) => (
                   <motion.div
                     key={group.label || `group-${groupIdx}`}
@@ -6559,7 +6843,8 @@ export default function App() {
                   >
                     {/* Shelf Label */}
                     <h2 className="text-xl font-bold text-slate-950 px-[4vw] flex items-center gap-2">
-                      {group.label} ({group.books.length})
+                      {group.label}
+                      <span className="text-xs font-medium text-slate-400">{group.books.length}</span>
                       {bookshelfGrouping === 'reading_status' && (
                         <>
                           {group.label === 'Read it' && <CheckCircle2 size={20} className="text-slate-950" />}
@@ -6587,7 +6872,7 @@ export default function App() {
                               setShowReadingBookPicker(true);
                             } else {
                               // No want to read books, open search
-                              setIsAdding(true);
+                              openAddBookSheet();
                             }
                           }}
                         >
@@ -6615,6 +6900,28 @@ export default function App() {
                             }}
                             className="flex flex-col items-center cursor-pointer group"
                             onClick={() => {
+                              if (longPressFiredRef.current) {
+                                longPressFiredRef.current = false;
+                                return;
+                              }
+                              if (isSelectMode && !viewingUserId) {
+                                // In select mode: toggle selection
+                                triggerLightHaptic();
+                                setSelectedBookIds(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(book.id)) {
+                                    next.delete(book.id);
+                                  } else {
+                                    next.add(book.id);
+                                  }
+                                  // Exit select mode if nothing selected
+                                  if (next.size === 0) {
+                                    setIsSelectMode(false);
+                                  }
+                                  return next;
+                                });
+                                return;
+                              }
                               if (viewingUserId) {
                                 // When viewing another user's bookshelf, show quick view
                                 setViewingBookFromOtherUser(book);
@@ -6630,9 +6937,80 @@ export default function App() {
                                 }, 100);
                               }
                             }}
+                            onTouchStart={(e) => {
+                              if (viewingUserId) return;
+                              if (isSelectMode) return; // Tap handles it in select mode
+                              const touch = e.touches[0];
+                              const startX = touch.clientX;
+                              const startY = touch.clientY;
+                              longPressFiredRef.current = false;
+                              longPressTimerRef.current = setTimeout(() => {
+                                longPressFiredRef.current = true;
+                                triggerMediumHaptic();
+                                setIsSelectMode(true);
+                                setSelectedBookIds(new Set([book.id]));
+                              }, 500);
+                              // Store start position for move detection
+                              (longPressTimerRef as any)._startX = startX;
+                              (longPressTimerRef as any)._startY = startY;
+                            }}
+                            onTouchMove={(e) => {
+                              if (longPressTimerRef.current) {
+                                const touch = e.touches[0];
+                                const dx = touch.clientX - ((longPressTimerRef as any)._startX || 0);
+                                const dy = touch.clientY - ((longPressTimerRef as any)._startY || 0);
+                                if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                                  clearTimeout(longPressTimerRef.current);
+                                  longPressTimerRef.current = null;
+                                }
+                              }
+                            }}
+                            onTouchEnd={() => {
+                              if (longPressTimerRef.current) {
+                                clearTimeout(longPressTimerRef.current);
+                                longPressTimerRef.current = null;
+                              }
+                            }}
+                            onContextMenu={(e) => {
+                              if (viewingUserId) return;
+                              e.preventDefault();
+                              longPressFiredRef.current = true;
+                              if (!isSelectMode) {
+                                setIsSelectMode(true);
+                                setSelectedBookIds(new Set([book.id]));
+                              } else {
+                                setSelectedBookIds(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(book.id)) {
+                                    next.delete(book.id);
+                                  } else {
+                                    next.add(book.id);
+                                  }
+                                  if (next.size === 0) {
+                                    setIsSelectMode(false);
+                                  }
+                                  return next;
+                                });
+                              }
+                            }}
                           >
                             {/* Book Cover */}
-                            <div className="relative w-full aspect-[2/3] rounded-lg overflow-hidden shadow-lg mb-2 group-hover:scale-105 transition-transform">
+                            <div
+                              className={`relative w-full aspect-[2/3] rounded-lg overflow-hidden shadow-lg mb-2 transition-all duration-200 ${
+                                isSelectMode && selectedBookIds.has(book.id)
+                                  ? 'ring-2 ring-blue-500 scale-[0.92]'
+                                  : 'group-hover:scale-105'
+                              }`}
+                            >
+                              {/* Selection checkmark overlay */}
+                              {isSelectMode && selectedBookIds.has(book.id) && (
+                                <div className="absolute top-1.5 left-1.5 z-10 w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center shadow-md">
+                                  <Check size={12} className="text-white" strokeWidth={3} />
+                                </div>
+                              )}
+                              {isSelectMode && !selectedBookIds.has(book.id) && (
+                                <div className="absolute top-1.5 left-1.5 z-10 w-5 h-5 rounded-full bg-black/30 border-2 border-white/70 flex items-center justify-center" />
+                              )}
                               {book.cover_url ? (
                                 <CachedImage
                                   src={book.cover_url}
@@ -6680,7 +7058,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem)' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -6699,7 +7077,7 @@ export default function App() {
                     </p>
                   ) : (
                     <button
-                      onClick={() => setIsAdding(true)}
+                      onClick={() => openAddBookSheet()}
                       className="px-6 py-3 bg-blue-600 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
                     >
                       Add first book
@@ -6719,6 +7097,7 @@ export default function App() {
                       className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 hover:opacity-80"
                       style={glassmorphicStyle}
                     >
+                      <span className="text-slate-400 font-normal">Group by</span>
                       <span>
                         {bookshelfGrouping === 'reading_status' ? 'Status' :
                          bookshelfGrouping === 'added' ? 'Added' :
@@ -6726,7 +7105,8 @@ export default function App() {
                          bookshelfGrouping === 'title' ? 'Title' :
                          bookshelfGrouping === 'author' ? 'Author' :
                          bookshelfGrouping === 'genre' ? 'Genre' :
-                         bookshelfGrouping === 'publication_year' ? 'Year' : 'Status'}
+                         bookshelfGrouping === 'publication_year' ? 'Year' :
+                         bookshelfGrouping === 'list' ? 'List' : 'Status'}
                       </span>
                       <ChevronDown 
                         size={16} 
@@ -6755,14 +7135,15 @@ export default function App() {
                             { value: 'rating', label: 'Rating' },
                             { value: 'title', label: 'Title' },
                             { value: 'author', label: 'Author' },
-                            { value: 'genre', label: 'Genre' },
+
                             { value: 'publication_year', label: 'Year' },
+                            { value: 'list', label: 'List' },
                           ].map((option, idx) => (
                   <button
                               key={option.value}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setBookshelfGrouping(option.value as 'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year');
+                                setBookshelfGrouping(option.value as 'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year' | 'list');
                                 setIsBookshelfGroupingDropdownOpen(false);
                               }}
                               className={`w-full px-4 py-3 flex items-center gap-2 text-sm font-medium transition-colors ${
@@ -6847,6 +7228,7 @@ export default function App() {
                     {/* Shelf Label */}
                     <h2 className="text-xl font-bold text-slate-950 px-[10vw] flex items-center gap-2">
                       {group.label}
+                      <span className="text-xs font-medium text-slate-400">{group.books.length}</span>
                       {bookshelfGrouping === 'reading_status' && (
                         <>
                           {group.label === 'Read it' && <CheckCircle2 size={20} className="text-slate-950" />}
@@ -7176,7 +7558,7 @@ export default function App() {
               </p>
             ) : (
               <button
-                onClick={() => setIsAdding(true)}
+                onClick={() => openAddBookSheet()}
                 className="px-6 py-3 bg-blue-600 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
               >
                 Add first book
@@ -7184,9 +7566,9 @@ export default function App() {
             )}
           </div>
         ) : (
-          <div className="w-full max-w-[340px] flex flex-col items-center gap-6 pb-8">
+          <div className="w-full max-w-[340px] md:max-w-[420px] flex flex-col items-center gap-6 pb-8">
             <div
-              className="relative w-[340px] aspect-[2/3] overflow-hidden group rounded-lg"
+              className="relative w-[340px] md:w-[420px] aspect-[2/3] overflow-hidden group rounded-lg"
               style={{
                 boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04), 0 0 30px 5px rgba(255, 255, 255, 0.3)',
                 border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -7443,8 +7825,8 @@ export default function App() {
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.9, y: 10 }}
                       transition={{ duration: 0.2 }}
-                      className="absolute bottom-16 right-4 z-[60] rounded-xl overflow-hidden"
-                      style={standardGlassmorphicStyle}
+                      className="absolute right-4 z-[60] rounded-xl overflow-hidden"
+                      style={{ ...standardGlassmorphicStyle, bottom: 'calc(64px + var(--safe-area-bottom))' }}
                     >
                       <button
                         onClick={handleDelete}
@@ -7471,8 +7853,8 @@ export default function App() {
                     initial={{ opacity: 0, y: 20 }} 
                     animate={{ opacity: 1, y: 0 }} 
                     exit={{ opacity: 0, y: 20 }} 
-                    className="absolute bottom-16 left-4 right-4 z-40 flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden"
-                    style={standardGlassmorphicStyle}
+                    className="absolute left-4 right-4 z-40 flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden"
+                    style={{ ...standardGlassmorphicStyle, bottom: 'calc(64px + var(--safe-area-bottom))' }}
                     onClick={(e) => e.stopPropagation()}
                   >
                     {showReadingStatusSelection ? (
@@ -7584,8 +7966,8 @@ export default function App() {
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 20 }}
-                      className="absolute bottom-16 left-4 right-4 z-[101] flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden"
-                      style={standardGlassmorphicStyle}
+                      className="absolute left-4 right-4 z-[101] flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden"
+                      style={{ ...standardGlassmorphicStyle, bottom: 'calc(64px + var(--safe-area-bottom))' }}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex flex-col items-center gap-1">
@@ -7651,7 +8033,8 @@ export default function App() {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3, delay: 0.3 }}
-                    className="absolute bottom-4 right-4 z-30"
+                    className="absolute right-4 z-30"
+                    style={{ bottom: 'calc(16px + var(--safe-area-bottom))' }}
                   >
                     <button
                       onClick={() => setShowBookMenu(!showBookMenu)}
@@ -7736,7 +8119,8 @@ export default function App() {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3, delay: 0.3 }}
-                    className="absolute bottom-4 left-4 z-30 flex items-center gap-2"
+                    className="absolute left-4 z-30 flex items-center gap-2"
+                    style={{ bottom: 'calc(16px + var(--safe-area-bottom))' }}
                   >
                     {/* Rating button */}
                     <button
@@ -8588,8 +8972,42 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Bottom Navigation Bar */}
-      <div className="fixed bottom-4 left-0 right-0 z-[50] flex justify-center px-4 pointer-events-none">
+      {/* Bottom Navigation Bar / Selection Mode Action Bar */}
+      <div className="fixed left-0 right-0 z-[50] flex justify-center px-4 pointer-events-none" style={{ bottom: 'calc(16px + var(--safe-area-bottom))' }}>
+        <AnimatePresence mode="wait">
+        {isSelectMode && selectedBookIds.size > 0 ? (
+          <motion.div
+            key="select-bar"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="flex items-center gap-3 rounded-2xl px-5 py-2.5 pointer-events-auto shadow-lg"
+            style={glassmorphicStyle}
+          >
+            <span className="text-sm font-semibold text-slate-700">
+              {selectedBookIds.size} selected
+            </span>
+            <button
+              onClick={() => setShowListSheet(true)}
+              className="px-4 py-1.5 rounded-full text-sm font-bold text-white transition-all active:scale-95"
+              style={{
+                background: 'rgba(59, 130, 246, 0.9)',
+                backdropFilter: 'blur(8px)',
+                WebkitBackdropFilter: 'blur(8px)',
+              }}
+            >
+              Add to List
+            </button>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="nav-bar"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+          >
         <div 
           className="flex items-center gap-2 rounded-2xl px-3 py-2.5 pointer-events-auto"
           style={glassmorphicStyle}
@@ -8764,7 +9182,7 @@ export default function App() {
 
           {/* Search button - right (circular) */}
           <button
-            onClick={() => setIsAdding(true)}
+            onClick={() => openAddBookSheet()}
             className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:scale-95 transition-all flex items-center justify-center ml-auto"
           >
             {featureFlags.hand_drawn_icons ? (
@@ -8774,6 +9192,9 @@ export default function App() {
             )}
           </button>
         </div>
+          </motion.div>
+        )}
+        </AnimatePresence>
       </div>
 
       {/* Game Overlay */}
@@ -9662,10 +10083,17 @@ export default function App() {
           )}
         </AnimatePresence>
 
+      <ConnectAccountModal
+        isOpen={showConnectAccountModal}
+        onClose={() => setShowConnectAccountModal(false)}
+        reason={connectAccountReason}
+        bookCount={books.length}
+      />
+
       <AnimatePresence>
           {isAdding && (
-            <AddBookSheet 
-              isOpen={isAdding} 
+            <AddBookSheet
+              isOpen={isAdding}
               onClose={() => setIsAdding(false)} 
               onAdd={handleAddBook}
               books={books}
@@ -10599,7 +11027,7 @@ export default function App() {
                             setShowAboutScreen(false);
                             setAboutPageIndex(0);
                             localStorage.setItem('hasSeenIntro', 'true');
-                            setIsAdding(true);
+                            openAddBookSheet();
                           }}
                           className="w-[min(96px,12vh)] aspect-[2/3] rounded-lg overflow-hidden shadow-lg flex items-center justify-center active:scale-95 transition-transform cursor-pointer"
                           style={glassmorphicStyle}
@@ -10620,7 +11048,7 @@ export default function App() {
                             setShowAboutScreen(false);
                             setAboutPageIndex(0);
                             localStorage.setItem('hasSeenIntro', 'true');
-                            setIsAdding(true);
+                            openAddBookSheet();
                           }}
                           className="px-8 py-3 text-white font-semibold text-base active:scale-95 transition-transform"
                           style={blueGlassmorphicStyle}
@@ -10815,7 +11243,7 @@ export default function App() {
                   onClick={() => {
                     setShowAboutScreen(false);
                     localStorage.setItem('hasSeenIntro', 'true');
-                    setIsAdding(true);
+                    openAddBookSheet();
                   }}
                   className="px-8 py-3 text-white font-semibold text-base active:scale-95 transition-transform mt-6"
                   style={blueGlassmorphicStyle}
@@ -10873,6 +11301,180 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Batch Add to List Bottom Sheet */}
+      <AnimatePresence>
+        {showListSheet && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 z-[100] flex flex-col items-center justify-end bg-black/40 backdrop-blur-sm px-4"
+            onClick={() => {
+              setShowListSheet(false);
+              setShowNewListInput(false);
+              setNewListName('');
+            }}
+          >
+            {/* Bottom Sheet */}
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+              className="w-full max-w-md overflow-hidden"
+              style={{ ...glassmorphicStyle, background: 'rgba(255, 255, 255, 0.85)', maxHeight: '70vh', borderRadius: '24px 24px 0 0' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Handle bar */}
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-slate-300" />
+              </div>
+
+              {/* Header */}
+              <div className="px-5 pt-2 pb-3 border-b border-white/20">
+                <p className="text-base font-bold text-slate-950">Add to List</p>
+                <p className="text-xs text-slate-500">{selectedBookIds.size} book{selectedBookIds.size !== 1 ? 's' : ''} selected</p>
+              </div>
+
+              {/* List rows */}
+              <div className="max-h-[40vh] overflow-y-auto">
+                {allListNames.map(listName => {
+                  const selectedBooks = books.filter(b => selectedBookIds.has(b.id));
+                  const inListCount = selectedBooks.filter(b => b.lists?.includes(listName)).length;
+                  const allIn = inListCount === selectedBooks.length;
+                  const someIn = inListCount > 0 && !allIn;
+                  const noneIn = inListCount === 0;
+                  const isTop5 = listName === DEFAULT_LIST;
+                  const currentTop5InList = books.filter(b => b.lists?.includes(DEFAULT_LIST)).length;
+                  const wouldAdd = selectedBooks.filter(b => !b.lists?.includes(DEFAULT_LIST)).length;
+                  const isTop5Full = isTop5 && noneIn && (currentTop5InList + wouldAdd) > 5;
+                  const isTop5PartialFull = isTop5 && someIn && (currentTop5InList + (selectedBooks.length - inListCount)) > 5;
+                  const listBooks = books.filter(b => b.lists?.includes(listName));
+                  const lastBookCover = listBooks.length > 0 ? listBooks[listBooks.length - 1]?.cover_url : null;
+
+                  return (
+                    <button
+                      key={listName}
+                      disabled={isTop5Full}
+                      onClick={() => {
+                        if (isTop5Full) return;
+                        const bookIds = Array.from(selectedBookIds);
+                        if (allIn || someIn) {
+                          // Remove from list for all selected books
+                          bookIds.forEach(id => {
+                            const book = books.find(b => b.id === id);
+                            if (book) {
+                              const newLists = (book.lists || []).filter((l: string) => l !== listName);
+                              handleUpdateBookLists(id, newLists);
+                            }
+                          });
+                        } else {
+                          // Add to list for all selected books
+                          if (isTop5 && isTop5PartialFull) return;
+                          bookIds.forEach(id => {
+                            const book = books.find(b => b.id === id);
+                            if (book && !book.lists?.includes(listName)) {
+                              const newLists = [...(book.lists || []), listName];
+                              handleUpdateBookLists(id, newLists);
+                            }
+                          });
+                        }
+                      }}
+                      className={`w-full px-5 py-3 flex items-center gap-3 text-sm transition-colors ${
+                        isTop5Full ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700 hover:bg-white/20 active:bg-white/30'
+                      }`}
+                    >
+                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                        allIn ? 'bg-blue-500 border-blue-500' : someIn ? 'bg-blue-500/50 border-blue-500' : isTop5Full ? 'border-slate-300' : 'border-slate-400'
+                      }`}>
+                        {allIn && <Check size={12} className="text-white" strokeWidth={3} />}
+                        {someIn && <Minus size={12} className="text-white" strokeWidth={3} />}
+                      </div>
+                      {lastBookCover ? (
+                        <img src={lastBookCover} alt="" className="w-7 h-10 rounded-sm object-cover flex-shrink-0 shadow-sm" />
+                      ) : (
+                        <div className="w-7 h-10 rounded-sm bg-slate-200/60 flex-shrink-0" />
+                      )}
+                      <span className="truncate font-medium">{listName}</span>
+                      {isTop5 && (
+                        <span className="ml-auto text-[10px] text-slate-400 flex-shrink-0">
+                          {currentTop5InList}/5
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* New list section */}
+              <div className="border-t border-white/20">
+                {showNewListInput ? (
+                  <div className="px-4 py-3 flex items-center gap-2">
+                    <input
+                      autoFocus
+                      type="text"
+                      value={newListName}
+                      onChange={(e) => setNewListName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && newListName.trim()) {
+                          const trimmed = newListName.trim();
+                          // Add all selected books to the new list
+                          Array.from(selectedBookIds).forEach(id => {
+                            const book = books.find(b => b.id === id);
+                            if (book && !book.lists?.includes(trimmed)) {
+                              const newLists = [...(book.lists || []), trimmed];
+                              handleUpdateBookLists(id, newLists);
+                            }
+                          });
+                          setNewListName('');
+                          setShowNewListInput(false);
+                        } else if (e.key === 'Escape') {
+                          setNewListName('');
+                          setShowNewListInput(false);
+                        }
+                      }}
+                      placeholder="List name..."
+                      className="flex-1 text-sm bg-white/30 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 outline-none focus:ring-1 focus:ring-blue-400/50"
+                    />
+                    <button
+                      onClick={() => {
+                        if (newListName.trim()) {
+                          const trimmed = newListName.trim();
+                          Array.from(selectedBookIds).forEach(id => {
+                            const book = books.find(b => b.id === id);
+                            if (book && !book.lists?.includes(trimmed)) {
+                              const newLists = [...(book.lists || []), trimmed];
+                              handleUpdateBookLists(id, newLists);
+                            }
+                          });
+                          setNewListName('');
+                          setShowNewListInput(false);
+                        }
+                      }}
+                      className="text-blue-600 text-sm font-bold px-2"
+                    >
+                      Add
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowNewListInput(true)}
+                    className="w-full px-5 py-3 flex items-center gap-3 text-sm font-medium text-blue-600 hover:bg-white/20 active:bg-white/30 transition-colors"
+                  >
+                    <Plus size={14} />
+                    <span>New list</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Safe area padding */}
+              <div className="h-8" />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Reading Book Picker Modal */}
       <AnimatePresence>
         {showReadingBookPicker && (
@@ -10918,7 +11520,7 @@ export default function App() {
                         <button
                           onClick={() => {
                             setShowReadingBookPicker(false);
-                            setIsAdding(true);
+                            openAddBookSheet();
                           }}
                           className="mt-4 px-4 py-2 rounded-lg font-bold text-sm text-white active:scale-95 transition-all"
                           style={{
@@ -11003,7 +11605,8 @@ export default function App() {
       {screenshotMode && (
         <>
           <div
-            className="fixed bottom-12 left-0 right-0 z-[10000] flex justify-center px-6 pointer-events-none"
+            className="fixed left-0 right-0 z-[10000] flex justify-center px-6 pointer-events-none"
+            style={{ bottom: 'calc(48px + var(--safe-area-bottom))' }}
           >
             <div
               className="text-center"
