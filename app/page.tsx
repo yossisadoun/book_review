@@ -4823,7 +4823,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -5089,7 +5089,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -5209,7 +5209,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -6222,7 +6222,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
+            style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -6334,7 +6334,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -6471,7 +6471,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -7085,7 +7085,7 @@ export default function App() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
             className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom))' }}
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
               setScrollY(target.scrollTop);
@@ -7853,7 +7853,7 @@ export default function App() {
                       exit={{ opacity: 0, scale: 0.9, y: 10 }}
                       transition={{ duration: 0.2 }}
                       className="absolute right-4 z-[60] rounded-xl overflow-hidden"
-                      style={{ ...standardGlassmorphicStyle, bottom: 'calc(64px + var(--safe-area-bottom))' }}
+                      style={{ ...standardGlassmorphicStyle, bottom: 'calc(64px + var(--safe-area-bottom, 0px))' }}
                     >
                       <button
                         onClick={handleDelete}
@@ -7881,7 +7881,7 @@ export default function App() {
                     animate={{ opacity: 1, y: 0 }} 
                     exit={{ opacity: 0, y: 20 }} 
                     className="absolute left-4 right-4 z-40 flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden"
-                    style={{ ...standardGlassmorphicStyle, bottom: 'calc(64px + var(--safe-area-bottom))' }}
+                    style={{ ...standardGlassmorphicStyle, bottom: 'calc(64px + var(--safe-area-bottom, 0px))' }}
                     onClick={(e) => e.stopPropagation()}
                   >
                     {showReadingStatusSelection ? (
@@ -7994,7 +7994,7 @@ export default function App() {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 20 }}
                       className="absolute left-4 right-4 z-[101] flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden"
-                      style={{ ...standardGlassmorphicStyle, bottom: 'calc(64px + var(--safe-area-bottom))' }}
+                      style={{ ...standardGlassmorphicStyle, bottom: 'calc(64px + var(--safe-area-bottom, 0px))' }}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex flex-col items-center gap-1">
@@ -8061,7 +8061,7 @@ export default function App() {
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3, delay: 0.3 }}
                     className="absolute right-4 z-30"
-                    style={{ bottom: 'calc(16px + var(--safe-area-bottom))' }}
+                    style={{ bottom: 'calc(16px + var(--safe-area-bottom, 0px))' }}
                   >
                     <button
                       onClick={() => setShowBookMenu(!showBookMenu)}
@@ -8147,7 +8147,7 @@ export default function App() {
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3, delay: 0.3 }}
                     className="absolute left-4 z-30 flex items-center gap-2"
-                    style={{ bottom: 'calc(16px + var(--safe-area-bottom))' }}
+                    style={{ bottom: 'calc(16px + var(--safe-area-bottom, 0px))' }}
                   >
                     {/* Rating button */}
                     <button
@@ -8999,7 +8999,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Bottom Navigation Bar / Selection Mode Action Bar */}
-      <div className="fixed left-0 right-0 z-[50] flex justify-center px-4 pointer-events-none" style={{ bottom: 'calc(16px + var(--safe-area-bottom))' }}>
+      <div className="fixed left-0 right-0 z-[50] flex justify-center px-4 pointer-events-none" style={{ bottom: 'calc(16px + var(--safe-area-bottom, 0px))' }}>
         <AnimatePresence mode="wait">
         {isSelectMode && selectedBookIds.size > 0 ? (
           <motion.div
@@ -11688,7 +11688,7 @@ export default function App() {
         <>
           <div
             className="fixed left-0 right-0 z-[10000] flex justify-center px-6 pointer-events-none"
-            style={{ bottom: 'calc(48px + var(--safe-area-bottom))' }}
+            style={{ bottom: 'calc(48px + var(--safe-area-bottom, 0px))' }}
           >
             <div
               className="text-center"
