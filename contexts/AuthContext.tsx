@@ -1,20 +1,27 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { closeSystemBrowser, isNativePlatform, listenForAppUrlOpen, openSystemBrowser, registerForPushNotifications } from '@/lib/capacitor';
 // @capacitor-community/apple-sign-in is dynamically imported in signInWithApple()
 // Static imports break CI where the native module can't resolve.
 
+const PENDING_MIGRATION_KEY = 'pending_guest_migration';
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
   isReviewer: boolean;
+  isAnonymous: boolean;
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
   signInAsReviewer: () => Promise<void>;
+  signInAnonymously: () => Promise<void>;
+  savePendingMigration: () => void;
+  linkWithGoogle: () => Promise<void>;
+  onLinkError: (callback: (errorCode: string) => void) => () => void;
   signOut: () => Promise<void>;
 }
 
@@ -25,6 +32,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const isReviewer = user?.email === 'reviewer@bookreview.app';
+  const isAnonymous = user?.is_anonymous === true;
+  const linkErrorCallbacksRef = useRef<Set<(errorCode: string) => void>>(new Set());
+  const migrationRunRef = useRef(false);
+
+  const onLinkError = useCallback((callback: (errorCode: string) => void) => {
+    linkErrorCallbacksRef.current.add(callback);
+    return () => { linkErrorCallbacksRef.current.delete(callback); };
+  }, []);
+
+  // Save the current anonymous user ID so we can migrate their books after connecting
+  function savePendingMigration() {
+    if (user?.is_anonymous && user.id) {
+      localStorage.setItem(PENDING_MIGRATION_KEY, JSON.stringify({
+        anonymousUserId: user.id,
+        timestamp: Date.now(),
+      }));
+      console.log('🔗 Saved pending migration for anonymous user:', user.id);
+    }
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -59,11 +85,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+
+      // Reset migration guard when user signs out or becomes anonymous
+      const newUser = session?.user;
+      if (!newUser || newUser.is_anonymous) {
+        migrationRunRef.current = false;
+      }
+
+      // Check for pending guest migration after signing into a real account
+      if (newUser && !newUser.is_anonymous && !migrationRunRef.current) {
+        const raw = localStorage.getItem(PENDING_MIGRATION_KEY);
+        if (raw) {
+          migrationRunRef.current = true;
+          localStorage.removeItem(PENDING_MIGRATION_KEY);
+          try {
+            const { anonymousUserId, timestamp } = JSON.parse(raw);
+            console.log('🔗 Migration check:', { anonymousUserId, newUserId: newUser.id, ageMs: Date.now() - timestamp });
+            // Only migrate if saved within the last 5 minutes and user IDs differ
+            if (Date.now() - timestamp < 5 * 60 * 1000 && anonymousUserId !== newUser.id) {
+              console.log('🔗 Running pending migration from', anonymousUserId, 'to', newUser.id);
+              const { data: migratedCount, error: migrateError } = await supabase.rpc('migrate_anonymous_books', {
+                old_user_id: anonymousUserId,
+                new_user_id: newUser.id,
+              });
+              if (migrateError) {
+                console.error('🔗 Migration failed:', migrateError);
+              } else {
+                console.log('🔗 Migrated', migratedCount, 'books');
+                if (typeof migratedCount === 'number' && migratedCount > 0) {
+                  localStorage.setItem('migrated_books_count', String(migratedCount));
+                  window.location.reload();
+                }
+              }
+            }
+          } catch (e) {
+            console.error('🔗 Migration parse error:', e);
+          }
+        } else {
+          console.log('🔗 No pending migration key found');
+        }
+      }
     });
 
     return () => {
@@ -78,6 +144,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!url || !url.includes('auth/callback')) return;
       try {
         const parsedUrl = new URL(url);
+
+        // Check for error in query params or hash (e.g. identity_already_exists from linkIdentity)
+        const errorCode = parsedUrl.searchParams.get('error_code');
+        const hashParams = new URLSearchParams(parsedUrl.hash.replace(/^#/, ''));
+        const hashErrorCode = hashParams.get('error_code');
+        const detectedError = errorCode || hashErrorCode;
+
+        if (detectedError) {
+          await closeSystemBrowser();
+          linkErrorCallbacksRef.current.forEach(cb => cb(detectedError));
+          return;
+        }
+
         const code = parsedUrl.searchParams.get('code');
 
         if (code) {
@@ -86,7 +165,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const hashParams = new URLSearchParams(parsedUrl.hash.replace(/^#/, ''));
         const accessToken = hashParams.get('access_token');
         const refreshToken = hashParams.get('refresh_token');
 
@@ -126,14 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const redirectTo = isNativePlatform
       ? 'bookreview://auth/callback'
       : `${window.location.origin}${basePath}/auth/callback`;
-    
-    console.log('🔐 OAuth Sign-In Details:');
-    console.log('  Current origin:', window.location.origin);
-    console.log('  Is localhost:', isLocalhost);
-    console.log('  Base path:', basePath);
-    console.log('  Redirect URL:', redirectTo);
-    console.log('  ⚠️  Make sure this URL is added to Supabase Dashboard → Authentication → URL Configuration → Redirect URLs');
-    
+
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -155,15 +226,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function signInWithApple() {
     try {
       // @ts-ignore - native-only module, not available in CI web builds
-      const { SignInWithApple } = await import(/* webpackIgnore: true */ '@capacitor-community/apple-sign-in');
+      const { SignInWithApple } = await import('@capacitor-community/apple-sign-in');
 
-      const options = {
+      const result = await SignInWithApple.authorize({
         clientId: 'com.bookreview.app',
         redirectURI: 'https://bookreview.app',
         scopes: 'email name',
-      };
-
-      const result = await SignInWithApple.authorize(options);
+      });
 
       const identityToken = result.response.identityToken;
       if (!identityToken) {
@@ -176,7 +245,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (error) {
-        console.error('Error signing in with Apple:', error);
         throw error;
       }
 
@@ -194,7 +262,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error?.message?.includes('cancel') || error?.code === 'ERR_REQUEST_CANCELED') {
         return;
       }
-      console.error('Error in signInWithApple:', error);
+      console.error('🍎 Apple Sign-In FAILED:', error?.message || error?.code || error?.error || JSON.stringify(error, Object.getOwnPropertyNames(error || {})));
       throw error;
     }
   }
@@ -207,6 +275,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) {
       console.error('Error signing in as reviewer:', error);
       throw error;
+    }
+  }
+
+  async function signInAnonymously() {
+    const { error } = await supabase.auth.signInAnonymously();
+    if (error) {
+      console.error('Error signing in anonymously:', error);
+      throw error;
+    }
+  }
+
+  async function linkWithGoogle() {
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const isCapacitor = window.location.protocol === 'capacitor:' || window.location.protocol === 'ionic:';
+    const basePath = isLocalhost || isCapacitor ? '' : (window.location.pathname.split('/').slice(0, 2).join('/') || '');
+
+    const redirectTo = isNativePlatform
+      ? 'bookreview://auth/callback'
+      : `${window.location.origin}${basePath}/auth/callback`;
+
+    const { data, error } = await supabase.auth.linkIdentity({
+      provider: 'google',
+      options: {
+        redirectTo,
+        skipBrowserRedirect: isNativePlatform,
+      },
+    });
+
+    if (error) {
+      console.error('Error linking Google identity:', error);
+      throw error;
+    }
+
+    if (isNativePlatform && data?.url) {
+      await openSystemBrowser(data.url);
     }
   }
 
@@ -231,7 +334,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, isReviewer, signInWithGoogle, signInWithApple, signInAsReviewer, signOut }}>
+    <AuthContext.Provider value={{ user, session, loading, isReviewer, isAnonymous, signInWithGoogle, signInWithApple, signInAsReviewer, signInAnonymously, savePendingMigration, linkWithGoogle, onLinkError, signOut }}>
       {children}
     </AuthContext.Provider>
   );

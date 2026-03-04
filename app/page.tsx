@@ -175,6 +175,23 @@ import { getPodcastEpisodes } from './services/podcast-service';
 import { getRelatedBooks } from './services/related-books-service';
 import { createFriendBookFeedItem, generateFeedItemsForBook, getPersonalizedFeed, markFeedItemsAsShown, getReadFeedItems, setFeedItemReadStatus, getSpoilerRevealedFromStorage, loadSpoilerRevealedFromStorage, saveSpoilerRevealedToStorage } from './services/feed-service';
 
+const AVATAR_GRADIENTS = [
+  'linear-gradient(135deg, #667eea, #764ba2)',
+  'linear-gradient(135deg, #f093fb, #f5576c)',
+  'linear-gradient(135deg, #4facfe, #00f2fe)',
+  'linear-gradient(135deg, #43e97b, #38f9d7)',
+  'linear-gradient(135deg, #fa709a, #fee140)',
+  'linear-gradient(135deg, #a18cd1, #fbc2eb)',
+  'linear-gradient(135deg, #fccb90, #d57eeb)',
+  'linear-gradient(135deg, #e0c3fc, #8ec5fc)',
+];
+
+function avatarGradient(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
+}
+
 export default function App() {
   const { user, loading: authLoading, signOut, isReviewer, isAnonymous } = useAuth();
   const [books, setBooks] = useState<BookWithRatings[]>([]);
@@ -206,6 +223,7 @@ export default function App() {
   const [isAdding, setIsAdding] = useState(false);
   const [showConnectAccountModal, setShowConnectAccountModal] = useState(false);
   const [connectAccountReason, setConnectAccountReason] = useState<'book_limit' | 'follow' | 'feed'>('book_limit');
+  const [migratedBooksCount, setMigratedBooksCount] = useState<number | null>(null);
   const [nudgeBannerDismissed, setNudgeBannerDismissed] = useState(true); // Default true, loaded on mount
   const [isLoaded, setIsLoaded] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -1420,6 +1438,15 @@ export default function App() {
       setNudgeBannerDismissed(val === 'true');
     });
   }, [isAnonymous]);
+
+  // Check for migrated books count after reload (set by AuthContext migration)
+  useEffect(() => {
+    const count = localStorage.getItem('migrated_books_count');
+    if (count) {
+      localStorage.removeItem('migrated_books_count');
+      setMigratedBooksCount(parseInt(count, 10));
+    }
+  }, []);
 
   // Save page state to localStorage whenever it changes
   useEffect(() => {
@@ -4856,12 +4883,12 @@ export default function App() {
                         <img
                           src={userAvatar}
                           alt={userName}
-                          className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
+                          className="w-16 h-16 shrink-0 rounded-full object-cover border-2 border-white/50"
                           referrerPolicy="no-referrer"
                         />
                       ) : (
-                        <div className="w-16 h-16 rounded-full bg-slate-300 flex items-center justify-center border-2 border-white/50">
-                          <span className="text-2xl font-bold text-slate-600">
+                        <div className="w-16 h-16 shrink-0 rounded-full flex items-center justify-center border-2 border-white/50" style={{ background: avatarGradient(user?.id || userName) }}>
+                          <span className="text-2xl font-bold text-white">
                             {userName.charAt(0).toUpperCase()}
                           </span>
                         </div>
@@ -5148,12 +5175,12 @@ export default function App() {
                         <img
                           src={followedUser.avatar_url}
                           alt={followedUser.full_name || followedUser.email}
-                          className="w-12 h-12 rounded-full object-cover border-2 border-white/50"
+                          className="w-12 h-12 shrink-0 rounded-full object-cover border-2 border-white/50"
                           referrerPolicy="no-referrer"
                         />
                       ) : (
-                        <div className="w-12 h-12 rounded-full bg-purple-300 flex items-center justify-center border-2 border-white/50">
-                          <span className="text-lg font-bold text-purple-700">
+                        <div className="w-12 h-12 shrink-0 rounded-full flex items-center justify-center border-2 border-white/50" style={{ background: avatarGradient(followedUser.id) }}>
+                          <span className="text-lg font-bold text-white">
                             {(followedUser.full_name || followedUser.email).charAt(0).toUpperCase()}
                           </span>
                         </div>
@@ -6548,12 +6575,12 @@ export default function App() {
                             <img
                               src={userAvatar}
                               alt={userName}
-                              className="w-16 h-16 rounded-full object-cover border-2 border-white/50"
+                              className="w-16 h-16 shrink-0 rounded-full object-cover border-2 border-white/50"
                               referrerPolicy="no-referrer"
                             />
                           ) : (
-                            <div className="w-16 h-16 rounded-full bg-slate-300 flex items-center justify-center border-2 border-white/50">
-                              <span className="text-2xl font-bold text-slate-600">
+                            <div className="w-16 h-16 shrink-0 rounded-full flex items-center justify-center border-2 border-white/50" style={{ background: avatarGradient(user?.id || userName) }}>
+                              <span className="text-2xl font-bold text-white">
                                 {userName.charAt(0).toUpperCase()}
                               </span>
                             </div>
@@ -6598,8 +6625,8 @@ export default function App() {
                           referrerPolicy="no-referrer"
                         />
                       ) : (
-                        <div className="w-16 h-16 rounded-full bg-purple-300 flex items-center justify-center border-2 border-white/50">
-                          <span className="text-2xl font-bold text-purple-700">
+                        <div className="w-16 h-16 rounded-full flex items-center justify-center border-2 border-white/50" style={{ background: avatarGradient(viewingUserId || viewingUserName) }}>
+                          <span className="text-2xl font-bold text-white">
                             {(viewingUserFullName || viewingUserName).charAt(0).toUpperCase()}
                           </span>
                         </div>
@@ -8281,69 +8308,68 @@ export default function App() {
                         </motion.div>
                       ) : (
                         <>
-                          {/* Stacked profile pictures - current user first */}
-                          <div className="flex -space-x-2">
-                            {/* Current user always first */}
-                            {userAvatar ? (
-                              <img
-                                src={userAvatar}
-                                alt={userName}
-                                className="w-8 h-8 rounded-full border-2 border-emerald-400 object-cover"
-                                style={{ zIndex: 7 }}
-                                title={`${userName} (you)`}
-                                referrerPolicy="no-referrer"
-                              />
-                            ) : (
-                              <div
-                                className="w-8 h-8 rounded-full border-2 border-emerald-400 bg-emerald-100 flex items-center justify-center text-xs font-bold text-emerald-600"
-                                style={{ zIndex: 7 }}
-                                title={`${userName} (you)`}
-                              >
-                                {userName.charAt(0).toUpperCase()}
+                          {/* Stacked profile pictures — max 3 thumbnails, prioritise other readers */}
+                          {(() => {
+                            const hasBot = !!(activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id));
+                            const sortedReaders = [...bookReaders].sort((a, b) => (b.isFollowing ? 1 : 0) - (a.isFollowing ? 1 : 0));
+                            const maxReaders = Math.min(sortedReaders.length, 3);
+                            const slotsLeft = 3 - maxReaders;
+                            const showBot = hasBot && slotsLeft > 0;
+                            const showMe = slotsLeft > (showBot ? 1 : 0);
+                            return (
+                              <div className="flex -space-x-2">
+                                {showMe && (userAvatar ? (
+                                  <img
+                                    src={userAvatar}
+                                    alt={userName}
+                                    className="w-8 h-8 shrink-0 rounded-full border-2 border-emerald-400 object-cover"
+                                    style={{ zIndex: 7 }}
+                                    title={`${userName} (you)`}
+                                    referrerPolicy="no-referrer"
+                                  />
+                                ) : (
+                                  <div
+                                    className="w-8 h-8 shrink-0 rounded-full border-2 border-emerald-400 flex items-center justify-center text-xs font-bold text-white"
+                                    style={{ zIndex: 7, background: avatarGradient(user?.id || userName) }}
+                                    title={`${userName} (you)`}
+                                  >
+                                    {userName.charAt(0).toUpperCase()}
+                                  </div>
+                                ))}
+                                {showBot && (
+                                  <div
+                                    className="w-8 h-8 shrink-0 rounded-full border-2 border-sky-400 bg-gradient-to-br from-sky-100 to-sky-200 flex items-center justify-center"
+                                    style={{ zIndex: 6 }}
+                                    title="Book Expert Bot"
+                                  >
+                                    <Bot className="w-4 h-4 text-sky-600" />
+                                  </div>
+                                )}
+                                {sortedReaders.slice(0, maxReaders).map((reader, index) => (
+                                  reader.avatar ? (
+                                    <img
+                                      key={reader.id}
+                                      src={reader.avatar}
+                                      alt={reader.name}
+                                      className="w-8 h-8 shrink-0 rounded-full border-2 border-white object-cover"
+                                      style={{ zIndex: 4 - index }}
+                                      title={reader.name}
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  ) : (
+                                    <div
+                                      key={reader.id}
+                                      className="w-8 h-8 shrink-0 rounded-full border-2 border-white flex items-center justify-center text-xs font-bold text-white"
+                                      style={{ zIndex: 4 - index, background: avatarGradient(reader.id) }}
+                                      title={reader.name}
+                                    >
+                                      {reader.name.charAt(0).toUpperCase()}
+                                    </div>
+                                  )
+                                ))}
                               </div>
-                            )}
-                            {/* Bot reader - shown when Telegram topic exists */}
-                            {activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id) && (
-                              <div
-                                className="w-8 h-8 rounded-full border-2 border-sky-400 bg-gradient-to-br from-sky-100 to-sky-200 flex items-center justify-center"
-                                style={{ zIndex: 6 }}
-                                title="Book Expert Bot"
-                              >
-                                <Bot className="w-4 h-4 text-sky-600" />
-                              </div>
-                            )}
-                            {/* Other readers */}
-                            {bookReaders.slice(0, 4).map((reader, index) => (
-                              reader.avatar ? (
-                                <img
-                                  key={reader.id}
-                                  src={reader.avatar}
-                                  alt={reader.name}
-                                  className="w-8 h-8 rounded-full border-2 border-white object-cover"
-                                  style={{ zIndex: 4 - index }}
-                                  title={reader.name}
-                                  referrerPolicy="no-referrer"
-                                />
-                              ) : (
-                                <div
-                                  key={reader.id}
-                                  className="w-8 h-8 rounded-full border-2 border-white bg-slate-300 flex items-center justify-center text-xs font-bold text-slate-600"
-                                  style={{ zIndex: 4 - index }}
-                                  title={reader.name}
-                                >
-                                  {reader.name.charAt(0).toUpperCase()}
-                                </div>
-                              )
-                            ))}
-                            {bookReaders.length > 4 && (
-                              <div
-                                className="w-8 h-8 rounded-full border-2 border-white bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600"
-                                style={{ zIndex: 0 }}
-                              >
-                                +{bookReaders.length - 4}
-                              </div>
-                            )}
-                          </div>
+                            );
+                          })()}
                           <span className="text-xs text-slate-600 ml-1">
                             {bookReaders.length + 1 + (activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id) ? 1 : 0)} {bookReaders.length === 0 && !(activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id)) ? 'reader' : 'readers'}
                           </span>
@@ -10090,6 +10116,61 @@ export default function App() {
         bookCount={books.length}
       />
 
+      {/* Migration success toast */}
+      <AnimatePresence>
+        {migratedBooksCount !== null && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-6"
+            onClick={() => setMigratedBooksCount(null)}
+          >
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300, duration: 0.4 }}
+              className="relative w-full max-w-sm rounded-xl p-6 text-center"
+              style={{
+                background: 'rgba(255, 255, 255, 0.6)',
+                backdropFilter: 'blur(9.4px)',
+                WebkitBackdropFilter: 'blur(9.4px)',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                boxShadow: '0 8px 40px rgba(0, 0, 0, 0.12)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-14 h-14 mx-auto mb-4 rounded-full flex items-center justify-center"
+                style={{
+                  background: 'rgba(34, 197, 94, 0.1)',
+                  border: '1px solid rgba(34, 197, 94, 0.2)',
+                }}
+              >
+                <Library size={24} className="text-green-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 mb-2">Books migrated</h3>
+              <p className="text-sm text-slate-600 mb-5">
+                {migratedBooksCount} book{migratedBooksCount !== 1 ? 's' : ''} from your guest account {migratedBooksCount !== 1 ? 'have' : 'has'} been added to your library.
+              </p>
+              <button
+                onClick={() => setMigratedBooksCount(null)}
+                className="w-[180px] h-[44px] mx-auto rounded-lg flex items-center justify-center text-white font-bold active:scale-95 transition-all"
+                style={{
+                  background: 'rgba(59, 130, 246, 0.85)',
+                  backdropFilter: 'blur(9.4px)',
+                  WebkitBackdropFilter: 'blur(9.4px)',
+                  border: '1px solid rgba(59, 130, 246, 0.3)',
+                }}
+              >
+                Got it
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
           {isAdding && (
             <AddBookSheet
@@ -10177,13 +10258,14 @@ export default function App() {
                           key={reader.id}
                           src={reader.avatar}
                           alt={reader.name}
-                          className="w-6 h-6 rounded-full border border-white object-cover"
+                          className="w-6 h-6 shrink-0 rounded-full border border-white object-cover"
                           referrerPolicy="no-referrer"
                         />
                       ) : (
                         <div
                           key={reader.id}
-                          className="w-6 h-6 rounded-full border border-white bg-slate-300 flex items-center justify-center text-[10px] font-bold text-slate-600"
+                          className="w-6 h-6 shrink-0 rounded-full border border-white flex items-center justify-center text-[10px] font-bold text-white"
+                          style={{ background: avatarGradient(reader.id) }}
                           title={reader.name}
                         >
                           {reader.name.charAt(0).toUpperCase()}
