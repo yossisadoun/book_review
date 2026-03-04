@@ -189,6 +189,7 @@ export interface Book {
   podcast_episodes_apple?: PodcastEpisode[] | null; // JSON array of podcast episodes from Apple Podcasts
   podcast_episodes_curated?: PodcastEpisode[] | null; // JSON array of podcast episodes from curated source
   notes?: string | null; // User notes for the book
+  lists?: string[] | null; // Custom user lists this book belongs to
   created_at: string;
   updated_at: string;
 }
@@ -209,6 +210,7 @@ export interface BookWithRatings extends Omit<Book, 'rating_writing' | 'rating_i
   podcast_episodes_apple?: PodcastEpisode[]; // Podcast episodes from Apple Podcasts
   podcast_episodes_curated?: PodcastEpisode[]; // Podcast episodes from curated source
   notes?: string | null; // User notes for the book
+  lists?: string[] | null; // Custom user lists this book belongs to
 }
 
 // Discussion questions interface
