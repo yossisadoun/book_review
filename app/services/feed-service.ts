@@ -83,6 +83,10 @@ export async function generateFeedItemsForBook(
 
   // Helper to create and insert feed item
   async function insertFeedItem(type: FeedItemType, content: FeedItemContent): Promise<boolean> {
+    // Skip if session expired (e.g. user signed out while feed was generating)
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return false;
+
     const feedItem = {
       user_id: userId,
       source_book_id: bookId,
