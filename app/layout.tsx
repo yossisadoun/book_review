@@ -4,9 +4,9 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import Script from "next/script";
 
 // Get basePath for metadata (handles GitHub Pages basePath)
-// In development, basePath is empty; in production (GitHub Pages), it's /book_review
-// Use empty for now - script will update at runtime
-const basePath = '';
+const isCapacitor = process.env.CAPACITOR === '1';
+const isProduction = process.env.NODE_ENV === 'production';
+const basePath = isProduction && !isCapacitor ? '/book_review' : '';
 
 export const metadata: Metadata = {
   title: "Book.luv",
@@ -20,11 +20,11 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/icon.png', sizes: 'any' },
-      { url: '/icon.png', type: 'image/png' },
+      { url: `${basePath}/icon.png`, sizes: 'any' },
+      { url: `${basePath}/icon.png`, type: 'image/png' },
     ],
     apple: [
-      { url: '/icon.png', sizes: '180x180', type: 'image/png' },
+      { url: `${basePath}/icon.png`, sizes: '180x180', type: 'image/png' },
     ],
   },
   appleWebApp: {
@@ -32,9 +32,9 @@ export const metadata: Metadata = {
     statusBarStyle: 'default',
     title: 'Book.luv',
   },
-  manifest: '/manifest.json',
+  manifest: `${basePath}/manifest.json`,
   other: {
-    'apple-touch-icon': '/icon.png',
+    'apple-touch-icon': `${basePath}/icon.png`,
   },
 };
 
@@ -66,6 +66,16 @@ export default function RootLayout({
                 document.head.appendChild(viewport);
               }
             })();
+
+            // Prevent triple-tap zoom on iOS
+            var lastTouchEnd = 0;
+            document.addEventListener('touchend', function(e) {
+              var now = Date.now();
+              if (now - lastTouchEnd <= 500) {
+                e.preventDefault();
+              }
+              lastTouchEnd = now;
+            }, { passive: false });
           `}
         </Script>
         <Script id="fix-favicon-paths" strategy="afterInteractive">

@@ -1,13 +1,16 @@
 import React from 'react';
 
 export function getAssetPath(path: string): string {
-  if (typeof window === 'undefined') return path;
+  if (typeof window === 'undefined') {
+    // SSR/build: use basePath for production non-Capacitor builds
+    const isCapacitor = process.env.CAPACITOR === '1';
+    const isProduction = process.env.NODE_ENV === 'production';
+    return isProduction && !isCapacitor ? `/book_review${path}` : path;
+  }
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   const isCapacitor = window.location.protocol === 'capacitor:' || window.location.protocol === 'ionic:';
   if (isLocalhost || isCapacitor) return path;
-  // Check if pathname starts with /book_review (GitHub Pages basePath)
-  const pathname = window.location.pathname;
-  if (pathname.startsWith('/book_review')) {
+  if (window.location.pathname.startsWith('/book_review')) {
     return `/book_review${path}`;
   }
   return path;
