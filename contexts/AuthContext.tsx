@@ -226,7 +226,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function signInWithApple() {
     try {
       // @ts-ignore - native-only module, not available in CI web builds
-      const { SignInWithApple } = await import('@capacitor-community/apple-sign-in');
+      const { SignInWithApple } = await import(/* webpackIgnore: true */ '@capacitor-community/apple-sign-in');
 
       const result = await SignInWithApple.authorize({
         clientId: 'com.bookreview.app',
