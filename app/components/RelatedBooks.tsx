@@ -2,20 +2,20 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookMarked, BookOpen, CheckCircle2 } from 'lucide-react';
-import { decodeHtmlEntities } from './utils';
+import { BookMarked, BookOpen, CheckCircle2, Minimize2, Maximize2 } from 'lucide-react';
+import { decodeHtmlEntities, useImageBrightness } from './utils';
 
 interface PodcastEpisode {
   title: string;
   length?: string;
   air_date?: string;
   url: string;
-  audioUrl?: string; // Direct audio URL for playback (from Apple Podcasts episodeUrl)
+  audioUrl?: string;
   platform: string;
-  podcast_name?: string; // Name of the podcast show
+  podcast_name?: string;
   episode_summary: string;
   podcast_summary: string;
-  thumbnail?: string; // Episode or show thumbnail image URL
+  thumbnail?: string;
 }
 
 type ReadingStatus = 'read_it' | 'reading' | 'want_to_read' | null;
@@ -23,7 +23,7 @@ type ReadingStatus = 'read_it' | 'reading' | 'want_to_read' | null;
 interface Book {
   id: string;
   user_id: string;
-  canonical_book_id?: string; // Normalized identifier for deduplication
+  canonical_book_id?: string;
   title: string;
   author: string;
   publish_year?: number | null;
@@ -33,19 +33,19 @@ interface Book {
   cover_url?: string | null;
   wikipedia_url?: string | null;
   google_books_url?: string | null;
-  summary?: string | null; // Book synopsis/summary from Apple Books or Wikipedia
+  summary?: string | null;
   rating_writing?: number | null;
   rating_insights?: number | null;
   rating_flow?: number | null;
   rating_world?: number | null;
   rating_characters?: number | null;
-  reading_status?: ReadingStatus; // Reading status: 'read_it', 'reading', 'want_to_read', or null
-  author_facts?: string[] | null; // JSON array of author facts
-  podcast_episodes?: PodcastEpisode[] | null; // JSON array of podcast episodes (deprecated - use source-specific columns)
-  podcast_episodes_grok?: PodcastEpisode[] | null; // JSON array of podcast episodes from Grok
-  podcast_episodes_apple?: PodcastEpisode[] | null; // JSON array of podcast episodes from Apple Podcasts
-  podcast_episodes_curated?: PodcastEpisode[] | null; // JSON array of podcast episodes from curated source
-  notes?: string | null; // User notes for the book
+  reading_status?: ReadingStatus;
+  author_facts?: string[] | null;
+  podcast_episodes?: PodcastEpisode[] | null;
+  podcast_episodes_grok?: PodcastEpisode[] | null;
+  podcast_episodes_apple?: PodcastEpisode[] | null;
+  podcast_episodes_curated?: PodcastEpisode[] | null;
+  notes?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -72,11 +72,11 @@ interface RelatedBooksProps {
 function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBooksProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
 
-  // Consistent glassmorphism style (less transparent for book page info cards)
   const glassmorphicStyle: React.CSSProperties = {
     background: 'rgba(255, 255, 255, 0.45)',
     borderRadius: '16px',
@@ -86,14 +86,32 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
     border: '1px solid rgba(255, 255, 255, 0.2)',
   };
 
+  const coverImage = books[currentIndex]?.cover_url || books[currentIndex]?.thumbnail;
+  const imageBrightness = useImageBrightness(coverImage);
+
+  const overlayGlassStyle: React.CSSProperties = imageBrightness === 'light'
+    ? {
+        background: 'rgba(0, 0, 0, 0.35)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
+      }
+    : {
+        background: 'rgba(255, 255, 255, 0.25)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        border: '1px solid rgba(255, 255, 255, 0.3)',
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+      };
+
   useEffect(() => {
-    // Reset when book changes
     setCurrentIndex(0);
     setIsVisible(false);
+    setIsMinimized(false);
 
     if (books.length === 0) return;
 
-    // Show first book after a short delay
     const timeout = setTimeout(() => {
       setIsVisible(true);
     }, 1000);
@@ -103,7 +121,6 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
 
   function handleNext() {
     setIsVisible(false);
-    // Wait for fade out, then show next (or loop back to first)
     setTimeout(() => {
       setCurrentIndex(prev => (prev + 1) % books.length);
       setIsVisible(true);
@@ -124,9 +141,9 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
     const distanceY = touchStart.y - touchEnd.y;
     if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
       if (distanceX > 0) {
-        handleNext(); // Swipe left = next
+        handleNext();
       } else {
-        handlePrev(); // Swipe right = prev
+        handlePrev();
       }
     }
     setTouchStart(null);
@@ -136,25 +153,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
   if (isLoading) {
     return (
       <div className="w-full">
-        <motion.div
-          animate={{ opacity: [0.5, 0.8, 0.5] }}
-          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="rounded-xl p-4"
-          style={glassmorphicStyle}
-        >
-          <div className="flex items-start gap-3 mb-3">
-            <div className="w-16 h-20 bg-slate-300/50 rounded-lg animate-pulse flex-shrink-0" />
-            <div className="flex-1 space-y-2">
-              <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-              <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
-              <div className="w-20 h-6 bg-slate-300/50 rounded-lg animate-pulse mt-2" />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
-            <div className="w-4/5 h-3 bg-slate-300/50 rounded animate-pulse" />
-          </div>
-        </motion.div>
+        <div className="aspect-[10/9] rounded-2xl bg-slate-300/50 animate-pulse" />
       </div>
     );
   }
@@ -171,7 +170,6 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
 
   const currentBook = books[currentIndex];
 
-  // Stacked cards style (cards behind the main card)
   const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
     ...glassmorphicStyle,
     position: 'absolute' as const,
@@ -182,11 +180,10 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
   });
 
   async function handleAddBook(e: React.MouseEvent) {
-    e.stopPropagation(); // Prevent card flip
+    e.stopPropagation();
 
     if (!onAddBook) return;
 
-    // Convert RelatedBook to Book metadata format
     const bookMeta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> = {
       title: currentBook.title,
       author: currentBook.author,
@@ -204,25 +201,24 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
     <div
       onClick={handleNext}
       onTouchStart={(e) => {
-        e.stopPropagation(); // Prevent book navigation swipe
+        e.stopPropagation();
         const touch = e.touches[0];
         setTouchStart({ x: touch.clientX, y: touch.clientY });
       }}
       onTouchMove={(e) => {
-        e.stopPropagation(); // Prevent book navigation swipe
+        e.stopPropagation();
         if (touchStart) {
           const touch = e.touches[0];
           setTouchEnd({ x: touch.clientX, y: touch.clientY });
         }
       }}
       onTouchEnd={(e) => {
-        e.stopPropagation(); // Prevent book navigation swipe
+        e.stopPropagation();
         handleSwipe();
       }}
       className="w-full cursor-pointer"
     >
       <div className="relative pb-3">
-        {/* Stacked cards effect - only show if multiple items */}
         {books.length > 1 && (
           <>
             <div style={stackedCardStyle(4, 0.96, 0.4)} />
@@ -240,67 +236,102 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
               className="relative rounded-2xl overflow-hidden"
               style={glassmorphicStyle}
             >
-            {/* Header */}
-            <div className="flex items-center gap-3 px-4 pt-3 pb-2">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(245, 158, 11, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
-                <BookMarked size={20} className="text-white" />
-              </div>
-              <div className="flex-1">
-                <p className="font-semibold text-slate-900 text-sm">Related Books</p>
-                <p className="text-xs text-slate-500">Similar books you might enjoy</p>
-              </div>
-            </div>
-            {/* Content */}
-            <div className="px-4 pb-4">
-              <div className="flex items-start gap-3 mb-2">
-                {/* Thumbnail or icon */}
-                {(currentBook.thumbnail || currentBook.cover_url) ? (
-                  <img
-                    src={currentBook.thumbnail || currentBook.cover_url || ''}
-                    alt={currentBook.title}
-                    className="w-16 h-20 object-cover rounded-lg flex-shrink-0 shadow-sm"
-                  />
-                ) : (
-                  <div className="w-16 h-20 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                    <BookOpen size={24} className="text-slate-600" />
-                  </div>
-                )}
+              {/* Header */}
+              <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(245, 158, 11, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                  <BookMarked size={20} className="text-white" />
+                </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-bold text-slate-800 mb-1 line-clamp-2">
+                  <p className="font-semibold text-slate-900 text-sm">Related Books</p>
+                  <p className="text-xs text-slate-500">Similar books you might enjoy</p>
+                </div>
+                {books.length > 1 && (
+                  <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
+                    {currentIndex + 1}/{books.length}
+                  </span>
+                )}
+              </div>
+              {/* Image area */}
+              <div className="relative aspect-[2/3]">
+              {coverImage ? (
+                <img
+                  src={coverImage}
+                  alt={decodeHtmlEntities(currentBook.title)}
+                  className="absolute inset-0 w-full h-full object-contain"
+                />
+              ) : (
+                <div className="absolute inset-0 bg-gradient-to-b from-amber-800 to-amber-950 flex items-center justify-center">
+                  <BookOpen size={48} className="text-white/30" />
+                </div>
+              )}
+
+              <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+
+              {/* Floating glassmorphic overlay */}
+              <div
+                className="absolute inset-x-3 bottom-3 rounded-xl px-3 py-2.5 overflow-hidden"
+                style={overlayGlassStyle}
+              >
+                {/* Title + toggle */}
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className={`text-sm font-bold text-white flex-1 min-w-0 ${isMinimized ? 'line-clamp-1' : 'line-clamp-2'}`} style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
                     {decodeHtmlEntities(currentBook.title)}
                   </h3>
-                  <div className="text-xs text-slate-500 mb-2">
-                    <span>{decodeHtmlEntities(currentBook.author)}</span>
-                  </div>
-                  {/* Add Book Button */}
-                  {onAddBook && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
+                    className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"
+                    style={{ background: 'rgba(255, 255, 255, 0.25)' }}
+                  >
+                    {isMinimized ? <Maximize2 size={12} className="text-white/80" /> : <Minimize2 size={12} className="text-white/80" />}
+                  </button>
+                </div>
+
+                {/* Expandable content */}
+                <AnimatePresence initial={false}>
+                  {!isMinimized && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.25, ease: 'easeInOut' }}
+                      className="overflow-hidden mt-0.5"
+                    >
+                      <p className="text-xs text-white/80" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                        {decodeHtmlEntities(currentBook.author)}
+                      </p>
+
+                      {currentBook.reason && (
+                        <p className="text-xs text-white/70 line-clamp-6 mt-1" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                          {decodeHtmlEntities(currentBook.reason)}
+                        </p>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Button row — always visible */}
+                {onAddBook && (
+                  <div className="flex items-center gap-2 pt-2">
                     <button
                       onClick={handleAddBook}
-                      className="py-1.5 px-3 text-white text-[10px] font-bold rounded-lg transition-all duration-200 active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"
-                      style={{ background: '#2563eb' }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
+                      style={{
+                        background: 'rgba(37, 99, 235, 0.85)',
+                        backdropFilter: 'blur(8px)',
+                        WebkitBackdropFilter: 'blur(8px)',
+                        border: '1px solid rgba(37, 99, 235, 0.3)',
+                        color: 'white',
+                      }}
                     >
-                      <CheckCircle2 size={10} />
-                      Add Book
+                      <CheckCircle2 size={14} />
+                      Add to Library
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
-              {currentBook.reason && (
-                <div className="mb-2">
-                  <p className="text-sm text-slate-700 leading-relaxed">
-                    {decodeHtmlEntities(currentBook.reason)}
-                  </p>
-                </div>
-              )}
-              {/* Pagination */}
-              {books.length > 1 && (
-                <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
-                  Tap for next ({currentIndex + 1}/{books.length})
-                </p>
-              )}
-            </div>
-          </motion.div>
-        )}
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
     </div>

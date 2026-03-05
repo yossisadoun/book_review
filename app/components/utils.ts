@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 export function getAssetPath(path: string): string {
   if (typeof window === 'undefined') {
@@ -36,6 +36,55 @@ export function decodeHtmlEntities(text: string): string {
 
 export function isHebrew(text: string): boolean {
   return /[\u0590-\u05FF]/.test(text);
+}
+
+/**
+ * Samples the bottom portion of an image to determine if it's light or dark.
+ * Returns 'light' when the overlay area has a bright background (needs dark glass),
+ * or 'dark' (default, keeps current white glass).
+ */
+export function useImageBrightness(imageUrl: string | undefined): 'light' | 'dark' {
+  const [brightness, setBrightness] = useState<'light' | 'dark'>('dark');
+
+  useEffect(() => {
+    if (!imageUrl) {
+      setBrightness('dark');
+      return;
+    }
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const size = 64; // small sample for performance
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        ctx.drawImage(img, 0, 0, size, size);
+
+        // Sample bottom 40% where the overlay sits
+        const startY = Math.floor(size * 0.6);
+        const data = ctx.getImageData(0, startY, size, size - startY).data;
+
+        let totalLuminance = 0;
+        const pixelCount = data.length / 4;
+        for (let i = 0; i < data.length; i += 4) {
+          totalLuminance += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        }
+
+        const avgBrightness = totalLuminance / pixelCount;
+        setBrightness(avgBrightness > 150 ? 'light' : 'dark');
+      } catch {
+        // CORS or other error — keep default
+      }
+    };
+    img.src = imageUrl;
+  }, [imageUrl]);
+
+  return brightness;
 }
 
 // Consistent glassmorphism style (less transparent for book page info cards)

@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import type { RelatedMovie } from '../types';
 import { fetchWithRetry, grokApiKey, logGrokUsage } from './api-utils';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
-import { lookupMoviesOnItunes } from './apple-books-service';
+import { lookupMovieOnWikipedia } from './wikipedia-service';
 
 // --- Related Movies/Shows (Grok API) ---
 export async function getRelatedMovies(bookTitle: string, author: string): Promise<RelatedMovie[]> {
@@ -99,48 +99,28 @@ export async function getRelatedMovies(bookTitle: string, author: string): Promi
     const relatedMovies: RelatedMovie[] = Array.isArray(result) ? result : [];
     console.log('[getRelatedMovies] Received', relatedMovies.length, 'related movies from Grok');
 
-    // Enrich each movie/show with iTunes data (async, in parallel)
-    // Same pattern as related books + lookupBooksOnAppleBooks
-    // Albums are skipped — iTunes media=music redirects to musics:// protocol (CORS blocked in browsers)
+    // Enrich each movie/show/album with Wikipedia data (poster thumbnail + URL)
     const enrichedMovies = await Promise.all(
       relatedMovies.map(async (movie) => {
         try {
-          // Skip iTunes enrichment for albums
-          if (movie.type === 'album') return movie;
+          const searchQuery = movie.title;
+          console.log(`[getRelatedMovies] Searching Wikipedia for: "${searchQuery}"`);
 
-          // Search iTunes for this movie
-          const searchQuery = `${movie.title} ${movie.director}`;
-          console.log(`[getRelatedMovies] Searching iTunes for: "${searchQuery}"`);
+          const wikiResult = await lookupMovieOnWikipedia(searchQuery, movie.type);
 
-          const itunesMovies = await lookupMoviesOnItunes(searchQuery);
-
-          if (itunesMovies.length > 0) {
-            // Find best match (prefer exact title match)
-            const movieTitleLower = movie.title.toLowerCase();
-            let bestMatch = itunesMovies[0];
-
-            for (const itunesMovie of itunesMovies) {
-              const itunesTitleLower = (itunesMovie.title || '').toLowerCase();
-              if (itunesTitleLower === movieTitleLower) {
-                bestMatch = itunesMovie;
-                break;
-              }
-            }
-
-            // Enrich with iTunes data
+          if (wikiResult) {
             return {
               ...movie,
-              poster_url: bestMatch.cover_url || undefined,
-              release_year: bestMatch.release_year ?? undefined,
-              itunes_url: bestMatch.itunes_url || undefined,
-              genre: bestMatch.genre || undefined,
+              poster_url: wikiResult.poster_url || undefined,
+              release_year: wikiResult.release_year ?? movie.release_year,
+              wikipedia_url: wikiResult.wikipedia_url || undefined,
             };
           }
 
           return movie;
         } catch (err) {
           console.error(`[getRelatedMovies] Error enriching movie "${movie.title}":`, err);
-          return movie; // Return original if enrichment fails
+          return movie;
         }
       })
     );

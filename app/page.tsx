@@ -7714,7 +7714,7 @@ export default function App() {
                       <motion.div key={activeBook.id || 'active-book'} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="relative w-full h-full rounded-lg overflow-hidden border-2 border-white/50 shadow-lg">
                         {activeBook.cover_url ? (
                           <>
-                          <img src={activeBook.cover_url} alt={activeBook.title} className="w-full h-full object-cover" />
+                          <img src={activeBook.cover_url} alt={activeBook.title} className="w-full h-full object-cover" style={{ filter: 'contrast(1.15) saturate(1.25)' }} />
                             {/* Skeuomorphic book effect overlay */}
                             <div 
                               className="absolute inset-0 pointer-events-none rounded-lg"
@@ -7731,9 +7731,9 @@ export default function App() {
                                   rgba(0,0,0,0.05) 3.5%,
                                   rgba(255,255,255,0.3) 4%,
                                   rgba(255,255,255,0.3) 4.5%,
-                                  rgba(244,244,244,0.1) 5.4%,
-                                  rgba(244,244,244,0.1) 99%,
-                                  rgba(144,144,144,0.2) 100%)`
+                                  transparent 5.4%,
+                                  transparent 99%,
+                                  rgba(144,144,144,0.08) 100%)`
                               }}
                             />
                           </>
@@ -8749,18 +8749,12 @@ export default function App() {
                     currentInsights = contextInsights.map(insight => ({ text: insight, label: 'Context' }));
                     isLoading = isLoadingContext;
                   } else if (currentCategory?.id === 'did_you_know') {
-                    // For "Did you know?", combine all 3 notes per item into separate insights
-                    // Include noteIndex (1-3) to show position indicator on each card
-                    // Pass source_url through as sourceUrl for the link button
-                    currentInsights = didYouKnowInsights.flatMap(item =>
-                      item.notes.map((note, idx) => ({
-                        text: note,
-                        label: 'Did you know?',
-                        noteIndex: idx + 1,
-                        totalNotes: 3,
-                        sourceUrl: item.source_url
-                      }))
-                    );
+                    // Combine all 3 notes per item into a single insight card
+                    currentInsights = didYouKnowInsights.map(item => ({
+                      text: item.notes.join('\n\n'),
+                      label: 'Did you know?',
+                      sourceUrl: item.source_url
+                    }));
                     isLoading = isLoadingDidYouKnow;
                   } else if (currentCategory && hasResearch) {
                     const pillar = research.pillars.find(p => p.pillar_name.toLowerCase().replace(/\s+/g, '_') === currentCategory.id);

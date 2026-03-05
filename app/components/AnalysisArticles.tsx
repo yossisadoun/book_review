@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FileText, ExternalLink } from 'lucide-react';
 import { decodeHtmlEntities } from './utils';
+import { openSystemBrowser } from '@/lib/capacitor';
 
-// Analysis article interface
 interface AnalysisArticle {
   title: string;
   snippet: string;
@@ -27,7 +27,6 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
 
-  // Consistent glassmorphism style (less transparent for book page info cards)
   const glassmorphicStyle: React.CSSProperties = {
     background: 'rgba(255, 255, 255, 0.45)',
     borderRadius: '16px',
@@ -37,14 +36,20 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
     border: '1px solid rgba(255, 255, 255, 0.2)',
   };
 
+  const overlayGlassStyle: React.CSSProperties = {
+    background: 'rgba(255, 255, 255, 0.25)',
+    backdropFilter: 'blur(16px)',
+    WebkitBackdropFilter: 'blur(16px)',
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+  };
+
   useEffect(() => {
-    // Reset when book changes
     setCurrentIndex(0);
     setIsVisible(false);
 
     if (articles.length === 0) return;
 
-    // Show first article after a short delay
     const timeout = setTimeout(() => {
       setIsVisible(true);
     }, 1000);
@@ -54,7 +59,6 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
 
   function handleNext() {
     setIsVisible(false);
-    // Wait for fade out, then show next (or loop back to first)
     setTimeout(() => {
       setCurrentIndex(prev => (prev + 1) % articles.length);
       setIsVisible(true);
@@ -75,9 +79,9 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
     const distanceY = touchStart.y - touchEnd.y;
     if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
       if (distanceX > 0) {
-        handleNext(); // Swipe left = next
+        handleNext();
       } else {
-        handlePrev(); // Swipe right = prev
+        handlePrev();
       }
     }
     setTouchStart(null);
@@ -87,19 +91,7 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
   if (isLoading) {
     return (
       <div className="w-full">
-        <motion.div
-          animate={{ opacity: [0.5, 0.8, 0.5] }}
-          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="rounded-xl p-4"
-          style={glassmorphicStyle}
-        >
-          <div className="space-y-2">
-            <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-            <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
-            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse mt-3" />
-            <div className="w-5/6 h-3 bg-slate-300/50 rounded animate-pulse" />
-          </div>
-        </motion.div>
+        <div className="aspect-[10/9] rounded-2xl bg-slate-300/50 animate-pulse" />
       </div>
     );
   }
@@ -108,7 +100,6 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
 
   const currentArticle = articles[currentIndex];
 
-  // Stacked cards style (cards behind the main card)
   const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
     ...glassmorphicStyle,
     position: 'absolute' as const,
@@ -135,7 +126,6 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
       className="w-full cursor-pointer"
     >
       <div className="relative pb-3">
-        {/* Stacked cards effect - only show if multiple items */}
         {articles.length > 1 && (
           <>
             <div style={stackedCardStyle(4, 0.96, 0.4)} />
@@ -153,59 +143,80 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
               className="relative rounded-2xl overflow-hidden"
               style={glassmorphicStyle}
             >
-            {/* Header */}
-            <div className="flex items-center gap-3 px-4 pt-3 pb-2">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(59, 130, 246, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-                <FileText size={20} className="text-white" />
-              </div>
-              <div className="flex-1">
-                <p className="font-semibold text-slate-900 text-sm">Articles</p>
-                <p className="text-xs text-slate-500">Academic article about this book</p>
-              </div>
-            </div>
-            {/* Content */}
-            <div className="px-4 pb-4">
-              <div className="flex-1 min-w-0 mb-2">
-                <a
-                  href={currentArticle.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="text-sm font-bold text-blue-700 hover:text-blue-800 hover:underline block mb-1 line-clamp-2"
-                >
-                  {decodeHtmlEntities(currentArticle.title)}
-                </a>
-                {(currentArticle.authors || currentArticle.year) && (
-                  <div className="text-xs text-slate-500">
-                    {currentArticle.authors && <span>{decodeHtmlEntities(currentArticle.authors)}</span>}
-                    {currentArticle.year && <span> • {currentArticle.year}</span>}
-                  </div>
+              {/* Header */}
+              <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(59, 130, 246, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+                  <FileText size={20} className="text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-900 text-sm">Articles</p>
+                  <p className="text-xs text-slate-500">Academic article about this book</p>
+                </div>
+                {articles.length > 1 && (
+                  <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
+                    {currentIndex + 1}/{articles.length}
+                  </span>
                 )}
               </div>
-              <p className="text-sm text-slate-700 leading-relaxed mb-2">
-                {decodeHtmlEntities(currentArticle.snippet)}
-              </p>
-              {currentArticle.url && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    window.open(currentArticle.url, '_blank');
-                  }}
-                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium active:scale-95 transition-transform"
+              {/* Image area — gradient background since articles have no photo */}
+              <div className="relative aspect-[10/9]">
+                <div className="absolute inset-0 bg-gradient-to-b from-blue-800 to-slate-900 flex items-center justify-center">
+                  <FileText size={48} className="text-white/15" />
+                </div>
+
+                <div className="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black/40 to-transparent" />
+
+                {/* Floating glassmorphic overlay — always maximized, fills image area */}
+                <div
+                  className="absolute inset-3 rounded-xl px-3 py-2.5 overflow-hidden flex flex-col"
+                  style={overlayGlassStyle}
                 >
-                  <ExternalLink size={12} />
-                  Read full article
-                </button>
-              )}
-              {/* Pagination */}
-              {articles.length > 1 && (
-                <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
-                  Tap for next ({currentIndex + 1}/{articles.length})
-                </p>
-              )}
-            </div>
-          </motion.div>
-        )}
+                  {/* Title */}
+                  <h3 className="text-sm font-bold text-white line-clamp-3" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
+                    {decodeHtmlEntities(currentArticle.title)}
+                  </h3>
+
+                  {/* Authors + year */}
+                  {(currentArticle.authors || currentArticle.year) && (
+                    <p className="text-xs text-white/80 mt-0.5" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                      {currentArticle.authors && decodeHtmlEntities(currentArticle.authors)}
+                      {currentArticle.year && ` • ${currentArticle.year}`}
+                    </p>
+                  )}
+
+                  {/* Snippet — fills remaining space */}
+                  {currentArticle.snippet && (
+                    <p className="text-xs text-white/70 mt-1 flex-1 overflow-hidden" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)', display: '-webkit-box', WebkitLineClamp: 20, WebkitBoxOrient: 'vertical' }}>
+                      {decodeHtmlEntities(currentArticle.snippet)}
+                    </p>
+                  )}
+
+                  {/* Button row */}
+                  {currentArticle.url && (
+                    <div className="flex items-center gap-2 pt-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openSystemBrowser(currentArticle.url);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
+                        style={{
+                          background: 'rgba(59, 130, 246, 0.85)',
+                          backdropFilter: 'blur(8px)',
+                          WebkitBackdropFilter: 'blur(8px)',
+                          border: '1px solid rgba(59, 130, 246, 0.3)',
+                          color: 'white',
+                        }}
+                      >
+                        <ExternalLink size={14} />
+                        Read Article
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
     </div>

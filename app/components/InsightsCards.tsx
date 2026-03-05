@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lightbulb, ExternalLink } from 'lucide-react';
+import { openSystemBrowser } from '@/lib/capacitor';
 
 export interface InsightItem {
   text: string;
@@ -97,10 +98,7 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
           className="rounded-2xl overflow-hidden"
           style={glassmorphicStyle}
         >
-          <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-            <div className="w-14 h-4 bg-slate-300/50 rounded animate-pulse" />
-          </div>
-          <div className="flex items-center gap-3 px-4 py-2">
+          <div className="flex items-center gap-3 px-4 pt-3 pb-2">
             <div className="w-10 h-10 rounded-full bg-slate-300/50 animate-pulse" />
             <div className="flex-1 space-y-1">
               <div className="w-20 h-4 bg-slate-300/50 rounded animate-pulse" />
@@ -161,7 +159,7 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
         <AnimatePresence mode="wait">
           {isVisible && (
             <motion.div
-              key={`${currentInsight.text}-${currentIndex}`}
+              key={`${currentInsight.text.substring(0, 30)}-${currentIndex}`}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
@@ -169,44 +167,52 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
               className="relative rounded-2xl overflow-hidden"
               style={glassmorphicStyle}
             >
-            {currentInsight.noteIndex && currentInsight.totalNotes && (
-              <div className="absolute top-2 right-3 px-2 py-0.5 rounded-full text-[10px] font-bold text-slate-500 bg-white/60 backdrop-blur-sm">
-                {currentInsight.noteIndex}/{currentInsight.totalNotes}
+              {/* Header */}
+              <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
+                  <Lightbulb size={20} className="text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-900 text-sm">{currentInsight.label || 'Insights'}</p>
+                  <p className="text-xs text-slate-500">Interesting facts about this book</p>
+                </div>
+                {insights.length > 1 && (
+                  <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
+                    {currentIndex + 1}/{insights.length}
+                  </span>
+                )}
               </div>
-            )}
-            <div className="flex items-center gap-3 px-4 pt-3 pb-2">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
-                <Lightbulb size={20} className="text-white" />
+              {/* Content */}
+              <div className="px-5 pb-5">
+                {currentInsight.text.split('\n\n').map((paragraph, idx) => (
+                  <p key={idx} className={`text-xs text-slate-700 leading-relaxed ${idx > 0 ? 'mt-2' : ''}`}>
+                    {paragraph}
+                  </p>
+                ))}
+                {currentInsight.sourceUrl && (
+                  <div className="flex items-center gap-2 pt-3">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openSystemBrowser(currentInsight.sourceUrl!);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
+                      style={{
+                        background: 'rgba(6, 182, 212, 0.85)',
+                        backdropFilter: 'blur(8px)',
+                        WebkitBackdropFilter: 'blur(8px)',
+                        border: '1px solid rgba(6, 182, 212, 0.3)',
+                        color: 'white',
+                      }}
+                    >
+                      <ExternalLink size={14} />
+                      Source
+                    </button>
+                  </div>
+                )}
               </div>
-              <div className="flex-1">
-                <p className="font-semibold text-slate-900 text-sm">Insights</p>
-                <p className="text-xs text-slate-500">Interesting facts about this book</p>
-              </div>
-            </div>
-            <div className="px-4 pb-4">
-              <p className="text-sm text-slate-700 leading-relaxed">
-                {currentInsight.text}
-              </p>
-              {currentInsight.sourceUrl && currentInsight.noteIndex === 3 && (
-                <a
-                  href={currentInsight.sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1 mt-2 text-xs text-indigo-600 font-medium hover:text-indigo-700"
-                >
-                  <ExternalLink size={12} />
-                  Source
-                </a>
-              )}
-              {insights.length > 1 && (
-                <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
-                  Tap for next ({currentIndex + 1}/{insights.length})
-                </p>
-              )}
-            </div>
-          </motion.div>
-        )}
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
     </div>

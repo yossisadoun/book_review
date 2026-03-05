@@ -63,7 +63,7 @@ export interface RelatedMovie {
   poster_url?: string;
   release_year?: number;
   genre?: string;
-  itunes_url?: string;
+  wikipedia_url?: string;
 }
 
 export interface ResearchContentItem {

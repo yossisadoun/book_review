@@ -197,3 +197,47 @@ export async function lookupBookOnWikipedia(query: string): Promise<Omit<Book, '
     isbn: isbn || undefined,
   };
 }
+
+export async function lookupMovieOnWikipedia(query: string, type: 'movie' | 'show' | 'album' = 'movie'): Promise<{
+  title: string;
+  poster_url: string | null;
+  wikipedia_url: string | null;
+  release_year?: number;
+} | null> {
+  try {
+    const suffix = type === 'album' ? 'album' : type === 'show' ? 'TV series' : 'film';
+    const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query + ' ' + suffix)}&format=json&origin=*&srlimit=5`;
+    const searchData = await fetchWithRetry(searchUrl);
+    const results = searchData.query?.search || [];
+    if (results.length === 0) return null;
+
+    let bestMatch: { title: string; poster_url: string | null; wikipedia_url: string | null; release_year?: number } | null = null;
+
+    for (const result of results) {
+      const pageTitle = result.title;
+      const summaryUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(pageTitle.replace(/ /g, '_'))}`;
+      const summaryData = await fetchWithRetry(summaryUrl);
+
+      const posterUrl = summaryData.thumbnail?.source?.replace('http://', 'https://') || null;
+      const wikipediaUrl = summaryData.content_urls?.desktop?.page || null;
+
+      // Extract year from extract or description
+      let releaseYear: number | undefined;
+      const yearMatch = (summaryData.description || summaryData.extract || '').match(/\b(19|20)\d{2}\b/);
+      if (yearMatch) releaseYear = parseInt(yearMatch[0]);
+
+      if (posterUrl) {
+        return { title: summaryData.title || pageTitle, poster_url: posterUrl, wikipedia_url: wikipediaUrl, release_year: releaseYear };
+      }
+
+      if (!bestMatch) {
+        bestMatch = { title: summaryData.title || pageTitle, poster_url: null, wikipedia_url: wikipediaUrl, release_year: releaseYear };
+      }
+    }
+
+    return bestMatch;
+  } catch (err) {
+    console.error('[lookupMovieOnWikipedia] Error:', err);
+    return null;
+  }
+}

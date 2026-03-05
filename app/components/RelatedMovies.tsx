@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Film, Play, Disc3, ExternalLink } from 'lucide-react';
-import { decodeHtmlEntities } from './utils';
+import { Film, Play, Disc3, ExternalLink, Minimize2, Maximize2 } from 'lucide-react';
+import { decodeHtmlEntities, useImageBrightness } from './utils';
 
 interface RelatedMovie {
   title: string;
@@ -13,7 +13,7 @@ interface RelatedMovie {
   poster_url?: string;
   release_year?: number;
   genre?: string;
-  itunes_url?: string;
+  wikipedia_url?: string;
 }
 
 interface RelatedMoviesProps {
@@ -25,6 +25,7 @@ interface RelatedMoviesProps {
 function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
@@ -38,9 +39,28 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
     border: '1px solid rgba(255, 255, 255, 0.2)',
   };
 
+  const imageBrightness = useImageBrightness(movies[currentIndex]?.poster_url);
+
+  const overlayGlassStyle: React.CSSProperties = imageBrightness === 'light'
+    ? {
+        background: 'rgba(0, 0, 0, 0.35)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
+      }
+    : {
+        background: 'rgba(255, 255, 255, 0.25)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        border: '1px solid rgba(255, 255, 255, 0.3)',
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+      };
+
   useEffect(() => {
     setCurrentIndex(0);
     setIsVisible(false);
+    setIsMinimized(false);
 
     if (movies.length === 0) return;
 
@@ -85,25 +105,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
   if (isLoading) {
     return (
       <div className="w-full">
-        <motion.div
-          animate={{ opacity: [0.5, 0.8, 0.5] }}
-          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-          className="rounded-xl p-4"
-          style={glassmorphicStyle}
-        >
-          <div className="flex items-start gap-3 mb-3">
-            <div className="w-16 h-20 bg-slate-300/50 rounded-lg animate-pulse flex-shrink-0" />
-            <div className="flex-1 space-y-2">
-              <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-              <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
-              <div className="w-20 h-6 bg-slate-300/50 rounded-lg animate-pulse mt-2" />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
-            <div className="w-4/5 h-3 bg-slate-300/50 rounded animate-pulse" />
-          </div>
-        </motion.div>
+        <div className="aspect-[10/9] rounded-2xl bg-slate-300/50 animate-pulse" />
       </div>
     );
   }
@@ -120,6 +122,14 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
 
   const currentMovie = movies[currentIndex];
 
+  const TypeIcon = currentMovie.type === 'album' ? Disc3 : currentMovie.type === 'movie' ? Film : Play;
+
+  const badgeColor = currentMovie.type === 'album'
+    ? 'rgba(236, 72, 153, 0.6)'
+    : currentMovie.type === 'movie'
+      ? 'rgba(99, 102, 241, 0.6)'
+      : 'rgba(168, 85, 247, 0.6)';
+
   const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
     ...glassmorphicStyle,
     position: 'absolute' as const,
@@ -128,6 +138,14 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
     opacity,
     borderRadius: '16px',
   });
+
+  const pillButtonStyle: React.CSSProperties = {
+    background: 'rgba(255, 255, 255, 0.55)',
+    backdropFilter: 'blur(8px)',
+    WebkitBackdropFilter: 'blur(8px)',
+    border: '1px solid rgba(255, 255, 255, 0.3)',
+    color: '#334155',
+  };
 
   return (
     <div
@@ -168,95 +186,109 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
               className="relative rounded-2xl overflow-hidden"
               style={glassmorphicStyle}
             >
-            {/* Header */}
-            <div className="flex items-center gap-3 px-4 pt-3 pb-2">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(99, 102, 241, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
-                <Film size={20} className="text-white" />
-              </div>
-              <div className="flex-1">
-                <p className="font-semibold text-slate-900 text-sm">Related Movies, Shows & Music</p>
-                <p className="text-xs text-slate-500">Adaptations, thematic connections & soundtracks</p>
-              </div>
-            </div>
-            {/* Content */}
-            <div className="px-4 pb-4">
-              <div className="flex items-start gap-3 mb-2">
-                {/* Poster or icon */}
-                {currentMovie.poster_url ? (
-                  <img
-                    src={currentMovie.poster_url}
-                    alt={currentMovie.title}
-                    className="w-16 h-20 object-cover rounded-lg flex-shrink-0 shadow-sm"
-                  />
-                ) : (
-                  <div className="w-16 h-20 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                    {currentMovie.type === 'album' ? (
-                      <Disc3 size={24} className="text-slate-600" />
-                    ) : (
-                      <Play size={24} className="text-slate-600" />
-                    )}
-                  </div>
-                )}
+              {/* Header */}
+              <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(99, 102, 241, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
+                  <Film size={20} className="text-white" />
+                </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-bold text-slate-800 mb-1 line-clamp-2">
+                  <p className="font-semibold text-slate-900 text-sm">Related Movies, Shows & Music</p>
+                  <p className="text-xs text-slate-500">Adaptations, thematic connections & soundtracks</p>
+                </div>
+                {movies.length > 1 && (
+                  <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
+                    {currentIndex + 1}/{movies.length}
+                  </span>
+                )}
+              </div>
+              {/* Image area */}
+              <div className="relative aspect-[10/9]">
+              {currentMovie.poster_url ? (
+                <img
+                  src={currentMovie.poster_url}
+                  alt={decodeHtmlEntities(currentMovie.title)}
+                  className="absolute inset-0 w-full h-full object-cover object-top"
+                />
+              ) : (
+                <div className="absolute inset-0 bg-gradient-to-b from-slate-700 to-slate-900 flex items-center justify-center">
+                  <TypeIcon size={48} className="text-white/30" />
+                </div>
+              )}
+
+              <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+
+              {/* Floating glassmorphic overlay */}
+              <div
+                className="absolute inset-x-3 bottom-3 rounded-xl px-3 py-2.5 overflow-hidden"
+                style={overlayGlassStyle}
+              >
+                {/* Type badge */}
+                <span
+                  className="inline-flex items-center gap-1 self-start py-0.5 px-1.5 text-[10px] font-bold rounded-full uppercase tracking-wider text-white mb-1"
+                  style={{ background: badgeColor }}
+                >
+                  <TypeIcon size={10} />
+                  {currentMovie.type === 'album' ? 'Album' : currentMovie.type === 'movie' ? 'Movie' : 'TV Show'}
+                </span>
+
+                {/* Title + toggle */}
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className={`text-sm font-bold text-white flex-1 min-w-0 ${isMinimized ? 'line-clamp-1' : 'line-clamp-2'}`} style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
                     {decodeHtmlEntities(currentMovie.title)}
                   </h3>
-                  <div className="text-xs text-slate-500 mb-1">
-                    <span>{decodeHtmlEntities(currentMovie.director)}</span>
-                    {currentMovie.release_year && (
-                      <span> ({currentMovie.release_year})</span>
-                    )}
-                  </div>
-                  {/* Type badge */}
-                  <span
-                    className="inline-block py-0.5 px-2 text-[10px] font-bold rounded-full uppercase tracking-wider"
-                    style={{
-                      background: currentMovie.type === 'album'
-                        ? 'rgba(236, 72, 153, 0.15)'
-                        : currentMovie.type === 'movie'
-                          ? 'rgba(99, 102, 241, 0.15)'
-                          : 'rgba(168, 85, 247, 0.15)',
-                      color: currentMovie.type === 'album'
-                        ? 'rgb(219, 39, 119)'
-                        : currentMovie.type === 'movie'
-                          ? 'rgb(79, 70, 229)'
-                          : 'rgb(147, 51, 234)',
-                    }}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
+                    className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"
+                    style={{ background: 'rgba(255, 255, 255, 0.25)' }}
                   >
-                    {currentMovie.type === 'album' ? 'Album' : currentMovie.type === 'movie' ? 'Movie' : 'TV Show'}
-                  </span>
-                  {/* iTunes link */}
-                  {currentMovie.itunes_url && (
+                    {isMinimized ? <Maximize2 size={12} className="text-white/80" /> : <Minimize2 size={12} className="text-white/80" />}
+                  </button>
+                </div>
+
+                {/* Expandable content */}
+                <AnimatePresence initial={false}>
+                  {!isMinimized && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.25, ease: 'easeInOut' }}
+                      className="overflow-hidden mt-0.5"
+                    >
+                      <p className="text-xs text-white/80" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                        {decodeHtmlEntities(currentMovie.director)}
+                        {currentMovie.release_year && ` (${currentMovie.release_year})`}
+                      </p>
+
+                      {currentMovie.reason && (
+                        <p className="text-xs text-white/70 line-clamp-6 mt-1" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                          {decodeHtmlEntities(currentMovie.reason)}
+                        </p>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Button row — always visible */}
+                {currentMovie.wikipedia_url && (
+                  <div className="flex items-center gap-2 pt-2">
                     <a
-                      href={currentMovie.itunes_url}
+                      href={currentMovie.wikipedia_url}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 ml-2 py-0.5 px-2 text-[10px] font-bold text-indigo-600 rounded-full uppercase tracking-wider"
-                      style={{ background: 'rgba(99, 102, 241, 0.1)' }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
+                      style={pillButtonStyle}
                     >
-                      <ExternalLink size={9} />
-                      iTunes
+                      <ExternalLink size={14} />
+                      Wikipedia
                     </a>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
-              {currentMovie.reason && (
-                <div className="mb-2">
-                  <p className="text-sm text-slate-700 leading-relaxed">
-                    {decodeHtmlEntities(currentMovie.reason)}
-                  </p>
-                </div>
-              )}
-              {/* Pagination */}
-              {movies.length > 1 && (
-                <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
-                  Tap for next ({currentIndex + 1}/{movies.length})
-                </p>
-              )}
-            </div>
-          </motion.div>
-        )}
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
     </div>
