@@ -107,6 +107,87 @@ export async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book,
   }
 }
 
+// iTunes Movie/TV lookup (same pattern as lookupBooksOnAppleBooks but media=movie)
+export interface ItunesMovieResult {
+  title: string;
+  director: string;
+  cover_url: string | null;
+  release_year?: number;
+  genre?: string;
+  itunes_url: string | null;
+}
+
+export async function lookupMoviesOnItunes(query: string): Promise<ItunesMovieResult[]> {
+  try {
+    // Search without media filter — media=movie is broken on iTunes Search API
+    const searchUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&country=us&limit=10`;
+    const data = await fetchWithRetry(searchUrl);
+
+    if (!data.results || data.results.length === 0) {
+      console.log(`[lookupMoviesOnItunes] No results found for: "${query}"`);
+      return [];
+    }
+
+    // Sort results: exact matches first, then close matches, then others
+    const queryLower = query.toLowerCase();
+    const sortedResults = [...data.results].sort((a: any, b: any) => {
+      const aTitle = a.trackName?.toLowerCase() || '';
+      const bTitle = b.trackName?.toLowerCase() || '';
+      const aExact = aTitle === queryLower ? 3 : aTitle.includes(queryLower) || queryLower.includes(aTitle) ? 2 : 1;
+      const bExact = bTitle === queryLower ? 3 : bTitle.includes(queryLower) || queryLower.includes(bTitle) ? 2 : 1;
+      return bExact - aExact;
+    });
+
+    // Take top 7 results
+    const topResults = sortedResults.slice(0, 7);
+
+    const movies = topResults.map((item: any) => {
+      const title = item.trackName || item.collectionName || query;
+      const director = item.artistName || '';
+
+      // Extract release year from releaseDate
+      let releaseYear: number | undefined = undefined;
+      if (item.releaseDate) {
+        const yearMatch = item.releaseDate.match(/\d{4}/);
+        if (yearMatch) {
+          releaseYear = parseInt(yearMatch[0]);
+        }
+      }
+
+      // Extract genre
+      let genre: string | undefined = undefined;
+      if (item.primaryGenreName) {
+        genre = item.primaryGenreName;
+      } else if (item.genres && Array.isArray(item.genres) && item.genres.length > 0) {
+        genre = item.genres[0];
+      }
+
+      // Get poster image (same artworkUrl100 → 600x600bb as books)
+      const coverUrl = item.artworkUrl100
+        ? item.artworkUrl100.replace('100x100bb', '600x600bb')
+        : item.artworkUrl512 || null;
+
+      // Get iTunes URL
+      const itunesUrl = item.trackViewUrl || item.collectionViewUrl || null;
+
+      return {
+        title: title,
+        director: director,
+        release_year: releaseYear,
+        genre: genre,
+        cover_url: coverUrl,
+        itunes_url: itunesUrl,
+      };
+    });
+
+    console.log(`[lookupMoviesOnItunes] Found ${movies.length} movies`);
+    return movies;
+  } catch (err) {
+    console.error('[lookupMoviesOnItunes] Error searching iTunes:', err);
+    return [];
+  }
+}
+
 // Legacy function for backward compatibility
 export async function lookupBookOnAppleBooks(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> | null> {
   const books = await lookupBooksOnAppleBooks(query);

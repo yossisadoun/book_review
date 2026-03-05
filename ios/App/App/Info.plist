@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>BOOK</string>
+	<string>Book.luv</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -32,11 +32,11 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Allow BOOK to access your camera to add photos.</string>
+	<string>Allow Book.luv to access your camera to add photos.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Allow BOOK to save images to your photo library.</string>
+	<string>Allow Book.luv to save images to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Allow BOOK to access your photo library.</string>
+	<string>Allow Book.luv to access your photo library.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

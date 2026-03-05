@@ -1,6 +1,6 @@
 {
-  "name": "BOOK - Book Review App",
-  "short_name": "BOOK",
+  "name": "Book.luv - Book Review App",
+  "short_name": "Book.luv",
   "description": "A mobile-first book review app",
   "start_url": "/book_review/",
   "display": "standalone",

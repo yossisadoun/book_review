@@ -557,12 +557,13 @@ async function getGrokDidYouKnowWithSearch(bookTitle: string, author: string): P
 IMPORTANT: Use web search to find and verify real, factual information about this book.
 Search for interviews with the author, book reviews, literary analysis, and historical context.
 Only include facts you can verify through search results.
+For each insight, include the source_url of the web page where you found or verified the fact.
 
 Return your response as valid JSON in this exact format:
 {
   "did_you_know_top10": [
-    { "rank": 1, "notes": ["First sentence of insight", "Second sentence with more detail", "Third sentence with context or impact"] },
-    { "rank": 2, "notes": ["...", "...", "..."] }
+    { "rank": 1, "notes": ["First sentence of insight", "Second sentence with more detail", "Third sentence with context or impact"], "source_url": "https://example.com/source" },
+    { "rank": 2, "notes": ["...", "...", "..."], "source_url": "https://example.com/source" }
   ]
 }`;
 

@@ -55,6 +55,17 @@ export interface RelatedBook {
   genre?: string;
 }
 
+export interface RelatedMovie {
+  title: string;
+  director: string;
+  reason: string;
+  type: 'movie' | 'show' | 'album';
+  poster_url?: string;
+  release_year?: number;
+  genre?: string;
+  itunes_url?: string;
+}
+
 export interface ResearchContentItem {
   source_url: string;
   trivia_fact: string;
@@ -81,6 +92,7 @@ export interface DomainInsights {
 export interface DidYouKnowItem {
   rank: number;
   notes: [string, string, string]; // Note 1 = fact, Note 2 = background, Note 3 = why it matters
+  source_url?: string; // Web source URL for the insight
 }
 
 // Did You Know response from Grok

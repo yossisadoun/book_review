@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="495px" height="315px" viewBox="-20 -20 495 315" fill="none" xmlns="http://www.w3.org/2000/svg" style="overflow: visible;" overflow="visible"><style>#anim-613\:117 { opacity: 0; animation: appear-0 0.143s step-end forwards; }
+@keyframes appear-0 { 0% { opacity: 0; } 0.00% { opacity: 1; } 100% { opacity: 1; } }
+#shape-0-0 { animation: draw-shape-0-0 0.143s cubic-bezier(0.4, 0, 0.8, 1) 0s forwards; }
+@keyframes draw-shape-0-0 { to { stroke-dashoffset: 0; } }
+#anim-613\:118 { opacity: 0; animation: appear-1 0.22099999999999997s step-end forwards; }
+@keyframes appear-1 { 0% { opacity: 0; } 64.71% { opacity: 1; } 100% { opacity: 1; } }
+#shape-1-1 { animation: draw-shape-1-1 0.078s cubic-bezier(0.4, 0, 0.8, 1) 0.143s forwards; }
+@keyframes draw-shape-1-1 { to { stroke-dashoffset: 0; } }
+#anim-613\:119 { opacity: 0; animation: appear-2 0.271s step-end forwards; }
+@keyframes appear-2 { 0% { opacity: 0; } 81.55% { opacity: 1; } 100% { opacity: 1; } }
+#shape-2-2 { animation: draw-shape-2-2 0.05s cubic-bezier(0.4, 0, 0.8, 1) 0.221s forwards; }
+@keyframes draw-shape-2-2 { to { stroke-dashoffset: 0; } }
+#anim-613\:120 { opacity: 0; animation: appear-3 0.321s step-end forwards; }
+@keyframes appear-3 { 0% { opacity: 0; } 84.42% { opacity: 1; } 100% { opacity: 1; } }
+#shape-3-3 { animation: draw-shape-3-3 0.05s cubic-bezier(0.4, 0, 0.8, 1) 0.271s forwards; }
+@keyframes draw-shape-3-3 { to { stroke-dashoffset: 0; } }
+#anim-613\:121 { opacity: 0; animation: appear-4 0.489s step-end forwards; }
+@keyframes appear-4 { 0% { opacity: 0; } 65.64% { opacity: 1; } 100% { opacity: 1; } }
+#shape-4-4 { animation: draw-shape-4-4 0.168s cubic-bezier(0.4, 0, 0.8, 1) 0.321s forwards; }
+@keyframes draw-shape-4-4 { to { stroke-dashoffset: 0; } }
+#anim-613\:122 { opacity: 0; animation: appear-5 0.539s step-end forwards; }
+@keyframes appear-5 { 0% { opacity: 0; } 90.72% { opacity: 1; } 100% { opacity: 1; } }
+#shape-5-5 { animation: draw-shape-5-5 0.05s cubic-bezier(0.4, 0, 0.8, 1) 0.489s forwards; }
+@keyframes draw-shape-5-5 { to { stroke-dashoffset: 0; } }
+#anim-613\:123 { opacity: 0; animation: appear-6 0.783s step-end forwards; }
+@keyframes appear-6 { 0% { opacity: 0; } 68.84% { opacity: 1; } 100% { opacity: 1; } }
+#shape-6-6 { animation: draw-shape-6-6 0.244s cubic-bezier(0.4, 0, 0.8, 1) 0.539s forwards; }
+@keyframes draw-shape-6-6 { to { stroke-dashoffset: 0; } }
+#anim-613\:124 { opacity: 0; animation: appear-7 1.042s step-end forwards; }
+@keyframes appear-7 { 0% { opacity: 0; } 75.14% { opacity: 1; } 100% { opacity: 1; } }
+#shape-7-7 { animation: draw-shape-7-7 0.259s cubic-bezier(0.4, 0, 0.8, 1) 0.783s forwards; }
+@keyframes draw-shape-7-7 { to { stroke-dashoffset: 0; } }
+#anim-613\:128 { opacity: 0; animation: appear-8 1.486s step-end forwards; }
+@keyframes appear-8 { 0% { opacity: 0; } 80.89% { opacity: 1; } 100% { opacity: 1; } }
+#shape-8-8 { animation: draw-shape-8-8 0.284s cubic-bezier(0.4, 0, 0.8, 1) 1.202s forwards; }
+@keyframes draw-shape-8-8 { to { stroke-dashoffset: 0; } }
+#anim-613\:132 { opacity: 0; animation: appear-9 1.5639999999999998s step-end forwards; }
+@keyframes appear-9 { 0% { opacity: 0; } 90.54% { opacity: 1; } 100% { opacity: 1; } }
+#shape-9-9 { animation: draw-shape-9-9 0.148s cubic-bezier(0.4, 0, 0.8, 1) 1.416s forwards; }
+@keyframes draw-shape-9-9 { to { stroke-dashoffset: 0; } }
+#anim-613\:134 { opacity: 0; animation: appear-10 1.803s step-end forwards; }
+@keyframes appear-10 { 0% { opacity: 0; } 84.53% { opacity: 1; } 100% { opacity: 1; } }
+#shape-10-10 { animation: draw-shape-10-10 0.279s cubic-bezier(0.4, 0, 0.8, 1) 1.524s forwards; }
+@keyframes draw-shape-10-10 { to { stroke-dashoffset: 0; } }
+#anim-613\:135 { opacity: 0; animation: appear-11 1.872s step-end forwards; }
+@keyframes appear-11 { 0% { opacity: 0; } 95.25% { opacity: 1; } 100% { opacity: 1; } }
+#shape-11-11 { animation: draw-shape-11-11 0.089s cubic-bezier(0.4, 0, 0.8, 1) 1.7830000000000001s forwards; }
+@keyframes draw-shape-11-11 { to { stroke-dashoffset: 0; } }
+#anim-613\:136 { opacity: 0; animation: appear-12 1.8920000000000001s step-end forwards; }
+@keyframes appear-12 { 0% { opacity: 0; } 97.36% { opacity: 1; } 100% { opacity: 1; } }
+#shape-12-12 { animation: draw-shape-12-12 0.05s cubic-bezier(0.4, 0, 0.8, 1) 1.842s forwards; }
+@keyframes draw-shape-12-12 { to { stroke-dashoffset: 0; } }
+#anim-613\:137 { opacity: 0; animation: appear-13 1.942s step-end forwards; }
+@keyframes appear-13 { 0% { opacity: 0; } 97.43% { opacity: 1; } 100% { opacity: 1; } }
+#shape-13-13 { animation: draw-shape-13-13 0.05s cubic-bezier(0.4, 0, 0.8, 1) 1.892s forwards; }
+@keyframes draw-shape-13-13 { to { stroke-dashoffset: 0; } }
+#anim-613\:144 { opacity: 0; animation: appear-14 2.6719999999999997s step-end forwards; }
+@keyframes appear-14 { 0% { opacity: 0; } 82.41% { opacity: 1; } 100% { opacity: 1; } }
+#shape-14-14 { animation: draw-shape-14-14 0.47s cubic-bezier(0.4, 0, 0.8, 1) 2.202s forwards; }
+@keyframes draw-shape-14-14 { to { stroke-dashoffset: 0; } }
+#anim-613\:146 { opacity: 0; animation: appear-15 2.753s step-end forwards; }
+@keyframes appear-15 { 0% { opacity: 0; } 94.88% { opacity: 1; } 100% { opacity: 1; } }
+#shape-15-15 { animation: draw-shape-15-15 0.141s cubic-bezier(0.4, 0, 0.8, 1) 2.612s forwards; }
+@keyframes draw-shape-15-15 { to { stroke-dashoffset: 0; } }
+</style><g id="anim-613:117" class="anim-group" transform="matrix(1,0,0,1,30.4128,73.2608)" data-svg-origin="3.0000014305114746 1.3349609375">
+<path xmlns="http://www.w3.org/2000/svg" d="M3.84662 1.33646C3.84662 1.17333 3.84662 14.3304 3.55334 37.6324C3.42668 47.6968 2.67353 54.1729 3.16422 57.3687C3.65492 60.5646 5.24063 60.2803 7.86033 59.4183C10.48 58.5564 14.0857 57.1254 16.4289 56.2971C18.7721 55.4688 19.7437 55.2864 21.1119 54.9896" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-0-0" stroke-dasharray="76.42548370361328" stroke-dashoffset="76.42548370361328"/>
+</g><g id="anim-613:118" class="anim-group" transform="matrix(1,0,0,1,62.4128,103.2608)" data-svg-origin="3 3">
+<path xmlns="http://www.w3.org/2000/svg" d="M3 3C3 19.8702 3.59057 37.2432 22.119 26.0882" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-1-1" stroke-dasharray="41.517574310302734" stroke-dashoffset="41.517574310302734"/>
+</g><g id="anim-613:119" class="anim-group" transform="matrix(1,0,0,1,58.4128,101.2608)" data-svg-origin="2.9999988079071045 3">
+<path xmlns="http://www.w3.org/2000/svg" d="M3.01421 3.50524C2.97583 3.54242 2.93745 3.5796 4.0188 3.59456C5.10014 3.60952 7.30239 3.60112 9.94462 3.49904C12.5869 3.39696 15.6024 3.20144 18.7092 3" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-2-2" stroke-dasharray="15.760960578918457" stroke-dashoffset="15.760960578918457"/>
+</g><g id="anim-613:120" class="anim-group" transform="matrix(1,0,0,1,60.4128,113.2608)" data-svg-origin="3 3">
+<path xmlns="http://www.w3.org/2000/svg" d="M3 3.12358C3 3.16077 3 3.19795 5.93992 3.17812C8.87985 3.15829 14.7597 3.08033 20.8177 3" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-3-3" stroke-dasharray="17.83218002319336" stroke-dashoffset="17.83218002319336"/>
+</g><g id="anim-613:121" class="anim-group" transform="matrix(1,0,0,1,89.4128,94.2608)" data-svg-origin="2.999995708465576 3">
+<path xmlns="http://www.w3.org/2000/svg" d="M3.04188 3C3.04188 3.13674 3.04188 14.7006 3.00049 28.9722C2.96144 42.4399 5.24623 7.69887 6.48469 6.84068C9.68209 8.99202 17.1939 22.6884 21.9418 33.5222C22.3655 34.9077 22.4974 35.8361 22.7533 37.5232" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-4-4" stroke-dasharray="89.68228912353516" stroke-dashoffset="89.68228912353516"/>
+</g><g id="anim-613:122" class="anim-group" transform="matrix(1,0,0,1,88.4128,111.2608)" data-svg-origin="3 3">
+<path xmlns="http://www.w3.org/2000/svg" d="M3 3C3 3.03718 3 3.07437 6.06767 3.11212C9.13534 3.14986 15.2707 3.18705 21.5919 3.22536" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-5-5" stroke-dasharray="18.606853485107422" stroke-dashoffset="18.606853485107422"/>
+</g><g id="anim-613:123" class="anim-group" transform="matrix(1,0,0,1,114.4128,82.2608)" data-svg-origin="2.999997615814209 2.999758005142212">
+<path xmlns="http://www.w3.org/2000/svg" d="M3.48795 15.8294C3.48795 16.9689 3.48795 26.9334 3.30083 35.2332C3.0099 48.1372 2.67655 8.95964 3.63982 6.65281C4.64599 4.24326 7.33308 3.38105 9.58117 3.07391C10.6974 2.9214 11.7861 2.96948 12.8233 3.55003C17.6369 6.24443 16.8629 16.5018 15.2909 24.0601C14.8406 26.2253 12.8477 28.6788 12.3948 30.4607C12.5921 33.1133 19.2881 36.8101 30.6443 41.7914C35.9743 43.9731 40.4256 45.4521 45.597 47.0813" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-6-6" stroke-dasharray="130.39183044433594" stroke-dashoffset="130.39183044433594"/>
+</g><g id="anim-613:124" class="anim-group" transform="matrix(1,0,0,1,154.4128,72.2608)" data-svg-origin="3.000002384185791 3">
+<path xmlns="http://www.w3.org/2000/svg" d="M3.47333 23.642C3.47333 25.6331 3.47333 35.9728 3.47333 46.5674C3.47333 61.6987 2.66303 24.2717 3.16283 20.3572C3.36829 18.748 12.8641 30.5969 23.5002 44.7228C26.961 49.3191 27.2298 48.1122 26.398 43.7222C25.5663 39.3322 23.8151 31.6471 22.7132 24.2678C21.6113 16.8886 21.2119 10.0479 20.8004 3" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-7-7" stroke-dasharray="137.8653564453125" stroke-dashoffset="137.8653564453125"/>
+</g><g id="anim-613:128" class="anim-group" transform="matrix(1,0,0,1,217.4128,88.2608)" data-svg-origin="2.999997854232788 3">
+<path xmlns="http://www.w3.org/2000/svg" d="M3.03456 3C2.92664 12.0429 3.08523 31.3874 3.31947 31.6237C8.15597 36.5011 8.48812 11.6666 13.0078 4.86506C17.603 -2.05029 20.0519 24.9369 21.0672 26.7355C21.56 27.6084 22.3871 28.1574 23.0022 27.8356C30.8007 23.7549 28.011 6.39962 30.2553 3.75858C30.8377 3.07325 32.3847 4.29806 33.3439 5.21393C36.2333 10.0697 41.1939 25.3023 44.3102 34.3643C44.6151 35.316 44.759 36.2456 44.9073 37.2033" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-8-8" stroke-dasharray="151.83270263671875" stroke-dashoffset="151.83270263671875"/>
+</g><g id="anim-613:132" class="anim-group" transform="matrix(1,0,0,1,266.4128,83.2608)" data-svg-origin="2.9990224838256836 3.000730037689209">
+<path xmlns="http://www.w3.org/2000/svg" d="M8.75723 5.14889C-1.27552 14.2766 1.81623 35.2566 17.9215 31.3976C23.6209 30.0319 23.4586 20.2717 23.32 16.0958C19.9052 8.59922 12.3198 4.71054 4.69354 3.00073" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-9-9" stroke-dasharray="79.37496948242188" stroke-dashoffset="79.37496948242188"/>
+</g><g id="anim-613:134" class="anim-group" transform="matrix(1,0,0,1,300.4128,78.2608)" data-svg-origin="3.000002384185791 2.99658203125">
+<path xmlns="http://www.w3.org/2000/svg" d="M5.16071 7.82274C5.16071 7.89711 5.16071 17.9703 4.70071 30.8302C4.26368 43.0481 2.10477 7.27821 3.41871 5.63376C7.73156 0.236038 18.0161 4.42283 21.9011 6.7477C22.9025 7.34699 23.3819 8.62901 23.6198 9.79765C24.9951 16.5539 10.9114 21.3337 8.19298 23.2212C12.3511 24.8067 22.7644 28.2931 35.9795 33.964C42.2808 36.9204 47.76 40.0367 53.8814 43.7235" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-10-10" stroke-dasharray="148.89022827148438" stroke-dashoffset="148.89022827148438"/>
+</g><g id="anim-613:135" class="anim-group" transform="matrix(1,0,0,1,342.4128,88.2608)" data-svg-origin="3 3">
+<path xmlns="http://www.w3.org/2000/svg" d="M3 3C3 3.06882 3 10.8757 3.42413 22.8656C3.57442 27.1142 4.69651 27.5142 8.2872 27.7671C11.8779 28.02 18.1853 28.0827 21.8452 28.2194C25.5051 28.3561 26.3263 28.5651 28 29" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-11-11" stroke-dasharray="47.78401184082031" stroke-dashoffset="47.78401184082031"/>
+</g><g id="anim-613:136" class="anim-group" transform="matrix(1,0,0,1,339.4128,84.2608)" data-svg-origin="3 3">
+<path xmlns="http://www.w3.org/2000/svg" d="M3 3H28.3635" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-12-12" stroke-dasharray="25.363500595092773" stroke-dashoffset="25.363500595092773"/>
+</g><g id="anim-613:137" class="anim-group" transform="matrix(1,0,0,1,339.4128,100.2608)" data-svg-origin="3 3">
+<path xmlns="http://www.w3.org/2000/svg" d="M3 3L29.4961 3.32275" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-13-13" stroke-dasharray="26.498065948486328" stroke-dashoffset="26.498065948486328"/>
+</g><g id="anim-613:144" class="anim-group" transform="matrix(1,0,0,1,315.4128,30.2608)" data-svg-origin="3.0009799003601074 3.000208854675293">
+<path xmlns="http://www.w3.org/2000/svg" d="M112.175 16.3562C112.175 -56.7198 74.8782 193.284 3.00098 206.467" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-14-14" stroke-dasharray="251.03436279296875" stroke-dashoffset="251.03436279296875"/>
+</g><g id="anim-613:146" class="anim-group selected" transform="matrix(1,0,0,1,308.4128,199.2608)" data-svg-origin="3.661129951477051 3">
+<path xmlns="http://www.w3.org/2000/svg" d="M15.3392 3C15.3392 6.71555 14.9505 16.0234 10.9725 26.313C7.98153 34.0498 4.16499 38.7933 3.66113 40.6528C14.3946 43.8497 28.2355 42.501 37.8421 48.4785" stroke="black" stroke-width="6" stroke-linecap="round" id="shape-15-15" stroke-dasharray="75.25747680664062" stroke-dashoffset="75.25747680664062"/>
+</g></svg>

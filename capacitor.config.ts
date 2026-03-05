@@ -2,9 +2,19 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.bookreview.app',
-  appName: 'BOOK',
+  appName: 'Book.luv',
   webDir: 'out',
+  ios: {
+    scrollEnabled: false,
+    allowsLinkPreview: false,
+  },
+  server: {
+    iosScheme: 'capacitor',
+  },
   plugins: {
+    CapacitorHttp: {
+      enabled: true,
+    },
     SplashScreen: {
       launchShowDuration: 0
     },

@@ -17,6 +17,7 @@ export function convertBookToApp(book: Book): BookWithRatings {
     podcast_episodes_grok: book.podcast_episodes_grok || undefined,
     podcast_episodes_apple: book.podcast_episodes_apple || undefined,
     podcast_episodes_curated: book.podcast_episodes_curated || undefined,
+    lists: book.lists || [],
   };
 }
 
@@ -45,6 +46,7 @@ export function convertBookToDb(book: BookWithRatings): Omit<Book, 'id' | 'user_
     podcast_episodes_apple: book.podcast_episodes_apple || null,
     podcast_episodes_curated: book.podcast_episodes_curated || null,
     notes: book.notes || null,
+    lists: book.lists || null,
   };
 }
 

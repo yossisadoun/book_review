@@ -24,6 +24,7 @@ export const featureFlags = {
     youtube: true,            // Hide YouTube videos header
     articles: true,           // Hide articles header
     relatedBooks: true,       // Hide related books header
+    relatedMovies: true,      // Hide related movies header
   },
 } as const;
 

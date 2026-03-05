@@ -33,6 +33,7 @@ export function convertBookToApp(book: Book): BookWithRatings {
     podcast_episodes_apple: book.podcast_episodes_apple || undefined, // Load from database
     podcast_episodes_curated: book.podcast_episodes_curated || undefined, // Load from database
     notes: book.notes || null, // Load notes from database
+    lists: book.lists || [], // Load lists from database
   };
 }
 

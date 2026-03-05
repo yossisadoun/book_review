@@ -187,13 +187,13 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
               <p className="text-sm text-slate-700 leading-relaxed">
                 {currentInsight.text}
               </p>
-              {currentInsight.sourceUrl && (
+              {currentInsight.sourceUrl && currentInsight.noteIndex === 3 && (
                 <a
                   href={currentInsight.sourceUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1 mt-2 text-xs text-cyan-600 font-medium hover:text-cyan-700"
+                  className="inline-flex items-center gap-1 mt-2 text-xs text-indigo-600 font-medium hover:text-indigo-700"
                 >
                   <ExternalLink size={12} />
                   Source

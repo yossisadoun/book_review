@@ -25,6 +25,9 @@ interface PromptsConfig {
   related_books: {
     prompt: string;
   };
+  related_movies: {
+    prompt: string;
+  };
   book_research: {
     prompt: string;
   };
@@ -203,6 +206,24 @@ Return exactly 10 recommendations.
 
 Return ONLY valid JSON in this format (no markdown code blocks, no conversational filler, just raw JSON): [{"title": "Book Title", "author": "Author Name", "reason": "A concise explanation of the specific angle and connection to the source material."}]`
       },
+      related_movies: {
+        prompt: `Act as a film, television, and music expert. I need recommendations for movies, TV shows, and music albums that connect to the book "{bookTitle}" by {author}.
+
+Include THREE categories:
+1. Direct adaptations: Any movie or TV show that is a direct adaptation of this book (or its series).
+2. Thematic connections: Movies/shows that connect from unique angles — similar themes, tone, or creative reinterpretations.
+3. Music albums: Albums that share the book's mood, themes, or were directly inspired by it.
+
+Criteria:
+- Real productions only: These must be actual released films, shows, or albums. Do not hallucinate titles.
+- Quality: Must be well-regarded or interesting on their own merits.
+- For adaptations, specify if it's a direct adaptation in the reason.
+- For albums, use the artist name in the "director" field.
+
+Return no more than 10 recommendations total across all categories.
+
+Return ONLY valid JSON: [{"title": "Title", "director": "Director/Creator/Artist", "reason": "Connection explanation, under 100 words.", "type": "movie" or "show" or "album"}]`
+      },
       book_research: {
         prompt: `Task: Conduct a deep-dive research into the book "{bookTitle}" by "{authorName}".
 
@@ -306,13 +327,16 @@ Each insight has exactly 3 notes:
 2. Background or context
 3. Why it matters or a surprising implication
 
-Book: "{book_title}"
-Author: "{author_name}"
+Each insight MUST include a source_url pointing to a real, reputable web page
+where the fact can be verified.
+
+Book: "{bookTitle}"
+Author: "{author}"
 
 Return ONLY valid JSON in this format:
 {
-  "book": "{book_title}",
-  "author": "{author_name}",
+  "book": "{bookTitle}",
+  "author": "{author}",
   "did_you_know_top10": [
     {
       "rank": 1,
@@ -320,7 +344,8 @@ Return ONLY valid JSON in this format:
         "Core fact here",
         "Background context here",
         "Why it matters here"
-      ]
+      ],
+      "source_url": "https://example.com/source"
     }
   ]
 }`

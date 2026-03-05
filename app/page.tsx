@@ -116,6 +116,7 @@ import PodcastEpisodes from './components/PodcastEpisodes';
 import YouTubeVideos from './components/YouTubeVideos';
 import AnalysisArticles from './components/AnalysisArticles';
 import RelatedBooks from './components/RelatedBooks';
+import RelatedMovies from './components/RelatedMovies';
 import ResearchSection from './components/ResearchSection';
 import ArrowAnimation from './components/ArrowAnimation';
 import LightbulbAnimation from './components/LightbulbAnimation';
@@ -151,7 +152,7 @@ const feedCardStyle = {
 // --- Services (extracted to ./services/) ---
 import {
   RATING_DIMENSIONS,
-  type PodcastEpisode, type AnalysisArticle, type YouTubeVideo, type RelatedBook,
+  type PodcastEpisode, type AnalysisArticle, type YouTubeVideo, type RelatedBook, type RelatedMovie,
   type BookResearch,
   type DomainInsights, type DidYouKnowItem,
   type BookInfographic,
@@ -174,6 +175,7 @@ import { setTriviaQuestionsCountRefreshCallback, ensureTriviaQuestionsForBook, c
 import { getAuthorFacts, getBookInfluences, getBookDomain, getBookContext, getDidYouKnow } from './services/insights-service';
 import { getPodcastEpisodes } from './services/podcast-service';
 import { getRelatedBooks } from './services/related-books-service';
+import { getRelatedMovies } from './services/related-movies-service';
 import { createFriendBookFeedItem, generateFeedItemsForBook, getPersonalizedFeed, markFeedItemsAsShown, getReadFeedItems, setFeedItemReadStatus, getSpoilerRevealedFromStorage, loadSpoilerRevealedFromStorage, saveSpoilerRevealedToStorage } from './services/feed-service';
 
 const AVATAR_GRADIENTS = [
@@ -295,6 +297,8 @@ export default function App() {
   const [youtubeVideos, setYoutubeVideos] = useState<Map<string, YouTubeVideo[]>>(new Map());
   const [loadingRelatedForBookId, setLoadingRelatedForBookId] = useState<string | null>(null);
   const [relatedBooks, setRelatedBooks] = useState<Map<string, RelatedBook[]>>(new Map());
+  const [loadingRelatedMoviesForBookId, setLoadingRelatedMoviesForBookId] = useState<string | null>(null);
+  const [relatedMovies, setRelatedMovies] = useState<Map<string, RelatedMovie[]>>(new Map());
   const [loadingResearchForBookId, setLoadingResearchForBookId] = useState<string | null>(null);
   const [researchData, setResearchData] = useState<Map<string, BookResearch>>(new Map());
   const [selectedInsightCategory, setSelectedInsightCategory] = useState<string>('trivia'); // 'trivia' or pillar names from research
@@ -3333,6 +3337,75 @@ export default function App() {
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
 
+  // Track which books we're currently fetching related movies for to prevent duplicate concurrent fetches
+  const fetchingRelatedMoviesRef = useRef<Set<string>>(new Set());
+
+  // Fetch related movies when activeBook changes
+  useEffect(() => {
+    const currentBook = books[selectedIndex];
+    if (!currentBook || !currentBook.title || !currentBook.author) {
+      setLoadingRelatedMoviesForBookId(null);
+      return;
+    }
+
+    const bookId = currentBook.id;
+    const related = relatedMovies.get(bookId);
+
+    if (related !== undefined) {
+      setLoadingRelatedMoviesForBookId(null);
+      return;
+    }
+
+    const isCurrentlyFetching = fetchingRelatedMoviesRef.current.has(bookId);
+    if (isCurrentlyFetching) {
+      setLoadingRelatedMoviesForBookId(bookId);
+      return;
+    }
+
+    let cancelled = false;
+    fetchingRelatedMoviesRef.current.add(bookId);
+    setLoadingRelatedMoviesForBookId(bookId);
+
+    const fetchTimer = setTimeout(() => {
+      if (cancelled) return;
+
+      const bookTitle = currentBook.title;
+      const bookAuthor = currentBook.author;
+
+      console.log(`[Related Movies] Fetching for "${bookTitle}" by ${bookAuthor}...`);
+      getRelatedMovies(bookTitle, bookAuthor).then((movies) => {
+        if (cancelled) return;
+
+        setLoadingRelatedMoviesForBookId(null);
+        fetchingRelatedMoviesRef.current.delete(bookId);
+
+        if (movies.length > 0) {
+          console.log(`[Related Movies] Received ${movies.length} related movies for "${bookTitle}"`);
+        } else {
+          console.log(`[Related Movies] No related movies found for "${bookTitle}"`);
+        }
+
+        setRelatedMovies(prev => {
+          const newMap = new Map(prev);
+          newMap.set(bookId, movies);
+          return newMap;
+        });
+      }).catch((err) => {
+        if (cancelled) return;
+        setLoadingRelatedMoviesForBookId(null);
+        console.error('Error fetching related movies:', err);
+        fetchingRelatedMoviesRef.current.delete(bookId);
+      });
+    }, 5000); // Slightly longer delay than related books to stagger API calls
+
+    return () => {
+      cancelled = true;
+      setLoadingRelatedMoviesForBookId(null);
+      fetchingRelatedMoviesRef.current.delete(bookId);
+      clearTimeout(fetchTimer);
+    };
+  }, [activeBook?.id]);
+
   // Fetch research when activeBook changes
   // DISABLED: getBookResearch call is temporarily disabled
   useEffect(() => {
@@ -6073,6 +6146,7 @@ export default function App() {
                   case 'did_you_know':
                     // "Did you know?" item with 3 notes shown together with pagination dots
                     const didYouKnowNotes: string[] = item.content.notes || [];
+                    const didYouKnowSourceUrl: string | undefined = item.content.source_url;
                     const currentNoteIdx = didYouKnowNoteIndex.get(item.id) || 0;
 
                     // Helper functions for navigation
@@ -6159,6 +6233,18 @@ export default function App() {
                                 {didYouKnowNotes[currentNoteIdx] || ''}
                               </motion.p>
                             </AnimatePresence>
+                            {didYouKnowSourceUrl && currentNoteIdx === 2 && (
+                              <a
+                                href={didYouKnowSourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 mt-2 text-xs text-indigo-600 font-medium hover:text-indigo-700"
+                              >
+                                <ExternalLink size={12} />
+                                Source
+                              </a>
+                            )}
 
                             {/* Pagination dots inside the note box */}
                             {didYouKnowNotes.length > 1 && (
@@ -8665,12 +8751,14 @@ export default function App() {
                   } else if (currentCategory?.id === 'did_you_know') {
                     // For "Did you know?", combine all 3 notes per item into separate insights
                     // Include noteIndex (1-3) to show position indicator on each card
+                    // Pass source_url through as sourceUrl for the link button
                     currentInsights = didYouKnowInsights.flatMap(item =>
                       item.notes.map((note, idx) => ({
                         text: note,
                         label: 'Did you know?',
                         noteIndex: idx + 1,
-                        totalNotes: 3
+                        totalNotes: 3,
+                        sourceUrl: item.source_url
                       }))
                     );
                     isLoading = isLoadingDidYouKnow;
@@ -9013,6 +9101,57 @@ export default function App() {
                           bookId={activeBook.id}
                           isLoading={false}
                           onAddBook={handleAddBook}
+                        />
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Related Movies & Shows - Show below Related Books */}
+                {(() => {
+                  const movies = relatedMovies.get(activeBook.id);
+                  const hasData = movies !== undefined;
+                  const hasMovies = movies && movies.length > 0;
+                  const isLoading = !bookPageSectionsResolved && loadingRelatedMoviesForBookId === activeBook.id && !hasData;
+
+                  if (!isLoading && !hasMovies) return null;
+
+                  return (
+                    <div className="w-full space-y-2">
+                      {!featureFlags.bookPageSectionHeaders.relatedMovies && (
+                        <div className="flex items-center justify-center mb-2">
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
+                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">MOVIES:</span>
+                            <span className="text-[10px] font-bold text-slate-400">/</span>
+                            <span className="text-[10px] font-bold text-indigo-700">Grok + iTunes</span>
+                          </div>
+                        </div>
+                      )}
+                      {isLoading ? (
+                        <motion.div
+                          animate={{ opacity: [0.5, 0.8, 0.5] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          className="rounded-xl p-4"
+                          style={glassmorphicStyle}
+                        >
+                          <div className="flex items-start gap-3 mb-3">
+                            <div className="w-16 h-20 bg-slate-300/50 rounded-lg animate-pulse flex-shrink-0" />
+                            <div className="flex-1 space-y-2">
+                              <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
+                              <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
+                              <div className="w-20 h-6 bg-slate-300/50 rounded-lg animate-pulse mt-2" />
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
+                            <div className="w-4/5 h-3 bg-slate-300/50 rounded animate-pulse" />
+                          </div>
+                        </motion.div>
+                      ) : (
+                        <RelatedMovies
+                          movies={movies || []}
+                          bookId={activeBook.id}
+                          isLoading={false}
                         />
                       )}
                     </div>

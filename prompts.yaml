@@ -148,6 +148,25 @@ related_books:
 
     Return ONLY valid JSON in this format (no markdown code blocks, no conversational filler, just raw JSON): [{"title": "Book Title", "author": "Author Name", "reason": "A clear smart explanation of the specific angle and connection to the source material. under 100 words."}]
 
+related_movies:
+  prompt: |
+    Act as a film, television, and music expert. I need recommendations for movies, TV shows, and music albums that connect to the book "{bookTitle}" by {author}.
+
+    Include THREE categories:
+    1. Direct adaptations: Any movie or TV show that is a direct adaptation of this book (or its series).
+    2. Thematic connections: Movies/shows that connect from unique angles — similar themes, tone, or creative reinterpretations.
+    3. Music albums: Albums that share the book's mood, themes, or were directly inspired by it. Think soundtracks, concept albums, or albums that pair perfectly with reading this book.
+
+    Criteria:
+    - Real productions only: These must be actual released films, shows, or albums. Do not hallucinate titles.
+    - Quality: Must be well-regarded or interesting on their own merits.
+    - For adaptations, specify if it's a direct adaptation in the reason.
+    - For albums, use the artist name in the "director" field.
+
+    Return no more than 10 recommendations total across all categories.
+
+    Return ONLY valid JSON: [{"title": "Title", "director": "Director/Creator/Artist", "reason": "Connection explanation, under 100 words.", "type": "movie" or "show" or "album"}]
+
 book_research:
   prompt: |
     Task: Conduct a deep-dive research into the book "{bookTitle}" by "{authorName}".
@@ -229,6 +248,9 @@ did_you_know:
     * Prefer verified facts over interpretation.
     * If a detail is not certain, say so clearly.
     * Avoid major spoilers unless unavoidable.
+    * Only use facts that are derived from an actual web source.
+    * Each insight MUST include a source_url pointing to a real, reputable web page
+      where the fact can be verified (e.g. Wikipedia, literary magazines, interviews, news articles).
 
     STRUCTURE RULES:
 
@@ -256,43 +278,13 @@ did_you_know:
       "did_you_know_top10": [
         {
           "rank": 1,
-          "notes": ["", "", ""]
+          "notes": ["", "", ""],
+          "source_url": "https://example.com/source"
         },
         {
           "rank": 2,
-          "notes": ["", "", ""]
-        },
-        {
-          "rank": 3,
-          "notes": ["", "", ""]
-        },
-        {
-          "rank": 4,
-          "notes": ["", "", ""]
-        },
-        {
-          "rank": 5,
-          "notes": ["", "", ""]
-        },
-        {
-          "rank": 6,
-          "notes": ["", "", ""]
-        },
-        {
-          "rank": 7,
-          "notes": ["", "", ""]
-        },
-        {
-          "rank": 8,
-          "notes": ["", "", ""]
-        },
-        {
-          "rank": 9,
-          "notes": ["", "", ""]
-        },
-        {
-          "rank": 10,
-          "notes": ["", "", ""]
+          "notes": ["", "", ""],
+          "source_url": "https://example.com/source"
         }
       ]
     }
@@ -303,6 +295,8 @@ did_you_know:
     * Prefer counter-intuitive or origin-based facts.
     * Make each 3-note sequence feel like a mini reveal.
     * Avoid repeating the same type of fact.
+    * Don't be too explicit (meaning don't write things like "This is interesting because...")
+    * source_url must be a real, working URL — not a placeholder.
 
 trivia_questions:
   prompt: |
