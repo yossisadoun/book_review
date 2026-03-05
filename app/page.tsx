@@ -8294,24 +8294,14 @@ export default function App() {
               )}
             </div>
 
-            {/* Book page onboarding animation - shown after adding first book */}
-            <AnimatePresence>
-              {books.length === 1 && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.4 }}
-                  className="flex justify-center -mt-4 -mb-4"
-                >
-                  <Lottie
-                    animationData={bookPageOnboardingAnimation}
-                    loop={true}
-                    style={{ width: 200, height: 88 }}
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {/* Book page animation - shown for every book */}
+            <div className="flex justify-center -mt-4 -mb-4">
+              <Lottie
+                animationData={bookPageOnboardingAnimation}
+                loop={true}
+                style={{ width: 200, height: 88 }}
+              />
+            </div>
 
             {/* Info box - always open, below cover and above facts */}
             {!showRatingOverlay && (

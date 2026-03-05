@@ -192,8 +192,8 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                   <Film size={20} className="text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 text-sm">Related Movies, Shows & Music</p>
-                  <p className="text-xs text-slate-500">Adaptations, thematic connections & soundtracks</p>
+                  <p className="font-semibold text-slate-900 text-sm">Related Media</p>
+                  <p className="text-xs text-slate-500">Movies, shows & music related to this book</p>
                 </div>
                 {movies.length > 1 && (
                   <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
