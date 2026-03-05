@@ -1,10 +1,8 @@
 import { supabase } from '@/lib/supabase';
 import type { AuthorFactsResult, DomainInsights, DidYouKnowItem, DidYouKnowResponse, DidYouKnowWithSourcesResult } from '../types';
-import { fetchWithRetry, grokApiKey, logGrokUsage } from './api-utils';
+import { fetchWithRetry, grokApiKey, logGrokUsage, fetchGrokResponses } from './api-utils';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 import { generateTriviaQuestionsForBook, saveTriviaQuestionsToCache } from './trivia-service';
-import { createXai } from '@ai-sdk/xai';
-import { generateText } from 'ai';
 
 // Attempt to repair common LLM JSON issues (unescaped control chars, trailing commas)
 function safeJsonParse<T>(jsonStr: string): T {
@@ -545,24 +543,15 @@ async function getGrokDidYouKnow(bookTitle: string, author: string): Promise<Did
 async function getGrokDidYouKnowWithSearch(bookTitle: string, author: string): Promise<DidYouKnowWithSourcesResult> {
   console.log('[getGrokDidYouKnowWithSearch] Called for:', bookTitle, 'by', author);
 
-  if (!grokApiKey) {
-    console.warn('[getGrokDidYouKnowWithSearch] API key is missing!');
-    return { insights: [], sources: [] };
-  }
-
   try {
-    // Create xai provider with API key
-    const xai = createXai({ apiKey: grokApiKey });
-
     const prompts = await loadPrompts();
     const basePrompt = prompts.did_you_know?.prompt || '';
-    console.log('[getGrokDidYouKnowWithSearch] 🔵 did_you_know prompt loaded:', basePrompt ? `${basePrompt.length} chars` : 'EMPTY/MISSING');
     if (!basePrompt) {
-      console.error('[getGrokDidYouKnowWithSearch] ❌ did_you_know prompt is empty! Available prompts:', Object.keys(prompts));
+      console.error('[getGrokDidYouKnowWithSearch] ❌ did_you_know prompt is empty!');
+      return { insights: [], sources: [] };
     }
     const prompt = formatPrompt(basePrompt, { bookTitle, author });
 
-    // Add instruction to search the web for verified facts
     const searchPrompt = `${prompt}
 
 IMPORTANT: Use web search to find and verify real, factual information about this book.
@@ -578,56 +567,50 @@ Return your response as valid JSON in this exact format:
 }`;
 
     console.log('[getGrokDidYouKnowWithSearch] 🔵 Making request with web search...');
-    console.log('[getGrokDidYouKnowWithSearch] 🔵 Prompt length:', searchPrompt.length);
 
-    const response = await generateText({
-      model: xai.responses('grok-4-1-fast-reasoning'),
-      prompt: searchPrompt,
-      tools: {
-        web_search: xai.tools.webSearch(),
-      },
-      maxRetries: 1,
+    const data = await fetchGrokResponses({
+      input: [{ role: 'user', content: searchPrompt }],
+      model: 'grok-4-1-fast-non-reasoning',
+      tools: [{ type: 'web_search' }],
     });
 
-    const { text, sources, usage } = response;
-    console.log('[getGrokDidYouKnowWithSearch] 📦 Response received, text length:', text?.length || 0, ', sources:', sources?.length || 0);
-    console.log('[getGrokDidYouKnowWithSearch] 📦 Raw text (first 500 chars):', text?.substring(0, 500));
+    // Extract text from the responses API output array
+    const outputItems = data.output || [];
+    const textItem = outputItems.find((item: any) => item.type === 'message');
+    const text = textItem?.content?.map((c: any) => c.text).join('') || '';
 
-    // Log usage for cost tracking
-    if (usage) {
+    console.log('[getGrokDidYouKnowWithSearch] 📦 Response text length:', text.length);
+
+    // Log usage
+    if (data.usage) {
       logGrokUsage('getGrokDidYouKnowWithSearch', {
-        prompt_tokens: usage.inputTokens || 0,
-        completion_tokens: usage.outputTokens || 0,
-        total_tokens: (usage.inputTokens || 0) + (usage.outputTokens || 0),
-      }, sources?.length || 0);
+        prompt_tokens: data.usage.input_tokens || 0,
+        completion_tokens: data.usage.output_tokens || 0,
+        total_tokens: (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0),
+      });
     }
 
     if (!text || text.trim().length === 0) {
-      console.error('[getGrokDidYouKnowWithSearch] ❌ Empty text response from AI SDK');
-      console.error('[getGrokDidYouKnowWithSearch] Full response keys:', Object.keys(response));
-      return { insights: [], sources: sources || [] };
+      console.error('[getGrokDidYouKnowWithSearch] ❌ Empty text response');
+      return { insights: [], sources: [] };
     }
 
-    // Parse the JSON response
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       console.error('[getGrokDidYouKnowWithSearch] ❌ Could not find JSON in response');
-      console.error('[getGrokDidYouKnowWithSearch] ❌ Full text:', text.substring(0, 1000));
-      return { insights: [], sources: sources || [] };
+      console.error('[getGrokDidYouKnowWithSearch] ❌ Text:', text.substring(0, 1000));
+      return { insights: [], sources: [] };
     }
 
     const result: DidYouKnowResponse = safeJsonParse<DidYouKnowResponse>(jsonMatch[0]);
-    console.log('[getGrokDidYouKnowWithSearch] ✅ Parsed', result.did_you_know_top10?.length || 0, 'insights with', sources?.length || 0, 'sources');
+    console.log('[getGrokDidYouKnowWithSearch] ✅ Parsed', result.did_you_know_top10?.length || 0, 'insights');
 
     return {
       insights: result.did_you_know_top10 || [],
-      sources: sources || [],
+      sources: [],
     };
   } catch (err: any) {
     console.error('[getGrokDidYouKnowWithSearch] ❌ Error:', err?.message || err);
-    console.error('[getGrokDidYouKnowWithSearch] ❌ Error name:', err?.name);
-    console.error('[getGrokDidYouKnowWithSearch] ❌ Error stack:', err?.stack?.substring(0, 500));
-    if (err?.cause) console.error('[getGrokDidYouKnowWithSearch] ❌ Error cause:', err.cause);
     return { insights: [], sources: [] };
   }
 }
@@ -659,8 +642,8 @@ export async function getDidYouKnow(bookTitle: string, author: string): Promise<
     // Continue to fetch from Grok
   }
 
-  // Use regular chat completions (cheaper, more reliable, no rate limit issues)
-  const insights = await getGrokDidYouKnow(bookTitle, author);
+  // Use web search for verified, factual insights
+  const { insights } = await getGrokDidYouKnowWithSearch(bookTitle, author);
 
   // Save to cache
   await saveDidYouKnowToCache(bookTitle, author, insights);

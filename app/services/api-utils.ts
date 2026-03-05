@@ -1,10 +1,41 @@
 import { supabase } from '@/lib/supabase';
+import { isNativePlatform } from '@/lib/capacitor';
 import type { GrokUsageInput, GrokUsageLog } from '../types';
 
 export const grokApiKey = process.env.NEXT_PUBLIC_GROK_API_KEY || "";
 export const youtubeApiKey = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY || "";
 
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const GROK_PROXY_URL = `${SUPABASE_URL}/functions/v1/grok-proxy`;
+
+// On web (not native), route Grok API calls through the edge function to avoid CORS
+function rewriteGrokRequest(url: string, options: RequestInit): { url: string; options: RequestInit } {
+  if (isNativePlatform || !url.includes('api.x.ai/v1/chat/completions')) {
+    return { url, options };
+  }
+
+  // Parse the original body to forward to the proxy
+  const body = options.body ? JSON.parse(options.body as string) : {};
+
+  return {
+    url: GROK_PROXY_URL,
+    options: {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify(body),
+    },
+  };
+}
+
 export async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 3, delay = 2000): Promise<any> {
+  const rewritten = rewriteGrokRequest(url, options);
+  url = rewritten.url;
+  options = rewritten.options;
+
   for (let i = 0; i < retries; i++) {
     try {
       const res = await fetch(url, options);
@@ -61,6 +92,59 @@ export async function fetchWithRetry(url: string, options: RequestInit = {}, ret
       delay *= 2;
     }
   }
+}
+
+// Call xAI /v1/responses endpoint (supports web_search tool)
+// On web: routes through grok-proxy edge function to avoid CORS
+// On native: calls xAI directly
+export async function fetchGrokResponses(body: {
+  input: Array<{ role: string; content: string }>;
+  model?: string;
+  tools?: Array<{ type: string; [key: string]: any }>;
+  temperature?: number;
+}): Promise<any> {
+  if (isNativePlatform) {
+    // Native: call xAI directly
+    const res = await fetch('https://api.x.ai/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${grokApiKey}`,
+      },
+      body: JSON.stringify({
+        input: body.input,
+        model: body.model || 'grok-4-1-fast-non-reasoning',
+        tools: body.tools || [],
+        ...(body.temperature != null ? { temperature: body.temperature } : {}),
+      }),
+    });
+    if (!res.ok) {
+      const errorBody = await res.text().catch(() => '');
+      throw new Error(`HTTP ${res.status}: ${errorBody}`);
+    }
+    return await res.json();
+  }
+
+  // Web: route through proxy
+  const res = await fetch(GROK_PROXY_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({
+      endpoint: 'responses',
+      input: body.input,
+      model: body.model || 'grok-4-1-fast-non-reasoning',
+      tools: body.tools || [],
+      ...(body.temperature != null ? { temperature: body.temperature } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status}: ${errorBody}`);
+  }
+  return await res.json();
 }
 
 export function first4DigitYear(text: string | undefined): number | undefined {

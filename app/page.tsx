@@ -101,6 +101,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Lottie from 'lottie-react';
 import spinnerAnimation from '@/public/spinner.json';
 import heartAnimation from '@/public/heart_anim.json';
+import bookPageOnboardingAnimation from '@/public/onboarding_anim_book_page.json';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginScreen } from '@/components/LoginScreen';
 import { BookLoading } from '@/components/BookLoading';
@@ -363,6 +364,10 @@ export default function App() {
   const [showFollowingPage, setShowFollowingPage] = useState(() => getLastPageState().showFollowingPage);
   const [showFeedPage, setShowFeedPage] = useState(() => getLastPageState().showFeedPage);
   const [showAboutScreen, setShowAboutScreen] = useState(false);
+  const [showBookPageOnboarding, setShowBookPageOnboarding] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return !localStorage.getItem('hasSeenBookPageOnboarding');
+  });
   const [aboutPageIndex, setAboutPageIndex] = useState(0);
   const [aboutSwipeDirection, setAboutSwipeDirection] = useState<'forward' | 'backward'>('forward');
   const [aboutTouchStart, setAboutTouchStart] = useState<{ x: number; y: number } | null>(null);
@@ -3985,6 +3990,10 @@ export default function App() {
           
           // Success on retry - continue with retryData
           const newBook = convertBookToApp(retryData);
+          // Trigger book page onboarding for first book
+          if (books.length === 0 && !localStorage.getItem('hasSeenBookPageOnboarding')) {
+            setTimeout(() => setShowBookPageOnboarding(true), 800);
+          }
           setBooks(prev => [newBook, ...prev]);
           setSelectedIndex(0);
           setIsAdding(false);
@@ -4041,6 +4050,10 @@ export default function App() {
 
       const newBook = convertBookToApp(data);
       triggerSuccessHaptic();
+      // Trigger book page onboarding for first book
+      if (books.length === 0 && !localStorage.getItem('hasSeenBookPageOnboarding')) {
+        setTimeout(() => setShowBookPageOnboarding(true), 800);
+      }
       setBooks(prev => [newBook, ...prev]);
       setSelectedIndex(0);
       setIsAdding(false);
@@ -4804,7 +4817,6 @@ export default function App() {
           <button
             onClick={() => setShowAboutScreen(true)}
             className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
-            style={{ ...glassmorphicStyle, borderRadius: '50%' }}
           >
             <Info size={18} className="text-slate-950" />
           </button>
@@ -8195,6 +8207,25 @@ export default function App() {
                 </>
               )}
             </div>
+
+            {/* Book page onboarding animation - shown after adding first book */}
+            <AnimatePresence>
+              {books.length === 1 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.4 }}
+                  className="flex justify-center -mt-4 -mb-4"
+                >
+                  <Lottie
+                    animationData={bookPageOnboardingAnimation}
+                    loop={true}
+                    style={{ width: 200, height: 88 }}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Info box - always open, below cover and above facts */}
             {!showRatingOverlay && (
