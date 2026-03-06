@@ -316,7 +316,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                           <img
                             src={currentMovie.poster_url}
                             alt={decodeHtmlEntities(currentMovie.title)}
-                            className="w-full aspect-[2/3] object-cover"
+                            className="w-full"
                             onLoad={() => setAlbumCoverLoaded(true)}
                           />
                         ) : (

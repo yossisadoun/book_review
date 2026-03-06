@@ -25,7 +25,7 @@ export function listenForAppUrlOpen(handler: (url: string) => void): () => void 
 
 export async function openSystemBrowser(url: string): Promise<void> {
   if (isNativePlatform) {
-    await Browser.open({ url });
+    await Browser.open({ url, presentationStyle: 'popover' });
     return;
   }
   window.location.assign(url);

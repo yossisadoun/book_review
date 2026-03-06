@@ -146,7 +146,7 @@ export async function getRelatedBooks(bookTitle: string, author: string): Promis
       })
     );
 
-    const validBooks = enrichedBooks.filter((b): b is RelatedBook => b !== null);
+    const validBooks = enrichedBooks.filter((b): b is NonNullable<typeof b> => b !== null) as RelatedBook[];
     console.log(`[getRelatedBooks] ✅ Enriched ${validBooks.length} related books (${relatedBooks.length - validBooks.length} not found on Apple Books)`);
 
     // Save to database cache

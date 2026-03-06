@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Headphones, Play, Pause, Minimize2, Maximize2 } from 'lucide-react';
 import { decodeHtmlEntities, useImageBrightness, glassmorphicStyle } from './utils';
 import { openSystemBrowser } from '@/lib/capacitor';
@@ -37,13 +37,16 @@ interface PodcastEpisodesProps {
 
 function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisodesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isVisible, setIsVisible] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const [isMinimized, setIsMinimized] = useState(true);
   const [playingAudioUrl, setPlayingAudioUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
+
+  // Stable key for episodes to avoid re-triggering effects on identical data
+  const episodesKey = useMemo(() => episodes.map(e => e.url).join('|'), [episodes]);
 
   const imageBrightness = useImageBrightness(episodes[currentIndex]?.thumbnail);
 
@@ -73,20 +76,11 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
 
   useEffect(() => {
     setCurrentIndex(0);
-    setIsVisible(false);
     if (audioRef.current) {
       audioRef.current.pause();
       setPlayingAudioUrl(null);
     }
-
-    if (episodes.length === 0) return;
-
-    const timeout = setTimeout(() => {
-      setIsVisible(true);
-    }, 1000);
-
-    return () => clearTimeout(timeout);
-  }, [episodes, bookId]);
+  }, [episodesKey, bookId]);
 
   useEffect(() => {
     if (audioRef.current && playingAudioUrl) {
@@ -105,18 +99,18 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
   }, []);
 
   function handleNext() {
-    setIsVisible(false);
+    setIsTransitioning(true);
     setTimeout(() => {
       setCurrentIndex(prev => (prev + 1) % episodes.length);
-      setIsVisible(true);
+      setIsTransitioning(false);
     }, 300);
   }
 
   function handlePrev() {
-    setIsVisible(false);
+    setIsTransitioning(true);
     setTimeout(() => {
       setCurrentIndex(prev => (prev > 0 ? prev - 1 : episodes.length - 1));
-      setIsVisible(true);
+      setIsTransitioning(false);
     }, 300);
   }
 
@@ -225,17 +219,11 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
             <div style={stackedCardStyle(-4, 0.98, 0.6)} />
           </>
         )}
-        <AnimatePresence mode="wait">
-          {isVisible && (
-            <motion.div
-              key={`${currentEpisode.url}-${currentIndex}`}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
-              className="relative rounded-2xl overflow-hidden"
-              style={glassmorphicStyle}
-            >
+        <div
+          key={`${currentEpisode.url}-${currentIndex}`}
+          className="relative rounded-2xl overflow-hidden transition-opacity duration-300"
+          style={{ ...glassmorphicStyle, opacity: isTransitioning ? 0 : 1 }}
+        >
               {/* Header */}
               <div className="flex items-center gap-3 px-4 pt-3 pb-2">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(139, 92, 246, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
@@ -377,9 +365,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                   </div>
                 </div>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        </div>
       </div>
     </div>
   );

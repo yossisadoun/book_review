@@ -195,6 +195,37 @@ function avatarGradient(seed: string): string {
   return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
 }
 
+function TriviaCover({ src, alt, index, coverW, coverH, overlapPx }: {
+  src: string; alt: string; index: number; coverW: number; coverH: number; overlapPx: number;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <div
+      className="absolute top-0"
+      style={{ left: index * (coverW - overlapPx), zIndex: index, width: coverW, height: coverH }}
+    >
+      {/* Skeleton */}
+      <motion.div
+        animate={{ opacity: loaded ? 0 : [0.5, 0.8, 0.5] }}
+        transition={loaded ? { duration: 0.2 } : { duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+        className="absolute inset-0 rounded-md bg-slate-300/50"
+        style={{ border: '2px solid rgba(255,255,255,0.8)' }}
+      />
+      {/* Cover image */}
+      <motion.img
+        src={src}
+        alt={alt}
+        onLoad={() => setLoaded(true)}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: loaded ? 1 : 0 }}
+        transition={{ duration: 0.35, delay: loaded ? index * 0.07 : 0, ease: 'easeOut' }}
+        className="absolute inset-0 rounded-md object-cover shadow-md"
+        style={{ width: coverW, height: coverH, border: '2px solid rgba(255,255,255,0.8)' }}
+      />
+    </div>
+  );
+}
+
 export default function App() {
   const { user, loading: authLoading, signOut, isReviewer, isAnonymous } = useAuth();
   const [books, setBooks] = useState<BookWithRatings[]>([]);
@@ -291,6 +322,7 @@ export default function App() {
   const [didYouKnow, setDidYouKnow] = useState<Map<string, DidYouKnowItem[]>>(new Map());
   const [loadingDidYouKnowForBookId, setLoadingDidYouKnowForBookId] = useState<string | null>(null);
   const [loadingPodcastsForBookId, setLoadingPodcastsForBookId] = useState<string | null>(null);
+  const [podcastEpisodes, setPodcastEpisodes] = useState<Map<string, { curated: PodcastEpisode[]; apple: PodcastEpisode[] }>>(new Map());
   const [loadingAnalysisForBookId, setLoadingAnalysisForBookId] = useState<string | null>(null);
   const [analysisArticles, setAnalysisArticles] = useState<Map<string, AnalysisArticle[]>>(new Map());
   const [loadingVideosForBookId, setLoadingVideosForBookId] = useState<string | null>(null);
@@ -1806,16 +1838,16 @@ export default function App() {
   // Memoize combined podcast episodes to prevent recalculation on every render
   const combinedPodcastEpisodes = useMemo(() => {
     if (!activeBook) return [];
-    
-    const curatedEpisodes = activeBook.podcast_episodes_curated || [];
-    const appleEpisodes = activeBook.podcast_episodes_apple || [];
-    const legacyEpisodes = activeBook.podcast_episodes || [];
+
+    const cached = podcastEpisodes.get(activeBook.id);
+    const curatedEpisodes = cached?.curated || [];
+    const appleEpisodes = cached?.apple || [];
 
     // Combine episodes, avoiding duplicates by URL
     const seenUrls = new Set<string>();
     const episodes: PodcastEpisode[] = [];
 
-    [...curatedEpisodes, ...appleEpisodes, ...legacyEpisodes].forEach(ep => {
+    [...curatedEpisodes, ...appleEpisodes].forEach(ep => {
       if (ep.url && !seenUrls.has(ep.url)) {
         seenUrls.add(ep.url);
         episodes.push(ep);
@@ -1823,16 +1855,7 @@ export default function App() {
     });
 
     return episodes;
-  }, [
-    activeBook?.id,
-    activeBook?.podcast_episodes_curated?.length || 0,
-    activeBook?.podcast_episodes_apple?.length || 0,
-    activeBook?.podcast_episodes?.length || 0,
-    // Also include a stable reference check using episode URLs
-    (activeBook?.podcast_episodes_curated || []).map(e => e.url).join(','),
-    (activeBook?.podcast_episodes_apple || []).map(e => e.url).join(','),
-    (activeBook?.podcast_episodes || []).map(e => e.url).join(',')
-  ]);
+  }, [activeBook?.id, podcastEpisodes]);
 
   const bookPageSectionsResolved = useMemo(() => {
     if (!activeBook) return true;
@@ -3076,9 +3099,9 @@ export default function App() {
     const bookTitle = currentBook.title;
     const bookAuthor = currentBook.author;
     
-    // Check if episodes already exist in local state
-    const hasEpisodes = (currentBook.podcast_episodes_curated && currentBook.podcast_episodes_curated.length > 0) ||
-                        (currentBook.podcast_episodes_apple && currentBook.podcast_episodes_apple.length > 0);
+    // Check if episodes already exist in local state (Map)
+    const cached = podcastEpisodes.get(bookId);
+    const hasEpisodes = cached && (cached.curated.length > 0 || cached.apple.length > 0);
     
     // Check if we're currently fetching for this book (to prevent concurrent fetches)
     const isCurrentlyFetching = fetchingPodcastsForBooksRef.current.has(bookId);
@@ -3130,16 +3153,12 @@ export default function App() {
             }
           });
 
-          // Update local state for display (cache is already saved by getPodcastEpisodes)
-            setBooks(prev => prev.map(book =>
-              book.id === bookId
-              ? {
-                  ...book,
-                  podcast_episodes_curated: curated,
-                  podcast_episodes_apple: apple
-                }
-                : book
-            ));
+          // Store in Map state (like videos, articles, etc.)
+          setPodcastEpisodes(prev => {
+            const newMap = new Map(prev);
+            newMap.set(bookId, { curated, apple });
+            return newMap;
+          });
         } else {
           console.log(`[Podcast Episodes] ⚠️ No episodes found for "${bookTitle}"`);
         }
@@ -9984,7 +10003,35 @@ export default function App() {
                   {isTriviaReady && !isTriviaLoading && !triviaGameComplete && triviaQuestions.length === 0 ? (
                   <div className="text-center">
                     <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50 mb-0">Ready to play!</h2>
-                    <p className="text-xs text-slate-700 dark:text-slate-300 mb-4">Tap to test your knowledge</p>
+                    <p className="text-xs text-slate-700 dark:text-slate-300 mb-3">Tap to test your knowledge</p>
+                    {/* Book covers for trivia-eligible books */}
+                    {(() => {
+                      const triviaBooks = books.filter(b => b.reading_status === 'read_it' && b.cover_url);
+                      if (triviaBooks.length === 0) return null;
+                      const maxCovers = 8;
+                      const shown = triviaBooks.slice(0, maxCovers);
+                      const overlapPx = 12;
+                      const coverW = 40;
+                      const coverH = 58;
+                      const totalWidth = coverW + (shown.length - 1) * (coverW - overlapPx);
+                      return (
+                        <div className="flex justify-center mb-4">
+                          <div className="relative" style={{ width: totalWidth, height: coverH }}>
+                            {shown.map((book, i) => (
+                              <TriviaCover
+                                key={book.id}
+                                src={book.cover_url!}
+                                alt={book.title}
+                                index={i}
+                                coverW={coverW}
+                                coverH={coverH}
+                                overlapPx={overlapPx}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   <button
                     onClick={async () => {
                       setIsTriviaLoading(true);
@@ -11783,6 +11830,27 @@ export default function App() {
                     <span>New list</span>
                   </button>
                 )}
+              </div>
+
+              {/* Done button */}
+              <div className="border-t border-white/20 dark:border-white/10 px-5 py-3">
+                <button
+                  onClick={() => {
+                    setShowListSheet(false);
+                    setShowNewListInput(false);
+                    setNewListName('');
+                    setIsSelectMode(false);
+                    setSelectedBookIds(new Set());
+                  }}
+                  className="w-full py-2.5 rounded-xl text-sm font-bold text-white transition-all active:scale-[0.98]"
+                  style={{
+                    background: 'rgba(59, 130, 246, 0.9)',
+                    backdropFilter: 'blur(8px)',
+                    WebkitBackdropFilter: 'blur(8px)',
+                  }}
+                >
+                  Done
+                </button>
               </div>
 
               {/* Safe area padding */}
