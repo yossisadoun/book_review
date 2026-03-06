@@ -31,6 +31,9 @@ interface PromptsConfig {
   book_research: {
     prompt: string;
   };
+  first_issue_year: {
+    prompt: string;
+  };
   trivia_questions: {
     prompt: string;
   };
@@ -272,6 +275,11 @@ Output Format: Provide a single JSON object. Each pillar can contain up to 8 dis
   * deep_insight: A detailed paragraph of context or expert analysis.
 
 JSON Structure: { "book_title": "", "author": "", "pillars": [ { "pillar_name": "", "content_items": [ { "source_url": "", "trivia_fact": "", "deep_insight": "" } ] } ] }`
+      },
+      first_issue_year: {
+        prompt: `What year was "{bookTitle}" by "{author}" first published in any language or format?
+Return ONLY valid JSON: { "first_issue_year": 1925 }
+If unknown, return: { "first_issue_year": null }`
       },
       trivia_questions: {
         prompt: `You are an expert creator of The Guardian Thursday Quiz-style questions: short (1-2 lines max), witty, punchy, slightly irreverent trivia that mixes quirky behind-the-scenes author facts, odd inspirations, personal anecdotes, research rabbit holes, and literary details. Questions are phrased openly but designed for multiple-choice reveal.
