@@ -203,11 +203,13 @@ export async function generateFeedItemsForBook(
     }
   }
 
-  // Process related books
+  // Process related books (only those with an Apple Books listing)
   const relatedBooks = relatedBooksData.data?.related_books;
   if (relatedBooks && Array.isArray(relatedBooks)) {
     for (const relatedBook of relatedBooks) {
-      if (await insertFeedItem('related_book', { related_book: relatedBook })) created++;
+      if (relatedBook.google_books_url) {
+        if (await insertFeedItem('related_book', { related_book: relatedBook })) created++;
+      }
     }
   }
 

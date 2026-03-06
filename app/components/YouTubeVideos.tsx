@@ -223,7 +223,7 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
                     <button
                       onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
                       className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"
-                      style={{ background: 'rgba(255, 255, 255, 0.25)' }}
+                      style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)' }}
                     >
                       {isMinimized ? <Maximize2 size={12} className="text-white/80" /> : <Minimize2 size={12} className="text-white/80" />}
                     </button>

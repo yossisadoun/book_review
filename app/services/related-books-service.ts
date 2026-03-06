@@ -22,8 +22,9 @@ export async function getRelatedBooks(bookTitle: string, author: string): Promis
 
     if (!cacheError && cachedData && cachedData.related_books && Array.isArray(cachedData.related_books)) {
       if (cachedData.related_books.length > 0) {
-        console.log(`[getRelatedBooks] ✅ Found ${cachedData.related_books.length} cached related books in database`);
-        return cachedData.related_books as RelatedBook[];
+        const cached = (cachedData.related_books as RelatedBook[]).filter(b => b.google_books_url);
+        console.log(`[getRelatedBooks] ✅ Found ${cached.length} cached related books in database (${cachedData.related_books.length - cached.length} without Apple Books filtered out)`);
+        return cached;
       } else {
         // Empty array means "no results" was already cached - don't try again
         console.log(`[getRelatedBooks] ✅ Found cached "no results" - skipping Grok API call`);
@@ -137,20 +138,21 @@ export async function getRelatedBooks(bookTitle: string, author: string): Promis
             };
           }
 
-          return book;
+          return null; // Not found on Apple Books — exclude
         } catch (err) {
           console.error(`[getRelatedBooks] ⚠️ Error enriching book "${book.title}":`, err);
-          return book; // Return original if enrichment fails
+          return null; // Enrichment failed — exclude
         }
       })
     );
 
-    console.log('[getRelatedBooks] ✅ Enriched', enrichedBooks.length, 'related books');
+    const validBooks = enrichedBooks.filter((b): b is RelatedBook => b !== null);
+    console.log(`[getRelatedBooks] ✅ Enriched ${validBooks.length} related books (${relatedBooks.length - validBooks.length} not found on Apple Books)`);
 
     // Save to database cache
-    await saveRelatedBooksToDatabase(bookTitle, author, enrichedBooks);
+    await saveRelatedBooksToDatabase(bookTitle, author, validBooks);
 
-    return enrichedBooks;
+    return validBooks;
   } catch (err: any) {
     console.error('[getRelatedBooks] ❌ Error:', err);
     return [];

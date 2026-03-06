@@ -2,9 +2,19 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Headphones, Play, Pause, ExternalLink, Minimize2, Maximize2 } from 'lucide-react';
+import { Headphones, Play, Pause, Minimize2, Maximize2 } from 'lucide-react';
 import { decodeHtmlEntities, useImageBrightness, glassmorphicStyle } from './utils';
 import { openSystemBrowser } from '@/lib/capacitor';
+
+const ApplePodcastsIcon = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 100 100" fill="currentColor">
+    <path d="M50 15c-19.33 0-35 15.67-35 35 0 11.28 5.34 21.32 13.63 27.72a2.5 2.5 0 103.14-3.89C24.72 68.52 20 59.55 20 50c0-16.57 13.43-30 30-30s30 13.43 30 30c0 9.55-4.72 18.52-11.77 23.83a2.5 2.5 0 103.14 3.89C79.66 71.32 85 61.28 85 50c0-19.33-15.67-35-35-35z"/>
+    <path d="M50 28c-12.15 0-22 9.85-22 22 0 6.8 3.08 12.88 7.93 16.93a2.5 2.5 0 103.14-3.89C34.97 59.72 33 55.07 33 50c0-9.39 7.61-17 17-17s17 7.61 17 17c0 5.07-1.97 9.72-6.07 13.04a2.5 2.5 0 103.14 3.89C68.92 62.88 72 56.8 72 50c0-12.15-9.85-22-22-22z"/>
+    <circle cx="50" cy="46" r="7"/>
+    <path d="M44 62c-.5-3.5-.5-6.5 0-9.5.7-3.8 2.8-5.5 6-5.5s5.3 1.7 6 5.5c.5 3 .5 6 0 9.5l-2 13c-.3 2-1.7 3.5-4 3.5s-3.7-1.5-4-3.5l-2-13z"/>
+  </svg>
+);
+
 
 interface PodcastEpisode {
   title: string;
@@ -242,15 +252,16 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                 )}
               </div>
               {/* Image area */}
-              <div className="relative aspect-[10/9]">
+              <div className="relative aspect-square flex items-start justify-center pt-3">
+                <div className="relative w-[60%] aspect-square rounded-xl overflow-hidden" style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2)' }}>
                 {currentEpisode.thumbnail ? (
                   <img
                     src={currentEpisode.thumbnail}
                     alt={decodeHtmlEntities(currentEpisode.title)}
-                    className="absolute inset-0 w-full h-full object-cover object-top"
+                    className="w-full h-full object-cover"
                   />
                 ) : (
-                  <div className="absolute inset-0 bg-gradient-to-b from-violet-700 to-violet-950 flex items-center justify-center">
+                  <div className="w-full h-full bg-gradient-to-b from-violet-700 to-violet-950 flex items-center justify-center">
                     <Headphones size={48} className="text-white/30" />
                   </div>
                 )}
@@ -274,8 +285,9 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                     <Play size={24} className="text-white ml-0.5" fill="white" />
                   </button>
                 </div>
+                </div>
 
-                <div className="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
 
                 {/* Floating glassmorphic overlay */}
                 <div
@@ -290,7 +302,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                     <button
                       onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
                       className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"
-                      style={{ background: 'rgba(255, 255, 255, 0.25)' }}
+                      style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)' }}
                     >
                       {isMinimized ? <Maximize2 size={12} className="text-white/80" /> : <Minimize2 size={12} className="text-white/80" />}
                     </button>
@@ -337,17 +349,23 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                         {isPlaying ? <Pause size={14} fill="white" /> : <Play size={14} className="ml-0.5" fill="white" />}
                         {isPlaying ? 'Pause' : 'Preview'}
                       </button>
+                      {/* Apple Podcasts button */}
                       {currentEpisode.url && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             openSystemBrowser(currentEpisode.url);
                           }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
-                          style={pillButtonStyle}
+                          className="inline-flex items-center justify-center w-[30px] h-[30px] rounded-full transition-all active:scale-95"
+                          style={{
+                            background: 'rgba(156, 39, 176, 0.85)',
+                            backdropFilter: 'blur(9.4px)',
+                            WebkitBackdropFilter: 'blur(9.4px)',
+                            border: '1px solid rgba(156, 39, 176, 0.3)',
+                            color: 'white',
+                          }}
                         >
-                          <ExternalLink size={14} />
-                          Podcast
+                          <ApplePodcastsIcon size={20} />
                         </button>
                       )}
                     </div>

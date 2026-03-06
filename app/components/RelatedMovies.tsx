@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Film, Play, Disc3, ExternalLink, Minimize2, Maximize2 } from 'lucide-react';
 import { decodeHtmlEntities, useImageBrightness, glassmorphicStyle } from './utils';
@@ -28,9 +28,19 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
   const [isMinimized, setIsMinimized] = useState(true);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  const [albumCoverLoaded, setAlbumCoverLoaded] = useState(false);
   const minSwipeDistance = 50;
 
-  const imageBrightness = useImageBrightness(movies[currentIndex]?.poster_url);
+  const shuffledMovies = useMemo(() => {
+    const arr = [...movies];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }, [movies]);
+
+  const imageBrightness = useImageBrightness(shuffledMovies[currentIndex]?.poster_url);
 
   const overlayGlassStyle: React.CSSProperties = imageBrightness === 'light'
     ? {
@@ -52,28 +62,31 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
     setCurrentIndex(0);
     setIsVisible(false);
     setIsMinimized(true);
+    setAlbumCoverLoaded(false);
 
-    if (movies.length === 0) return;
+    if (shuffledMovies.length === 0) return;
 
     const timeout = setTimeout(() => {
       setIsVisible(true);
     }, 1000);
 
     return () => clearTimeout(timeout);
-  }, [movies, bookId]);
+  }, [shuffledMovies, bookId]);
 
   function handleNext() {
     setIsVisible(false);
+    setAlbumCoverLoaded(false);
     setTimeout(() => {
-      setCurrentIndex(prev => (prev + 1) % movies.length);
+      setCurrentIndex(prev => (prev + 1) % shuffledMovies.length);
       setIsVisible(true);
     }, 300);
   }
 
   function handlePrev() {
     setIsVisible(false);
+    setAlbumCoverLoaded(false);
     setTimeout(() => {
-      setCurrentIndex(prev => (prev > 0 ? prev - 1 : movies.length - 1));
+      setCurrentIndex(prev => (prev > 0 ? prev - 1 : shuffledMovies.length - 1));
       setIsVisible(true);
     }, 300);
   }
@@ -96,12 +109,12 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
   if (isLoading) {
     return (
       <div className="w-full">
-        <div className="aspect-[10/9] rounded-2xl bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" />
+        <div className="aspect-[5/6] rounded-2xl bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" />
       </div>
     );
   }
 
-  if (movies.length === 0 || currentIndex >= movies.length) {
+  if (shuffledMovies.length === 0 || currentIndex >= shuffledMovies.length) {
     return (
       <div className="w-full">
         <div className="rounded-xl p-4" style={glassmorphicStyle}>
@@ -111,7 +124,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
     );
   }
 
-  const currentMovie = movies[currentIndex];
+  const currentMovie = shuffledMovies[currentIndex];
 
   const TypeIcon = currentMovie.type === 'album' ? Disc3 : currentMovie.type === 'movie' ? Film : Play;
 
@@ -160,7 +173,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
       className="w-full cursor-pointer"
     >
       <div className="relative pb-3">
-        {movies.length > 1 && (
+        {shuffledMovies.length > 1 && (
           <>
             <div style={stackedCardStyle(4, 0.96, 0.4)} />
             <div style={stackedCardStyle(-4, 0.98, 0.6)} />
@@ -186,27 +199,149 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                   <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Related Work</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Movies, shows & music related to this book</p>
                 </div>
-                {movies.length > 1 && (
+                {shuffledMovies.length > 1 && (
                   <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
-                    {currentIndex + 1}/{movies.length}
+                    {currentIndex + 1}/{shuffledMovies.length}
                   </span>
                 )}
               </div>
               {/* Image area */}
-              <div className="relative aspect-[10/9]">
-              {currentMovie.poster_url ? (
-                <img
-                  src={currentMovie.poster_url}
-                  alt={decodeHtmlEntities(currentMovie.title)}
-                  className="absolute inset-0 w-full h-full object-cover object-top"
-                />
+              <div className="relative aspect-[5/6]">
+              {currentMovie.type === 'album' ? (
+                /* Vinyl record layout for albums */
+                <div className="absolute inset-0 flex items-start justify-center pt-3">
+                  <div className="relative w-[57%] aspect-square transition-opacity duration-500" style={{ transform: 'translateX(calc(-13.5% - 15px)) translateY(27px)', opacity: albumCoverLoaded || !currentMovie.poster_url ? 1 : 0 }}>
+                    {/* Vinyl Record (behind sleeve) */}
+                    <div
+                      className="absolute z-10 w-[90%] aspect-square top-[5%]"
+                      style={{ transform: 'translateX(calc(40% + 30px))' }}
+                    >
+                    <div
+                      className="w-full aspect-square rounded-full animate-[vinyl-spin_3s_linear_infinite]"
+                      style={{
+                        background: 'radial-gradient(circle, #222 0%, #111 40%, #000 100%)',
+                        boxShadow: '0 0 40px rgba(0,0,0,0.8)',
+                      }}
+                    >
+                      {/* Grooves */}
+                      <div
+                        className="absolute inset-0 rounded-full opacity-40 pointer-events-none"
+                        style={{ background: 'repeating-radial-gradient(circle, transparent 0, transparent 2px, rgba(255,255,255,0.03) 3px, transparent 4px)' }}
+                      />
+                      {/* Center label */}
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1/3 aspect-square rounded-full bg-zinc-800 border-4 border-black/20 overflow-hidden shadow-inner flex items-center justify-center">
+                        {currentMovie.poster_url && (
+                          <div
+                            className="absolute inset-0 bg-center bg-cover opacity-80"
+                            style={{ backgroundImage: `url('${currentMovie.poster_url}')` }}
+                          />
+                        )}
+                        <div className="absolute inset-0 bg-black/30" />
+                        <div className="z-20 w-3 h-3 bg-zinc-950 rounded-full border border-white/10 shadow-inner" />
+                      </div>
+                    </div>
+                    </div>
+
+                    {/* Album Sleeve (on top) */}
+                    <div
+                      className="absolute z-20 w-full h-full rounded-sm overflow-hidden"
+                      style={{ boxShadow: '15px 15px 50px rgba(0,0,0,0.7)' }}
+                    >
+                      {currentMovie.poster_url ? (
+                        <img
+                          src={currentMovie.poster_url}
+                          alt={decodeHtmlEntities(currentMovie.title)}
+                          className="absolute inset-0 w-full h-full object-cover"
+                          onLoad={() => setAlbumCoverLoaded(true)}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 bg-gradient-to-b from-pink-800 to-pink-950 flex items-center justify-center">
+                          <Disc3 size={48} className="text-white/30" />
+                        </div>
+                      )}
+                      {/* Edge shadow on right side */}
+                      <div className="absolute inset-y-0 right-0 w-4 bg-gradient-to-l from-black/30 to-transparent z-30" />
+                    </div>
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
+                </div>
+              ) : currentMovie.type === 'movie' ? (
+                /* Worn poster layout for movies */
+                <div className="absolute inset-0 flex items-start justify-center pt-3">
+                  <div className="relative transition-opacity duration-500" style={{ width: '65%', opacity: albumCoverLoaded || !currentMovie.poster_url ? 1 : 0 }}>
+                    <div
+                      className="relative overflow-visible"
+                      style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.5)', filter: 'drop-shadow(2px 3px 6px rgba(0,0,0,0.4))' }}
+                    >
+                      <div className="relative overflow-hidden">
+                        {currentMovie.poster_url ? (
+                          <img
+                            src={currentMovie.poster_url}
+                            alt={decodeHtmlEntities(currentMovie.title)}
+                            className="w-full aspect-[2/3] object-cover"
+                            onLoad={() => setAlbumCoverLoaded(true)}
+                          />
+                        ) : (
+                          <div className="w-full aspect-[2/3] bg-gradient-to-b from-slate-700 to-slate-900 flex items-center justify-center">
+                            <Film size={48} className="text-white/30" />
+                          </div>
+                        )}
+                        {/* Paper crease texture — desaturated, inverted, Screen blend */}
+                        <div
+                          className="absolute inset-0 pointer-events-none opacity-[0.75] mix-blend-screen"
+                          style={{
+                            backgroundImage: `url('/paper-texture.jpg')`,
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                            filter: 'grayscale(1) invert(1)',
+                          }}
+                        />
+                        {/* Vignette */}
+                        <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: 'inset 0 0 50px rgba(0,0,0,0.35)' }} />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
+                </div>
               ) : (
-                <div className="absolute inset-0 bg-gradient-to-b from-slate-700 to-slate-900 flex items-center justify-center">
-                  <TypeIcon size={48} className="text-white/30" />
+                /* Worn poster layout for shows/plays */
+                <div className="absolute inset-0 flex items-start justify-center pt-3">
+                  <div className="relative transition-opacity duration-500" style={{ width: '65%', opacity: albumCoverLoaded || !currentMovie.poster_url ? 1 : 0 }}>
+                    <div
+                      className="relative overflow-visible"
+                      style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.5)', filter: 'drop-shadow(2px 3px 6px rgba(0,0,0,0.4))' }}
+                    >
+                      <div className="relative overflow-hidden">
+                        {currentMovie.poster_url ? (
+                          <img
+                            src={currentMovie.poster_url}
+                            alt={decodeHtmlEntities(currentMovie.title)}
+                            className="w-full aspect-[2/3] object-cover"
+                            onLoad={() => setAlbumCoverLoaded(true)}
+                          />
+                        ) : (
+                          <div className="w-full aspect-[2/3] bg-gradient-to-b from-slate-700 to-slate-900 flex items-center justify-center">
+                            <TypeIcon size={48} className="text-white/30" />
+                          </div>
+                        )}
+                        {/* Paper crease texture — desaturated, inverted, Screen blend */}
+                        <div
+                          className="absolute inset-0 pointer-events-none opacity-[0.75] mix-blend-screen"
+                          style={{
+                            backgroundImage: `url('/paper-texture.jpg')`,
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                            filter: 'grayscale(1) invert(1)',
+                          }}
+                        />
+                        {/* Vignette */}
+                        <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: 'inset 0 0 50px rgba(0,0,0,0.35)' }} />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
                 </div>
               )}
-
-              <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
 
               {/* Floating glassmorphic overlay */}
               <div
@@ -230,7 +365,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                   <button
                     onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
                     className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"
-                    style={{ background: 'rgba(255, 255, 255, 0.25)' }}
+                    style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)' }}
                   >
                     {isMinimized ? <Maximize2 size={12} className="text-white/80" /> : <Minimize2 size={12} className="text-white/80" />}
                   </button>
@@ -262,21 +397,23 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
 
                 {/* Button row — always visible */}
                 <div className="flex items-center justify-between pt-2">
-                  {currentMovie.wikipedia_url && (
-                    <a
-                      href={currentMovie.wikipedia_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
-                      style={pillButtonStyle}
-                    >
-                      <ExternalLink size={14} />
-                      Source
-                    </a>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {currentMovie.wikipedia_url && (
+                      <a
+                        href={currentMovie.wikipedia_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
+                        style={pillButtonStyle}
+                      >
+                        <ExternalLink size={14} />
+                        Source
+                      </a>
+                    )}
+                  </div>
                   {isMinimized && currentMovie.director && (
-                    <span className="text-xs text-white/70 font-medium truncate ml-2" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                    <span className="text-xs text-white/70 font-medium truncate ml-2 min-w-0" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
                       {decodeHtmlEntities(currentMovie.director)}{currentMovie.release_year ? ` (${currentMovie.release_year})` : ''}
                     </span>
                   )}
@@ -287,6 +424,12 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
           )}
         </AnimatePresence>
       </div>
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes vinyl-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}} />
     </div>
   );
 }

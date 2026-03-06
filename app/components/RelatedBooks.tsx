@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookMarked, BookOpen, CheckCircle2, Minimize2, Maximize2 } from 'lucide-react';
+import { BookMarked, BookOpen, CheckCircle2, Minimize2, Maximize2, ExternalLink } from 'lucide-react';
 import { decodeHtmlEntities, useImageBrightness, glassmorphicStyle } from './utils';
+import { openSystemBrowser } from '@/lib/capacitor';
 
 interface PodcastEpisode {
   title: string;
@@ -75,6 +76,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
   const [isMinimized, setIsMinimized] = useState(true);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  const [coverAspect, setCoverAspect] = useState<number>(2 / 3); // width/height ratio
   const minSwipeDistance = 50;
 
   const coverImage = books[currentIndex]?.cover_url || books[currentIndex]?.thumbnail;
@@ -100,6 +102,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
     setCurrentIndex(0);
     setIsVisible(false);
     setIsMinimized(true);
+    setCoverAspect(2 / 3);
 
     if (books.length === 0) return;
 
@@ -112,6 +115,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
 
   function handleNext() {
     setIsVisible(false);
+    setCoverAspect(2 / 3);
     setTimeout(() => {
       setCurrentIndex(prev => (prev + 1) % books.length);
       setIsVisible(true);
@@ -120,6 +124,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
 
   function handlePrev() {
     setIsVisible(false);
+    setCoverAspect(2 / 3);
     setTimeout(() => {
       setCurrentIndex(prev => (prev > 0 ? prev - 1 : books.length - 1));
       setIsVisible(true);
@@ -243,8 +248,8 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
                 )}
               </div>
               {/* Image area */}
-              <div className="relative aspect-[2/3] flex items-start justify-center pt-3">
-              <div className="relative w-[70%] aspect-[2/3] rounded-lg overflow-hidden border-2 border-white/50" style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2)' }}>
+              <div className="relative flex items-start justify-center pt-3" style={{ aspectRatio: `${coverAspect} / 1` }}>
+              <div className="relative w-[70%] rounded-lg overflow-hidden border-2 border-white/50" style={{ aspectRatio: `${coverAspect} / 1`, boxShadow: '0 8px 32px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2)' }}>
               {coverImage ? (
                 <>
                 <img
@@ -252,6 +257,12 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
                   alt={decodeHtmlEntities(currentBook.title)}
                   className="w-full h-full object-contain"
                   style={{ filter: 'contrast(1.15) saturate(1.25)' }}
+                  onLoad={(e) => {
+                    const img = e.currentTarget;
+                    if (img.naturalWidth && img.naturalHeight) {
+                      setCoverAspect(img.naturalWidth / img.naturalHeight);
+                    }
+                  }}
                 />
                 {/* Skeuomorphic book spine effect */}
                 <div
@@ -297,7 +308,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
                   <button
                     onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
                     className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"
-                    style={{ background: 'rgba(255, 255, 255, 0.25)' }}
+                    style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)' }}
                   >
                     {isMinimized ? <Maximize2 size={12} className="text-white/80" /> : <Minimize2 size={12} className="text-white/80" />}
                   </button>
@@ -327,29 +338,48 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
                 </AnimatePresence>
 
                 {/* Button row — always visible */}
-                {onAddBook && (
-                  <div className="flex items-center justify-between pt-2">
-                    <button
-                      onClick={handleAddBook}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
-                      style={{
-                        background: 'rgba(59, 130, 246, 0.85)',
-                        backdropFilter: 'blur(9.4px)',
-                        WebkitBackdropFilter: 'blur(9.4px)',
-                        border: '1px solid rgba(59, 130, 246, 0.3)',
-                        color: 'white',
-                      }}
-                    >
-                      <CheckCircle2 size={14} />
-                      Add Book
-                    </button>
-                    {isMinimized && (
-                      <span className="text-xs text-white/70 font-medium truncate ml-2" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
-                        {decodeHtmlEntities(currentBook.author)}
-                      </span>
+                <div className="flex items-center justify-between pt-2">
+                  <div className="flex items-center gap-2">
+                    {onAddBook && (
+                      <button
+                        onClick={handleAddBook}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full whitespace-nowrap flex-shrink-0 transition-all active:scale-95"
+                        style={{
+                          background: 'rgba(59, 130, 246, 0.85)',
+                          backdropFilter: 'blur(9.4px)',
+                          WebkitBackdropFilter: 'blur(9.4px)',
+                          border: '1px solid rgba(59, 130, 246, 0.3)',
+                          color: 'white',
+                        }}
+                      >
+                        <CheckCircle2 size={14} />
+                        Add Book
+                      </button>
+                    )}
+                    {currentBook.google_books_url && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openSystemBrowser(currentBook.google_books_url!);
+                        }}
+                        className="inline-flex items-center justify-center w-[30px] h-[30px] rounded-full flex-shrink-0 transition-all active:scale-95"
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.25)',
+                          backdropFilter: 'blur(9.4px)',
+                          WebkitBackdropFilter: 'blur(9.4px)',
+                          border: '1px solid rgba(255, 255, 255, 0.3)',
+                        }}
+                      >
+                        <ExternalLink size={14} className="text-white" />
+                      </button>
                     )}
                   </div>
-                )}
+                  {isMinimized && (
+                    <span className="text-xs text-white/70 font-medium truncate ml-2 min-w-0" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                      {decodeHtmlEntities(currentBook.author)}
+                    </span>
+                  )}
+                </div>
               </div>
               </div>
             </motion.div>

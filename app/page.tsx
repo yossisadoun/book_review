@@ -1810,23 +1810,23 @@ export default function App() {
     const curatedEpisodes = activeBook.podcast_episodes_curated || [];
     const appleEpisodes = activeBook.podcast_episodes_apple || [];
     const legacyEpisodes = activeBook.podcast_episodes || [];
-    
+
     // Combine episodes, avoiding duplicates by URL
     const seenUrls = new Set<string>();
     const episodes: PodcastEpisode[] = [];
-    
+
     [...curatedEpisodes, ...appleEpisodes, ...legacyEpisodes].forEach(ep => {
       if (ep.url && !seenUrls.has(ep.url)) {
         seenUrls.add(ep.url);
         episodes.push(ep);
       }
     });
-    
+
     return episodes;
   }, [
-    activeBook?.id, 
-    activeBook?.podcast_episodes_curated?.length || 0, 
-    activeBook?.podcast_episodes_apple?.length || 0, 
+    activeBook?.id,
+    activeBook?.podcast_episodes_curated?.length || 0,
+    activeBook?.podcast_episodes_apple?.length || 0,
     activeBook?.podcast_episodes?.length || 0,
     // Also include a stable reference check using episode URLs
     (activeBook?.podcast_episodes_curated || []).map(e => e.url).join(','),
@@ -3121,7 +3121,7 @@ export default function App() {
           // Separate episodes by source
           const curated: PodcastEpisode[] = [];
           const apple: PodcastEpisode[] = [];
-          
+
           allEpisodes.forEach(ep => {
             if (ep.platform === 'Curated') {
               curated.push(ep);
@@ -3129,12 +3129,12 @@ export default function App() {
               apple.push(ep);
             }
           });
-          
+
           // Update local state for display (cache is already saved by getPodcastEpisodes)
-            setBooks(prev => prev.map(book => 
-              book.id === bookId 
-              ? { 
-                  ...book, 
+            setBooks(prev => prev.map(book =>
+              book.id === bookId
+              ? {
+                  ...book,
                   podcast_episodes_curated: curated,
                   podcast_episodes_apple: apple
                 }

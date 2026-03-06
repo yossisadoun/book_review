@@ -210,6 +210,131 @@ async function getApplePodcastEpisodes(bookTitle: string, author: string): Promi
   }
 }
 
+// --- Spotify Podcasts API ---
+
+let spotifyAccessToken: string | null = null;
+let spotifyTokenExpiry = 0;
+
+export async function getSpotifyAccessToken(): Promise<string | null> {
+  const clientId = process.env.NEXT_PUBLIC_SPOTIFY_CLIENT_ID;
+  const clientSecret = process.env.NEXT_PUBLIC_SPOTIFY_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    console.warn('[getSpotifyAccessToken] Spotify credentials missing');
+    return null;
+  }
+
+  if (spotifyAccessToken && Date.now() < spotifyTokenExpiry) {
+    return spotifyAccessToken;
+  }
+
+  try {
+    const response = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': 'Basic ' + btoa(`${clientId}:${clientSecret}`),
+      },
+      body: 'grant_type=client_credentials',
+    });
+
+    if (!response.ok) {
+      console.error('[getSpotifyAccessToken] ❌ Failed to get token:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    spotifyAccessToken = data.access_token;
+    // Expire 60s early to be safe
+    spotifyTokenExpiry = Date.now() + (data.expires_in - 60) * 1000;
+    return spotifyAccessToken;
+  } catch (err) {
+    console.error('[getSpotifyAccessToken] ❌ Error:', err);
+    return null;
+  }
+}
+
+async function getSpotifyPodcastEpisodes(bookTitle: string, author: string): Promise<PodcastEpisode[]> {
+  try {
+    const token = await getSpotifyAccessToken();
+    if (!token) return [];
+
+    console.log(`[getSpotifyPodcastEpisodes] 🔄 Searching Spotify for episodes about "${bookTitle}" by ${author}...`);
+
+    const searchTerm = `${bookTitle} ${author}`;
+    const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(searchTerm)}&type=episode&limit=20`;
+
+    const response = await fetch(searchUrl, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      console.error('[getSpotifyPodcastEpisodes] ❌ Search failed:', response.status);
+      return [];
+    }
+
+    const data = await response.json();
+    const episodes = data?.episodes?.items || [];
+
+    if (episodes.length === 0) {
+      console.log(`[getSpotifyPodcastEpisodes] ⚠️ No episodes found for "${bookTitle}"`);
+      return [];
+    }
+
+    const bookTitleLower = bookTitle.toLowerCase();
+    const authorLower = author.toLowerCase();
+
+    const results: PodcastEpisode[] = [];
+
+    for (const ep of episodes) {
+      const episodeTitle = (ep.name || '').toLowerCase();
+      const episodeDescription = (ep.description || '').toLowerCase();
+
+      const mentionsBook = episodeTitle.includes(bookTitleLower) || episodeDescription.includes(bookTitleLower);
+      const mentionsAuthor = episodeTitle.includes(authorLower) || episodeDescription.includes(authorLower);
+
+      if (mentionsBook || mentionsAuthor) {
+        const durationMs = ep.duration_ms || 0;
+        const durationMinutes = Math.round(durationMs / 60000);
+        const length = durationMinutes > 0 ? `${durationMinutes} min` : undefined;
+
+        let airDate: string | undefined = undefined;
+        if (ep.release_date) {
+          try {
+            const date = new Date(ep.release_date);
+            airDate = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+          } catch (e) {
+            airDate = ep.release_date;
+          }
+        }
+
+        // Spotify provides images array with multiple sizes
+        const thumbnail = ep.images?.[0]?.url || undefined;
+
+        results.push({
+          title: ep.name || 'Untitled Episode',
+          length,
+          air_date: airDate,
+          url: ep.external_urls?.spotify || '',
+          platform: 'Spotify',
+          podcast_name: ep.show?.name || undefined,
+          episode_summary: ep.description || `Episode about ${bookTitle} by ${author}`,
+          podcast_summary: ep.show?.name || 'Podcast',
+          thumbnail,
+        });
+
+        if (results.length >= 10) break;
+      }
+    }
+
+    console.log(`[getSpotifyPodcastEpisodes] ✅ Found ${results.length} episodes for "${bookTitle}"`);
+    return results;
+  } catch (err: any) {
+    console.error('[getSpotifyPodcastEpisodes] ❌ Error:', err);
+    return [];
+  }
+}
+
 // --- Curated Podcast Episodes (from Supabase) ---
 async function getCuratedPodcastEpisodes(bookTitle: string, author: string): Promise<PodcastEpisode[]> {
   try {
@@ -283,6 +408,31 @@ async function getCuratedPodcastEpisodes(bookTitle: string, author: string): Pro
   }
 }
 
+// Normalize episode title for cross-platform dedup (Apple vs Spotify vs Curated)
+function episodeDedupeKey(ep: PodcastEpisode): string {
+  return ep.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+// Combine episodes from multiple sources, deduplicating by URL and normalized title.
+function deduplicateEpisodes(...sources: PodcastEpisode[][]): PodcastEpisode[] {
+  const seenUrls = new Set<string>();
+  const seenTitles = new Set<string>();
+  const combined: PodcastEpisode[] = [];
+
+  for (const episodes of sources) {
+    for (const ep of episodes) {
+      if (ep.url && seenUrls.has(ep.url)) continue;
+      const titleKey = episodeDedupeKey(ep);
+      if (titleKey && seenTitles.has(titleKey)) continue;
+      if (ep.url) seenUrls.add(ep.url);
+      if (titleKey) seenTitles.add(titleKey);
+      combined.push(ep);
+    }
+  }
+
+  return combined;
+}
+
 export async function getPodcastEpisodes(bookTitle: string, author: string): Promise<PodcastEpisode[]> {
   console.log(`[getPodcastEpisodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${author}`);
 
@@ -302,25 +452,8 @@ export async function getPodcastEpisodes(bookTitle: string, author: string): Pro
       const curatedEpisodes = (cachedData.podcast_episodes_curated || []) as PodcastEpisode[];
       const appleEpisodes = (cachedData.podcast_episodes_apple || []) as PodcastEpisode[];
 
-      // Combine: curated first, then Apple (avoid duplicates by URL)
-      const seenUrls = new Set<string>();
-      const combined: PodcastEpisode[] = [];
-
-      // Add curated episodes first
-      curatedEpisodes.forEach(ep => {
-        if (ep.url && !seenUrls.has(ep.url)) {
-          seenUrls.add(ep.url);
-          combined.push(ep);
-        }
-      });
-
-      // Add Apple episodes (excluding duplicates)
-      appleEpisodes.forEach(ep => {
-        if (ep.url && !seenUrls.has(ep.url)) {
-          seenUrls.add(ep.url);
-          combined.push(ep);
-        }
-      });
+      // Combine: curated first, then Apple (dedup by URL + title)
+      const combined = deduplicateEpisodes(curatedEpisodes, appleEpisodes);
 
       if (combined.length > 0 || (curatedEpisodes.length === 0 && appleEpisodes.length === 0)) {
         console.log(`[getPodcastEpisodes] ✅ Found cached episodes: ${combined.length} combined (${curatedEpisodes.length} curated + ${appleEpisodes.length} Apple)`);
@@ -347,27 +480,11 @@ export async function getPodcastEpisodes(bookTitle: string, author: string): Pro
     })
   ]);
 
-  // Combine: curated first, then Apple (avoid duplicates by URL)
-  const seenUrls = new Set<string>();
-  const combined: PodcastEpisode[] = [];
+  // Combine: curated first, then Apple (dedup by URL + title)
+  const combined = deduplicateEpisodes(curatedEpisodes, appleEpisodes);
 
-  // Add curated episodes first
-  curatedEpisodes.forEach(ep => {
-    if (ep.url && !seenUrls.has(ep.url)) {
-      seenUrls.add(ep.url);
-      combined.push(ep);
-    }
-  });
-
-  // Add Apple episodes (excluding duplicates)
-  appleEpisodes.forEach(ep => {
-    if (ep.url && !seenUrls.has(ep.url)) {
-      seenUrls.add(ep.url);
-      combined.push(ep);
-    }
-  });
-
-  console.log(`[getPodcastEpisodes] ✅ Combined ${combined.length} episodes (${curatedEpisodes.length} curated + ${appleEpisodes.length} Apple, ${curatedEpisodes.length + appleEpisodes.length - combined.length} duplicates removed)`);
+  const totalBeforeDedup = curatedEpisodes.length + appleEpisodes.length;
+  console.log(`[getPodcastEpisodes] ✅ Combined ${combined.length} episodes (${curatedEpisodes.length} curated + ${appleEpisodes.length} Apple, ${totalBeforeDedup - combined.length} duplicates removed)`);
 
   // Save to cache (including empty arrays to prevent future fetches)
   await savePodcastEpisodesToCache(bookTitle, author, curatedEpisodes, appleEpisodes);
