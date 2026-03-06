@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lightbulb, ExternalLink } from 'lucide-react';
 import { openSystemBrowser } from '@/lib/capacitor';
+import { glassmorphicStyle } from './utils';
 
 export interface InsightItem {
   text: string;
@@ -26,15 +27,6 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
   const prevInsightsRef = useRef<string>('');
-
-  const glassmorphicStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.45)',
-    borderRadius: '16px',
-    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-    backdropFilter: 'blur(9.4px)',
-    WebkitBackdropFilter: 'blur(9.4px)',
-    border: '1px solid rgba(255, 255, 255, 0.2)',
-  };
 
   const actualBookId = bookId.split('-')[0];
 
@@ -99,16 +91,16 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
           style={glassmorphicStyle}
         >
           <div className="flex items-center gap-3 px-4 pt-3 pb-2">
-            <div className="w-10 h-10 rounded-full bg-slate-300/50 animate-pulse" />
+            <div className="w-10 h-10 rounded-full bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" />
             <div className="flex-1 space-y-1">
-              <div className="w-20 h-4 bg-slate-300/50 rounded animate-pulse" />
-              <div className="w-40 h-3 bg-slate-300/50 rounded animate-pulse" />
+              <div className="w-20 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+              <div className="w-40 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
             </div>
           </div>
           <div className="px-4 pb-4 space-y-2">
-            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
-            <div className="w-4/5 h-3 bg-slate-300/50 rounded animate-pulse" />
-            <div className="w-3/5 h-3 bg-slate-300/50 rounded animate-pulse" />
+            <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+            <div className="w-4/5 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+            <div className="w-3/5 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
           </div>
         </motion.div>
       </div>
@@ -173,8 +165,8 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
                   <Lightbulb size={20} className="text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 text-sm">{currentInsight.label || 'Insights'}</p>
-                  <p className="text-xs text-slate-500">Interesting facts about this book</p>
+                  <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">{currentInsight.label || 'Insights'}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Interesting facts about this book</p>
                 </div>
                 {insights.length > 1 && (
                   <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
@@ -185,7 +177,7 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
               {/* Content */}
               <div className="px-5 pb-5">
                 {currentInsight.text.split('\n\n').map((paragraph, idx) => (
-                  <p key={idx} className={`text-xs text-slate-700 leading-relaxed ${idx > 0 ? 'mt-2' : ''}`}>
+                  <p key={idx} className={`text-xs text-slate-700 dark:text-slate-300 leading-relaxed ${idx > 0 ? 'mt-2' : ''}`}>
                     {paragraph}
                   </p>
                 ))}

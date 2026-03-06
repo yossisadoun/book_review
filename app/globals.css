@@ -6,7 +6,26 @@
 
 :root {
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Glassmorphic tokens – light mode */
+  --glass-bg: rgba(255, 255, 255, 0.45);
+  --glass-bg-subtle: rgba(255, 255, 255, 0.21);
+  --glass-bg-cover-btn: rgba(255, 255, 255, 0.36);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.2);
+  --glass-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  --glass-blur: 9.4px;
+  --glass-bg-blue: rgba(59, 130, 246, 0.85);
+  --glass-border-blue: 1px solid rgba(59, 130, 246, 0.3);
+  --glass-bg-yellow: rgba(250, 204, 21, 0.25);
+  --glass-border-yellow: 1px solid rgba(250, 204, 21, 0.2);
+  --gradient-start: 241, 245, 249;
+  --gradient-end: 226, 232, 240;
+  --bg-overlay-opacity: 0.45;
+  --sheet-bg: rgba(255, 255, 255, 0.80);
+  --sheet-border: rgba(255, 255, 255, 0.3);
 }
+
+/* Dark mode disabled – light only */
 
 /* Prevent zooming on mobile browsers (pinch zoom) */
 html {

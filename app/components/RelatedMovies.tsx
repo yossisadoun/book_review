@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Film, Play, Disc3, ExternalLink, Minimize2, Maximize2 } from 'lucide-react';
-import { decodeHtmlEntities, useImageBrightness } from './utils';
+import { decodeHtmlEntities, useImageBrightness, glassmorphicStyle } from './utils';
 
 interface RelatedMovie {
   title: string;
@@ -29,15 +29,6 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
-
-  const glassmorphicStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.45)',
-    borderRadius: '16px',
-    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-    backdropFilter: 'blur(9.4px)',
-    WebkitBackdropFilter: 'blur(9.4px)',
-    border: '1px solid rgba(255, 255, 255, 0.2)',
-  };
 
   const imageBrightness = useImageBrightness(movies[currentIndex]?.poster_url);
 
@@ -105,7 +96,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
   if (isLoading) {
     return (
       <div className="w-full">
-        <div className="aspect-[10/9] rounded-2xl bg-slate-300/50 animate-pulse" />
+        <div className="aspect-[10/9] rounded-2xl bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" />
       </div>
     );
   }
@@ -114,7 +105,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
     return (
       <div className="w-full">
         <div className="rounded-xl p-4" style={glassmorphicStyle}>
-          <p className="text-xs text-slate-600 text-center">No related movies or shows found</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 text-center">No related movies or shows found</p>
         </div>
       </div>
     );
@@ -192,8 +183,8 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                   <Film size={20} className="text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 text-sm">Related Media</p>
-                  <p className="text-xs text-slate-500">Movies, shows & music related to this book</p>
+                  <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Related Work</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Movies, shows & music related to this book</p>
                 </div>
                 {movies.length > 1 && (
                   <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">

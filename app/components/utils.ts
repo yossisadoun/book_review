@@ -89,10 +89,10 @@ export function useImageBrightness(imageUrl: string | undefined): 'light' | 'dar
 
 // Consistent glassmorphism style (less transparent for book page info cards)
 export const glassmorphicStyle: React.CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.45)',
+  background: 'var(--glass-bg)',
   borderRadius: '16px',
-  boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-  backdropFilter: 'blur(9.4px)',
-  WebkitBackdropFilter: 'blur(9.4px)',
-  border: '1px solid rgba(255, 255, 255, 0.2)',
+  boxShadow: 'var(--glass-shadow)',
+  backdropFilter: 'blur(var(--glass-blur))',
+  WebkitBackdropFilter: 'blur(var(--glass-blur))',
+  border: 'var(--glass-border)',
 };

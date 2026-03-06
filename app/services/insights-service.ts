@@ -152,6 +152,116 @@ export async function getAuthorFacts(bookTitle: string, author: string): Promise
   return result;
 }
 
+// --- First Issue Year ---
+
+export async function getFirstIssueYear(bookTitle: string, author: string): Promise<number | null> {
+  console.log(`[getFirstIssueYear] 🔄 Fetching first issue year for "${bookTitle}" by ${author}`);
+
+  const normalizedTitle = bookTitle.toLowerCase().trim();
+  const normalizedAuthor = author.toLowerCase().trim();
+
+  // Check cache first
+  try {
+    const { data: cachedData, error: cacheError } = await supabase
+      .from('author_facts_cache')
+      .select('first_issue_year')
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
+      .maybeSingle();
+
+    if (!cacheError && cachedData && cachedData.first_issue_year != null) {
+      console.log(`[getFirstIssueYear] ✅ Found cached first_issue_year: ${cachedData.first_issue_year}`);
+      return cachedData.first_issue_year as number;
+    } else if (cacheError && cacheError.code !== 'PGRST116') {
+      console.warn('[getFirstIssueYear] ⚠️ Error checking cache:', cacheError);
+    }
+  } catch (err) {
+    console.warn('[getFirstIssueYear] ⚠️ Error checking cache:', err);
+  }
+
+  // Fetch from Grok API
+  if (!grokApiKey) {
+    console.warn('[getFirstIssueYear] API key is missing!');
+    return null;
+  }
+
+  try {
+    const url = 'https://api.x.ai/v1/chat/completions';
+    const prompts = await loadPrompts();
+    if (!prompts.first_issue_year || !prompts.first_issue_year.prompt) {
+      console.error('[getFirstIssueYear] ❌ first_issue_year prompt not found in prompts config');
+      return null;
+    }
+    const prompt = formatPrompt(prompts.first_issue_year.prompt, { bookTitle, author });
+
+    const payload = {
+      messages: [{ role: "user", content: prompt }],
+      model: "grok-4-1-fast-non-reasoning",
+      stream: false,
+      temperature: 0
+    };
+
+    const data = await fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload)
+    }, 2, 3000);
+
+    if (data.usage) {
+      logGrokUsage('getFirstIssueYear', data.usage);
+    }
+
+    const content = data.choices?.[0]?.message?.content || '';
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : content;
+    const result = safeJsonParse<any>(jsonStr);
+    const year = typeof result.first_issue_year === 'number' ? result.first_issue_year : null;
+
+    console.log(`[getFirstIssueYear] ✅ Parsed first_issue_year: ${year}`);
+
+    // Save to cache (upsert into author_facts_cache)
+    if (year != null) {
+      try {
+        const { data: existing } = await supabase
+          .from('author_facts_cache')
+          .select('id')
+          .eq('book_title', normalizedTitle)
+          .eq('book_author', normalizedAuthor)
+          .maybeSingle();
+
+        if (existing) {
+          await supabase
+            .from('author_facts_cache')
+            .update({ first_issue_year: year, updated_at: new Date().toISOString() })
+            .eq('book_title', normalizedTitle)
+            .eq('book_author', normalizedAuthor);
+        } else {
+          await supabase
+            .from('author_facts_cache')
+            .insert({
+              book_title: normalizedTitle,
+              book_author: normalizedAuthor,
+              author_facts: [],
+              first_issue_year: year,
+            });
+        }
+        console.log(`[getFirstIssueYear] 💾 Saved first_issue_year ${year} to author_facts_cache`);
+      } catch (err) {
+        console.error('[getFirstIssueYear] ❌ Error saving to cache:', err);
+      }
+    }
+
+    return year;
+  } catch (err: any) {
+    console.error('[getFirstIssueYear] ❌ Error:', err);
+    return null;
+  }
+}
+
 // --- Book Influences ---
 
 async function getGrokBookInfluences(bookTitle: string, author: string): Promise<string[]> {

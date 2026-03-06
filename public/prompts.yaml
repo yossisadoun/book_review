@@ -298,6 +298,12 @@ did_you_know:
     * Don't be too explicit (meaning don't write things like "This is interesting because...")
     * source_url must be a real, working URL — not a placeholder.
 
+first_issue_year:
+  prompt: |
+    What year was "{bookTitle}" by "{author}" first published in any language or format?
+    Return ONLY valid JSON: { "first_issue_year": 1925 }
+    If unknown, return: { "first_issue_year": null }
+
 trivia_questions:
   prompt: |
     You are an expert creator of The Guardian Thursday Quiz-style questions: short (1-2 lines max), witty, punchy, slightly irreverent trivia. Questions are phrased openly but designed for multiple-choice reveal.

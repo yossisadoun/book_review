@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FileText, ExternalLink } from 'lucide-react';
-import { decodeHtmlEntities } from './utils';
+import { decodeHtmlEntities, glassmorphicStyle } from './utils';
 import { openSystemBrowser } from '@/lib/capacitor';
 
 interface AnalysisArticle {
@@ -26,15 +26,6 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
-
-  const glassmorphicStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.45)',
-    borderRadius: '16px',
-    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-    backdropFilter: 'blur(9.4px)',
-    WebkitBackdropFilter: 'blur(9.4px)',
-    border: '1px solid rgba(255, 255, 255, 0.2)',
-  };
 
   const overlayGlassStyle: React.CSSProperties = {
     background: 'rgba(255, 255, 255, 0.25)',
@@ -91,7 +82,7 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
   if (isLoading) {
     return (
       <div className="w-full">
-        <div className="aspect-[10/9] rounded-2xl bg-slate-300/50 animate-pulse" />
+        <div className="aspect-[10/9] rounded-2xl bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" />
       </div>
     );
   }
@@ -149,8 +140,8 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
                   <FileText size={20} className="text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 text-sm">Articles</p>
-                  <p className="text-xs text-slate-500">Academic article about this book</p>
+                  <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Articles</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Academic article about this book</p>
                 </div>
                 {articles.length > 1 && (
                   <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">

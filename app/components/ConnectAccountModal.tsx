@@ -96,18 +96,18 @@ export default function ConnectAccountModal({ isOpen, onClose, reason, bookCount
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             className="relative w-full max-w-sm rounded-2xl p-6 text-center"
             style={{
-              background: 'rgba(255, 255, 255, 0.75)',
-              boxShadow: '0 8px 40px rgba(0, 0, 0, 0.15)',
+              background: 'var(--sheet-bg)',
+              boxShadow: 'var(--glass-shadow)',
               backdropFilter: 'blur(20px)',
               WebkitBackdropFilter: 'blur(20px)',
-              border: '1px solid rgba(255, 255, 255, 0.3)',
+              border: '1px solid var(--sheet-border)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Close button */}
             <button
               onClick={onClose}
-              className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full bg-white/50 active:scale-95 transition-transform"
+              className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full bg-white/50 dark:bg-white/15 active:scale-95 transition-transform"
             >
               <X size={16} className="text-slate-500" />
             </button>
@@ -119,11 +119,11 @@ export default function ConnectAccountModal({ isOpen, onClose, reason, bookCount
                 border: '1px solid rgba(59, 130, 246, 0.2)',
               }}
             >
-              <UserPlus size={24} className="text-blue-600" />
+              <UserPlus size={24} className="text-blue-600 dark:text-blue-400" />
             </div>
 
-            <h3 className="text-lg font-bold text-slate-900 mb-2">{message.title}</h3>
-            <p className="text-sm text-slate-600 mb-6">{message.description}</p>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-2">{message.title}</h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">{message.description}</p>
 
             {/* Sign-in buttons */}
             <div className="flex flex-col items-center gap-3">
@@ -151,7 +151,7 @@ export default function ConnectAccountModal({ isOpen, onClose, reason, bookCount
               <button
                 onClick={() => handleConnect('google')}
                 disabled={isLinking}
-                className="w-[220px] h-[44px] bg-white rounded-lg shadow-sm flex items-center justify-center gap-2 active:scale-95 transition-transform border border-gray-200"
+                className="w-[220px] h-[44px] bg-white dark:bg-slate-800 rounded-lg shadow-sm flex items-center justify-center gap-2 active:scale-95 transition-transform border border-gray-200 dark:border-white/10"
               >
                 {isLinking ? (
                   <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
@@ -163,7 +163,7 @@ export default function ConnectAccountModal({ isOpen, onClose, reason, bookCount
                       <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                       <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                     </svg>
-                    <span className="text-gray-700 font-medium text-[16px]">Continue with Google</span>
+                    <span className="text-gray-700 dark:text-gray-200 font-medium text-[16px]">Continue with Google</span>
                   </>
                 )}
               </button>

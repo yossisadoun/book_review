@@ -419,7 +419,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 300, duration: 0.4 }}
-        className="w-full max-w-md bg-white/80 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 flex flex-col"
+        className="w-full max-w-md bg-white/80 dark:bg-white/15 dark:bg-slate-900/85 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 dark:border-white/10 dark:border-white/10 flex flex-col"
         onClick={e => e.stopPropagation()}
         style={{
           maxHeight: isKeyboardVisible && window.visualViewport
@@ -453,7 +453,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   exit={{ opacity: 0 }}
                   className="space-y-2 mb-4"
                 >
-                  <div className="text-xs font-medium text-slate-700 mb-2">
+                  <div className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
                     Your bookshelf:
             </div>
                   {bookshelfResults.slice(0, 5).map((book, i) => (
@@ -483,11 +483,11 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-bold text-slate-950 truncate">{book.title}</h3>
-                        <p className="text-xs text-slate-800 truncate">{book.author}</p>
+                        <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50 truncate">{book.title}</h3>
+                        <p className="text-xs text-slate-800 dark:text-slate-200 truncate">{book.author}</p>
                         <div className="flex items-center gap-2 mt-1">
                           {book.publish_year && (
-                            <p className="text-[10px] text-slate-600">{book.publish_year}</p>
+                            <p className="text-[10px] text-slate-600 dark:text-slate-400">{book.publish_year}</p>
                           )}
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-blue-700 bg-blue-100">
                             Your Book
@@ -509,7 +509,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   exit={{ opacity: 0 }}
                   className="space-y-2 mb-4"
                 >
-                  <div className="text-xs font-medium text-slate-700 mb-2">
+                  <div className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
                     Users:
                   </div>
                   {userResults.map((userResult, i) => (
@@ -540,10 +540,10 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-bold text-slate-950 truncate">
+                        <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50 truncate">
                           {userResult.full_name || userResult.email}
                         </h3>
-                        <p className="text-xs text-slate-600">{userResult.book_count || 0} {userResult.book_count === 1 ? 'book' : 'books'}</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400">{userResult.book_count || 0} {userResult.book_count === 1 ? 'book' : 'books'}</p>
                       </div>
                     </motion.button>
                   ))}
@@ -560,7 +560,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   exit={{ opacity: 0 }}
                   className="space-y-2 mb-4"
                 >
-                  <div className="text-xs font-medium text-slate-700 mb-2">
+                  <div className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
                     From Community:
                   </div>
                   {dbBookResults.map((book, i) => (
@@ -601,11 +601,11 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-bold text-slate-950 truncate">{book.title}</h3>
-                        <p className="text-xs text-slate-800 truncate">{book.author}</p>
+                        <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50 truncate">{book.title}</h3>
+                        <p className="text-xs text-slate-800 dark:text-slate-200 truncate">{book.author}</p>
                         <div className="flex items-center gap-2 mt-1">
                           {book.publish_year && (
-                            <p className="text-[10px] text-slate-600">{book.publish_year}</p>
+                            <p className="text-[10px] text-slate-600 dark:text-slate-400">{book.publish_year}</p>
                           )}
                           {book.user_name && (
                             <>
@@ -644,7 +644,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   exit={{ opacity: 0 }}
                   className="space-y-2"
                 >
-                  <div className="text-xs font-medium text-slate-700 mb-2">
+                  <div className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
                     {bookshelfResults.length > 0 || userResults.length > 0 || dbBookResults.length > 0 ? 'Books:' : 'Select a book to add:'}
                   </div>
                   {searchResults.map((book, i) => (
@@ -655,7 +655,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: i * 0.05 }}
                       onClick={() => handleSelectBook(book)}
-                      className="w-full flex items-center gap-3 p-3 bg-white/80 backdrop-blur-md hover:bg-white/85 rounded-xl border border-white/30 shadow-sm transition-all text-left"
+                      className="w-full flex items-center gap-3 p-3 bg-white/80 dark:bg-white/15 backdrop-blur-md hover:bg-white/85 rounded-xl border border-white/30 dark:border-white/10 shadow-sm transition-all text-left"
                     >
                       {book.cover_url ? (
                         <img
@@ -664,16 +664,16 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                           className="w-12 h-16 object-cover rounded flex-shrink-0"
                         />
                       ) : (
-                        <div className="w-12 h-16 bg-slate-100 rounded flex-shrink-0 flex items-center justify-center">
-                          <BookOpen size={20} className="text-slate-600" />
+                        <div className="w-12 h-16 bg-slate-100 dark:bg-slate-800 rounded flex-shrink-0 flex items-center justify-center">
+                          <BookOpen size={20} className="text-slate-600 dark:text-slate-400" />
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-bold text-slate-950 truncate">{book.title}</h3>
-                        <p className="text-xs text-slate-800 truncate">{book.author}</p>
+                        <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50 truncate">{book.title}</h3>
+                        <p className="text-xs text-slate-800 dark:text-slate-200 truncate">{book.author}</p>
                         <div className="flex items-center gap-2 mt-1">
                         {book.publish_year && (
-                            <p className="text-[10px] text-slate-600">{book.publish_year}</p>
+                            <p className="text-[10px] text-slate-600 dark:text-slate-400">{book.publish_year}</p>
                           )}
                           {book.source && (
                             <>
@@ -704,7 +704,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   exit={{ opacity: 0 }}
                   className="flex flex-wrap gap-2"
                 >
-                  <div className="w-full text-xs font-medium text-slate-700 mb-1 flex items-center gap-1.5">
+                  <div className="w-full text-xs font-medium text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
                     <Sparkles size={12} className="text-amber-400" />
                     <span>Did you mean?</span>
                   </div>
@@ -739,7 +739,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
             marginTop: '-120px' // Overlap with results area
           }}
         >
-          <div className="bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-full px-1.5 py-1.5 shadow-2xl border border-white/30">
+          <div className="bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-full px-1.5 py-1.5 shadow-2xl border border-white/30 dark:border-white/10">
             <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }}>
               <div className="relative flex items-center">
                 <input
@@ -749,18 +749,18 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   placeholder={isQueryHebrew ? "\u05D7\u05E4\u05E9 \u05E1\u05E4\u05E8..." : "Search for book, author, user..."}
                   value={query}
                   onChange={e => setQuery(e.target.value)}
-                  className={`w-full h-11 bg-white/20 border border-white/30 rounded-full focus:outline-none focus:bg-white/30 text-base transition-all text-slate-950 placeholder:text-slate-600 ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
+                  className={`w-full h-11 bg-white/20 dark:bg-white/8 border border-white/30 dark:border-white/10 rounded-full focus:outline-none focus:bg-white/30 text-base transition-all text-slate-950 dark:text-slate-50 placeholder:text-slate-600 dark:text-slate-400 ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}
                   dir={isQueryHebrew ? "rtl" : "ltr"}
                 />
                 <button
                   type="submit"
-                  className={`absolute top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-800 active:scale-95 transition-all cursor-pointer ${isQueryHebrew ? 'right-4' : 'left-4'}`}
+                  className={`absolute top-1/2 -translate-y-1/2 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200 active:scale-95 transition-all cursor-pointer ${isQueryHebrew ? 'right-4' : 'left-4'}`}
                   aria-label="Search"
                 >
                   {featureFlags.hand_drawn_icons ? (
                     <img src={getAssetPath("/search.svg")} alt="Search" className="w-[18px] h-[18px]" />
                   ) : (
-                    <Search size={18} className="text-slate-600" />
+                    <Search size={18} className="text-slate-600 dark:text-slate-400" />
                   )}
                 </button>
               </div>

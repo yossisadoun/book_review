@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ExternalLink } from 'lucide-react';
+import { glassmorphicStyle } from './utils';
 
 interface ResearchContentItem {
   source_url: string;
@@ -36,16 +37,6 @@ function ResearchSection({ research, bookId, isLoading = false }: ResearchSectio
     'bg-violet-600', 'bg-rose-600'
   ];
 
-  // Consistent glassmorphism style (less transparent for book page info cards)
-  const glassmorphicStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.45)',
-    borderRadius: '16px',
-    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-    backdropFilter: 'blur(9.4px)',
-    WebkitBackdropFilter: 'blur(9.4px)',
-    border: '1px solid rgba(255, 255, 255, 0.2)',
-  };
-
   if (isLoading) {
     return (
       <div className="w-full">
@@ -56,7 +47,7 @@ function ResearchSection({ research, bookId, isLoading = false }: ResearchSectio
           style={glassmorphicStyle}
         >
           <div className="h-12 flex items-center justify-center">
-            <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+            <div className="w-full h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
           </div>
         </motion.div>
       </div>
@@ -67,7 +58,7 @@ function ResearchSection({ research, bookId, isLoading = false }: ResearchSectio
     return (
       <div className="w-full">
         <div className="rounded-xl p-4" style={glassmorphicStyle}>
-          <p className="text-xs text-slate-600 text-center">No research data available</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 text-center">No research data available</p>
         </div>
       </div>
     );
@@ -177,7 +168,7 @@ function ResearchSection({ research, bookId, isLoading = false }: ResearchSectio
             </div>
 
             {/* Deep Insight */}
-            <p className="text-xs font-medium text-slate-800 leading-relaxed mb-3">
+            <p className="text-xs font-medium text-slate-800 dark:text-slate-200 leading-relaxed mb-3">
               {current.item.deep_insight}
             </p>
 
@@ -197,7 +188,7 @@ function ResearchSection({ research, bookId, isLoading = false }: ResearchSectio
             )}
 
             {allContentItems.length > 1 && (
-              <p className="text-xs text-slate-600 text-center mt-3 font-bold uppercase tracking-wider">
+              <p className="text-xs text-slate-600 dark:text-slate-400 text-center mt-3 font-bold uppercase tracking-wider">
                 Tap for next ({currentIndex + 1}/{allContentItems.length})
               </p>
             )}

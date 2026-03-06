@@ -101,7 +101,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Lottie from 'lottie-react';
 import spinnerAnimation from '@/public/spinner.json';
 import heartAnimation from '@/public/heart_anim.json';
-import bookPageOnboardingAnimation from '@/public/onboarding_anim_book_page.json';
+import bookPageOnboardingAnimation from '@/public/onboarding_anim_book_page_new.json';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginScreen } from '@/components/LoginScreen';
 import { BookLoading } from '@/components/BookLoading';
@@ -172,7 +172,7 @@ import { getTelegramTopic, getOrCreateTelegramTopic } from './services/telegram-
 import { getDiscussionQuestions } from './services/discussion-service';
 import { getGrokBookInfographicWithSearch } from './services/infographic-service';
 import { setTriviaQuestionsCountRefreshCallback, ensureTriviaQuestionsForBook, countBooksWithTriviaQuestions, loadRandomTriviaQuestions } from './services/trivia-service';
-import { getAuthorFacts, getBookInfluences, getBookDomain, getBookContext, getDidYouKnow } from './services/insights-service';
+import { getAuthorFacts, getBookInfluences, getBookDomain, getBookContext, getDidYouKnow, getFirstIssueYear } from './services/insights-service';
 import { getPodcastEpisodes } from './services/podcast-service';
 import { getRelatedBooks } from './services/related-books-service';
 import { getRelatedMovies } from './services/related-movies-service';
@@ -2550,6 +2550,77 @@ export default function App() {
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
 
+  // Fetch first_issue_year independently (not gated by author_facts feature flag)
+  const fetchingFirstIssueYearRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const currentBook = books[selectedIndex];
+    if (!currentBook || !currentBook.title || !currentBook.author) return;
+
+    const bookId = currentBook.id;
+
+    // Skip if already have first_issue_year
+    if (currentBook.first_issue_year != null) return;
+
+    // Skip if already fetching
+    if (fetchingFirstIssueYearRef.current.has(bookId)) return;
+
+    let cancelled = false;
+    fetchingFirstIssueYearRef.current.add(bookId);
+
+    const fetchTimer = setTimeout(() => {
+      if (cancelled) return;
+
+      console.log(`[First Issue Year] 🔄 Fetching for "${currentBook.title}" by ${currentBook.author}...`);
+      getFirstIssueYear(currentBook.title, currentBook.author).then(async (year) => {
+        if (cancelled) return;
+        fetchingFirstIssueYearRef.current.delete(bookId);
+
+        if (year != null) {
+          console.log(`[First Issue Year] ✅ Got year ${year} for "${currentBook.title}"`);
+
+          setBooks(prev => prev.map(book =>
+            book.id === bookId
+              ? { ...book, first_issue_year: year }
+              : book
+          ));
+
+          // Save to books table
+          if (user) {
+            try {
+              const { error: updateError } = await supabase
+                .from('books')
+                .update({ first_issue_year: year, updated_at: new Date().toISOString() })
+                .eq('id', bookId)
+                .eq('user_id', user.id);
+
+              if (updateError) {
+                console.error('[First Issue Year] ❌ Error saving to books table:', updateError);
+              } else {
+                console.log(`[First Issue Year] 💾 Saved year ${year} to books table`);
+              }
+            } catch (err) {
+              console.error('[First Issue Year] ❌ Error saving to books table:', err);
+            }
+          }
+        } else {
+          console.log(`[First Issue Year] ⚠️ No year found for "${currentBook.title}"`);
+        }
+      }).catch(err => {
+        if (!cancelled) {
+          console.error('[First Issue Year] ❌ Error:', err);
+        }
+        fetchingFirstIssueYearRef.current.delete(bookId);
+      });
+    }, 500);
+
+    return () => {
+      cancelled = true;
+      fetchingFirstIssueYearRef.current.delete(bookId);
+      clearTimeout(fetchTimer);
+    };
+  }, [activeBook?.id]);
+
   // Control trivia theme music playback
   useEffect(() => {
     if (triviaAudioRef.current) {
@@ -4452,16 +4523,16 @@ export default function App() {
   // Show skeleton bookshelf during auth loading or while loading books
   if (authLoading || !isLoaded) {
     const skeletonGlassmorphic: React.CSSProperties = {
-      background: 'rgba(255, 255, 255, 0.45)',
+      background: 'var(--glass-bg)',
       borderRadius: '16px',
-      boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-      backdropFilter: 'blur(9.4px)',
-      WebkitBackdropFilter: 'blur(9.4px)',
-      border: '1px solid rgba(255, 255, 255, 0.2)',
+      boxShadow: 'var(--glass-shadow)',
+      backdropFilter: 'blur(var(--glass-blur))',
+      WebkitBackdropFilter: 'blur(var(--glass-blur))',
+      border: 'var(--glass-border)',
     };
     return (
       <div
-        className="fixed inset-0 text-slate-900 font-sans select-none overflow-hidden flex flex-col"
+        className="fixed inset-0 text-slate-900 dark:text-slate-100 font-sans select-none overflow-hidden flex flex-col"
         style={{
           backgroundImage: `url(${getAssetPath('/bg.webp')})`,
           backgroundSize: 'cover',
@@ -4483,15 +4554,15 @@ export default function App() {
                 style={skeletonGlassmorphic}
               >
                 <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-full bg-slate-300/50" />
+                  <div className="w-16 h-16 rounded-full bg-slate-300/50 dark:bg-slate-600/50" />
                   <div className="flex-1 flex gap-6">
                     <div className="text-center">
-                      <div className="w-8 h-7 bg-slate-300/50 rounded mx-auto mb-1" />
-                      <div className="w-10 h-4 bg-slate-300/50 rounded mx-auto" />
+                      <div className="w-8 h-7 bg-slate-300/50 dark:bg-slate-600/50 rounded mx-auto mb-1" />
+                      <div className="w-10 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded mx-auto" />
                     </div>
                     <div className="text-center">
-                      <div className="w-8 h-7 bg-slate-300/50 rounded mx-auto mb-1" />
-                      <div className="w-14 h-4 bg-slate-300/50 rounded mx-auto" />
+                      <div className="w-8 h-7 bg-slate-300/50 dark:bg-slate-600/50 rounded mx-auto mb-1" />
+                      <div className="w-14 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded mx-auto" />
                     </div>
                   </div>
                 </div>
@@ -4511,13 +4582,13 @@ export default function App() {
                 className="rounded-2xl p-4"
                 style={skeletonGlassmorphic}
               >
-                <div className="w-24 h-5 bg-slate-300/50 rounded mb-4" />
+                <div className="w-24 h-5 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-4" />
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
                   {[1, 2, 3].map((i) => (
                     <div key={i}>
-                      <div className="w-full aspect-[2/3] bg-slate-300/50 rounded-lg mb-2" />
-                      <div className="w-full h-3 bg-slate-300/50 rounded mb-1" />
-                      <div className="w-2/3 h-3 bg-slate-300/50 rounded" />
+                      <div className="w-full aspect-[2/3] bg-slate-300/50 dark:bg-slate-600/50 rounded-lg mb-2" />
+                      <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-1" />
+                      <div className="w-2/3 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
                     </div>
                   ))}
                 </div>
@@ -4529,13 +4600,13 @@ export default function App() {
                 className="rounded-2xl p-4"
                 style={skeletonGlassmorphic}
               >
-                <div className="w-32 h-5 bg-slate-300/50 rounded mb-4" />
+                <div className="w-32 h-5 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-4" />
                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
                   {[1, 2, 3, 4, 5, 6].map((i) => (
                     <div key={i}>
-                      <div className="w-full aspect-[2/3] bg-slate-300/50 rounded-lg mb-2" />
-                      <div className="w-full h-3 bg-slate-300/50 rounded mb-1" />
-                      <div className="w-2/3 h-3 bg-slate-300/50 rounded" />
+                      <div className="w-full aspect-[2/3] bg-slate-300/50 dark:bg-slate-600/50 rounded-lg mb-2" />
+                      <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-1" />
+                      <div className="w-2/3 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
                     </div>
                   ))}
                 </div>
@@ -4553,16 +4624,22 @@ export default function App() {
   const userAvatar = user?.user_metadata?.avatar_url || user?.user_metadata?.picture || null;
 
   // Parse gradient for inline style (format: "r1,g1,b1,r2,g2,b2")
+  const isDefaultGradient = backgroundGradient === '241,245,249,226,232,240';
   const [r1, g1, b1, r2, g2, b2] = backgroundGradient.split(',').map(Number);
   const gradientStyle = {
-    background: `linear-gradient(to bottom right, rgb(${r1}, ${g1}, ${b1}), rgb(${r2}, ${g2}, ${b2}))`,
+    background: isDefaultGradient
+      ? `linear-gradient(to bottom right, rgb(var(--gradient-start)), rgb(var(--gradient-end)))`
+      : `linear-gradient(to bottom right, rgb(${r1}, ${g1}, ${b1}), rgb(${r2}, ${g2}, ${b2}))`,
   };
-  
+
   // Previous gradient style (for fade out)
   const previousGradientStyle = previousGradient ? (() => {
+    const isPrevDefault = previousGradient === '241,245,249,226,232,240';
     const [pr1, pg1, pb1, pr2, pg2, pb2] = previousGradient.split(',').map(Number);
     return {
-      background: `linear-gradient(to bottom right, rgb(${pr1}, ${pg1}, ${pb1}), rgb(${pr2}, ${pg2}, ${pb2}))`,
+      background: isPrevDefault
+        ? `linear-gradient(to bottom right, rgb(var(--gradient-start)), rgb(var(--gradient-end)))`
+        : `linear-gradient(to bottom right, rgb(${pr1}, ${pg1}, ${pb1}), rgb(${pr2}, ${pg2}, ${pb2}))`,
     };
   })() : null;
   
@@ -4577,66 +4654,66 @@ export default function App() {
   
   // Glassmorphic style for cover page buttons (20% less opacity)
   const coverButtonGlassmorphicStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.36)', // 0.45 * 0.8 = 0.36
+    background: 'var(--glass-bg-cover-btn)',
     borderRadius: '16px',
-    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-    backdropFilter: 'blur(9.4px)',
-    WebkitBackdropFilter: 'blur(9.4px)',
-    border: '1px solid rgba(255, 255, 255, 0.2)',
+    boxShadow: 'var(--glass-shadow)',
+    backdropFilter: 'blur(var(--glass-blur))',
+    WebkitBackdropFilter: 'blur(var(--glass-blur))',
+    border: 'var(--glass-border)',
   };
 
   // Standard glassmorphism style (for bookshelf, notes, account pages)
   const standardGlassmorphicStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.21)',
+    background: 'var(--glass-bg-subtle)',
     borderRadius: '16px',
-    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-    backdropFilter: 'blur(9.4px)',
-    WebkitBackdropFilter: 'blur(9.4px)',
-    border: '1px solid rgba(255, 255, 255, 0.2)',
+    boxShadow: 'var(--glass-shadow)',
+    backdropFilter: 'blur(var(--glass-blur))',
+    WebkitBackdropFilter: 'blur(var(--glass-blur))',
+    border: 'var(--glass-border)',
   };
-  
+
   // Blue glassmorphism for primary actions
   const blueGlassmorphicStyle: React.CSSProperties = {
-    background: 'rgba(59, 130, 246, 0.85)',
+    background: 'var(--glass-bg-blue)',
     borderRadius: '999px',
-    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-    backdropFilter: 'blur(9.4px)',
-    WebkitBackdropFilter: 'blur(9.4px)',
-    border: '1px solid rgba(59, 130, 246, 0.3)',
+    boxShadow: 'var(--glass-shadow)',
+    backdropFilter: 'blur(var(--glass-blur))',
+    WebkitBackdropFilter: 'blur(var(--glass-blur))',
+    border: 'var(--glass-border-blue)',
   };
 
   // Yellow glassmorphism for profile section
   const yellowGlassmorphicStyle: React.CSSProperties = {
-    background: 'rgba(250, 204, 21, 0.25)',
+    background: 'var(--glass-bg-yellow)',
     borderRadius: '16px',
-    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-    backdropFilter: 'blur(9.4px)',
-    WebkitBackdropFilter: 'blur(9.4px)',
-    border: '1px solid rgba(250, 204, 21, 0.2)',
+    boxShadow: 'var(--glass-shadow)',
+    backdropFilter: 'blur(var(--glass-blur))',
+    WebkitBackdropFilter: 'blur(var(--glass-blur))',
+    border: 'var(--glass-border-yellow)',
   };
 
   // Consistent glassmorphism style (less transparent for book page info cards)
   const glassmorphicStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.45)',
+    background: 'var(--glass-bg)',
     borderRadius: '16px',
-    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-    backdropFilter: 'blur(9.4px)',
-    WebkitBackdropFilter: 'blur(9.4px)',
-    border: '1px solid rgba(255, 255, 255, 0.2)',
+    boxShadow: 'var(--glass-shadow)',
+    backdropFilter: 'blur(var(--glass-blur))',
+    WebkitBackdropFilter: 'blur(var(--glass-blur))',
+    border: 'var(--glass-border)',
   };
-  
+
   // Less transparent glassmorphism style for book page summary box and section menus
   const bookPageGlassmorphicStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.45)',
+    background: 'var(--glass-bg)',
     borderRadius: '16px',
-    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-    backdropFilter: 'blur(9.4px)',
-    WebkitBackdropFilter: 'blur(9.4px)',
-    border: '1px solid rgba(255, 255, 255, 0.2)',
+    boxShadow: 'var(--glass-shadow)',
+    backdropFilter: 'blur(var(--glass-blur))',
+    WebkitBackdropFilter: 'blur(var(--glass-blur))',
+    border: 'var(--glass-border)',
   };
   
   return (
-    <div className="fixed inset-0 text-slate-900 font-sans select-none overflow-hidden flex flex-col"
+    <div className="fixed inset-0 text-slate-900 dark:text-slate-100 font-sans select-none overflow-hidden flex flex-col"
       style={{
         ...(shouldUseBackgroundImage ? backgroundImageStyle : { background: gradientStyle.background }),
         position: 'fixed',
@@ -4706,15 +4783,15 @@ export default function App() {
             } as React.CSSProperties}
             transition={{ duration: 0.4, ease: "easeInOut" }}
           />
-          {/* Background image overlay at 25% opacity */}
+          {/* Background image overlay */}
           <div
-            className="fixed inset-0 pointer-events-none z-0"
+            className="fixed inset-0 pointer-events-none z-0 dark:brightness-50 dark:saturate-[0.6]"
             style={{
               backgroundImage: `url(${getAssetPath('/bg.webp')})`,
               backgroundSize: 'cover',
               backgroundPosition: 'center',
               backgroundRepeat: 'no-repeat',
-              opacity: 0.45,
+              opacity: 'var(--bg-overlay-opacity)',
               position: 'fixed',
               top: 0,
               left: 0,
@@ -4726,6 +4803,10 @@ export default function App() {
             } as React.CSSProperties}
           />
         </>
+      )}
+      {/* Dark mode overlay for pages using bg.webp directly as background */}
+      {shouldUseBackgroundImage && (
+        <div className="fixed inset-0 pointer-events-none z-0 hidden dark:block bg-black/60" />
       )}
       {/* Logo text header - shows on main views (bookshelf, feed, following, notes, book details) */}
       {!showAccountPage && !showSortingResults && !viewingUserId && (
@@ -4739,7 +4820,7 @@ export default function App() {
           <img
             src={getAssetPath('/logo_text.png')}
             alt="Logo"
-            className="h-[20px] object-contain"
+            className="h-[20px] object-contain dark:invert"
           />
         </motion.div>
       )}
@@ -4781,7 +4862,7 @@ export default function App() {
                 className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
                 style={{ ...standardGlassmorphicStyle, borderRadius: '50%' }}
               >
-                <ChevronLeft size={18} className="text-slate-950" />
+                <ChevronLeft size={18} className="text-slate-950 dark:text-slate-50" />
               </motion.button>
             ) : (showNotesView || showFollowingPage || showAccountPage) && (
               <button
@@ -4795,7 +4876,7 @@ export default function App() {
                 className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
                 style={{ ...standardGlassmorphicStyle, borderRadius: '50%' }}
               >
-                <ChevronLeft size={18} className="text-slate-950" />
+                <ChevronLeft size={18} className="text-slate-950 dark:text-slate-50" />
               </button>
             )}
             <AnimatePresence mode="wait">
@@ -4819,37 +4900,37 @@ export default function App() {
                 className="flex items-center gap-3"
               >
                 {isShowingNotes && activeBook ? (
-                  <Pencil size={24} className="text-slate-950" />
+                  <Pencil size={24} className="text-slate-950 dark:text-slate-50" />
                 ) : showAccountPage ? (
-                  <User size={24} className="text-slate-950" />
+                  <User size={24} className="text-slate-950 dark:text-slate-50" />
                 ) : showFollowingPage ? (
-                  <Users size={24} className="text-slate-950" />
+                  <Users size={24} className="text-slate-950 dark:text-slate-50" />
                 ) : showFeedPage ? (
                   featureFlags.hand_drawn_icons ? (
                     <img src={getAssetPath("/feed.svg")} alt="Feed" className="w-[24px] h-[24px]" />
                   ) : (
-                    <Birdhouse size={24} className="text-slate-950" />
+                    <Birdhouse size={24} className="text-slate-950 dark:text-slate-50" />
                   )
                 ) : showSortingResults ? (
-                  <Star size={24} className="text-slate-950" />
+                  <Star size={24} className="text-slate-950 dark:text-slate-50" />
                 ) : showNotesView ? (
-                  <Pencil size={24} className="text-slate-950" />
+                  <Pencil size={24} className="text-slate-950 dark:text-slate-50" />
                 ) : showBookshelfCovers ? (
                   featureFlags.hand_drawn_icons ? (
                     <img src={getAssetPath("/library.svg")} alt="Library" className="w-[24px] h-[24px]" />
                   ) : (
-                    <Library size={24} className="text-slate-950" />
+                    <Library size={24} className="text-slate-950 dark:text-slate-50" />
                   )
                 ) : showBookshelf ? (
                   featureFlags.hand_drawn_icons ? (
                     <img src={getAssetPath("/library.svg")} alt="Library" className="w-[24px] h-[24px]" />
                   ) : (
-                    <Library size={24} className="text-slate-950" />
+                    <Library size={24} className="text-slate-950 dark:text-slate-50" />
                   )
                 ) : (
-                  <BookOpen size={24} className="text-slate-950" />
+                  <BookOpen size={24} className="text-slate-950 dark:text-slate-50" />
                 )}
-                <h1 className="text-2xl font-bold text-slate-950 drop-shadow-sm">
+                <h1 className="text-2xl font-bold text-slate-950 dark:text-slate-50 drop-shadow-sm">
                   {viewingUserId
                     ? (viewingUserFullName || viewingUserName).toUpperCase()
                     : showAccountPage
@@ -4881,7 +4962,7 @@ export default function App() {
             className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
             style={{ ...glassmorphicStyle, borderRadius: '50%' }}
           >
-            <ChevronLeft size={18} className="text-slate-950" />
+            <ChevronLeft size={18} className="text-slate-950 dark:text-slate-50" />
           </button>
         )}
 
@@ -4891,7 +4972,7 @@ export default function App() {
             onClick={() => setShowAboutScreen(true)}
             className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
           >
-            <Info size={18} className="text-slate-950" />
+            <Info size={18} className="text-slate-950 dark:text-slate-50" />
           </button>
         )}
         </motion.div>
@@ -4925,16 +5006,16 @@ export default function App() {
                         <User size={28} className="text-slate-400" />
                       </div>
                       <div>
-                        <h2 className="text-lg font-bold text-slate-950">Guest Account</h2>
-                        <p className="text-sm text-slate-500">Limited features</p>
+                        <h2 className="text-lg font-bold text-slate-950 dark:text-slate-50">Guest Account</h2>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">Limited features</p>
                       </div>
                     </div>
 
                     {/* Book usage */}
                     <div className="mb-4">
                       <div className="flex items-center justify-between mb-1.5">
-                        <p className="text-xs text-slate-600">Books used</p>
-                        <p className="text-xs font-bold text-slate-700">{books.length} / {ANONYMOUS_BOOK_LIMIT}</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400">Books used</p>
+                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{books.length} / {ANONYMOUS_BOOK_LIMIT}</p>
                       </div>
                       <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                         <div
@@ -4979,20 +5060,20 @@ export default function App() {
                         </div>
                       )}
                       <div>
-                        <h2 className="text-lg font-bold text-slate-950">{userName}</h2>
-                        <p className="text-sm text-slate-600">{user?.email}</p>
+                        <h2 className="text-lg font-bold text-slate-950 dark:text-slate-50">{userName}</h2>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">{user?.email}</p>
                       </div>
                     </div>
 
                     {/* Stats */}
                     <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
                       <div>
-                        <p className="text-xs text-slate-600 mb-1">Total Books</p>
-                        <p className="text-2xl font-bold text-slate-950">{books.length}</p>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Total Books</p>
+                        <p className="text-2xl font-bold text-slate-950 dark:text-slate-50">{books.length}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-slate-600 mb-1">Books with Ratings</p>
-                        <p className="text-2xl font-bold text-slate-950">
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Books with Ratings</p>
+                        <p className="text-2xl font-bold text-slate-950 dark:text-slate-50">
                           {books.filter(book => {
                             const values = Object.values(book.ratings).filter(v => v != null) as number[];
                             return values.length > 0;
@@ -5008,8 +5089,8 @@ export default function App() {
               {!isAnonymous && <div className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <h3 className="text-sm font-bold text-slate-950">Privacy</h3>
-                    <p className="text-xs text-slate-600 mt-1">
+                    <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50">Privacy</h3>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
                       Public lets others view your bookshelf and see your added books in their feed.
                     </p>
                   </div>
@@ -5054,21 +5135,21 @@ export default function App() {
                     className={`min-w-[88px] px-3 py-2 text-xs font-bold rounded-full transition-all ${
                       isProfilePublic
                         ? 'text-white active:scale-95'
-                        : 'text-slate-700 hover:opacity-80 active:scale-95'
+                        : 'text-slate-700 dark:text-slate-300 hover:opacity-80 active:scale-95'
                     } ${isLoadingPrivacySetting || isSavingPrivacySetting ? 'opacity-60 cursor-not-allowed' : ''}`}
                     style={isProfilePublic ? blueGlassmorphicStyle : glassmorphicStyle}
                   >
                     {isLoadingPrivacySetting ? 'Loading...' : isProfilePublic ? 'Public' : 'Private'}
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-2">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2">
                   Private hides your bookshelf and removes your added books from other users' feeds.
                 </p>
               </div>}
 
               {/* Grok API Usage Logs - hidden for anonymous users */}
               {!isAnonymous && <div className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
-                <h3 className="text-sm font-bold text-slate-950 mb-3">Grok API Usage</h3>
+                <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50 mb-3">Grok API Usage</h3>
                 {isLoadingGrokLogs ? (
                   <motion.div
                     animate={{ opacity: [0.5, 0.8, 0.5] }}
@@ -5076,29 +5157,29 @@ export default function App() {
                     className="space-y-2"
                   >
                     <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                      <div className="w-16 h-4 bg-slate-300/50 rounded animate-pulse" />
-                      <div className="w-12 h-4 bg-slate-300/50 rounded animate-pulse" />
+                      <div className="w-16 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                      <div className="w-12 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                     </div>
                     {[1, 2, 3].map((i) => (
                       <div key={i} className="py-1 border-b border-slate-100 last:border-0">
                         <div className="flex items-center justify-between">
-                          <div className="w-28 h-3 bg-slate-300/50 rounded animate-pulse" />
-                          <div className="w-20 h-3 bg-slate-300/50 rounded animate-pulse" />
+                          <div className="w-28 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                          <div className="w-20 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                         </div>
                         <div className="flex items-center justify-between mt-1">
-                          <div className="w-16 h-3 bg-slate-300/50 rounded animate-pulse" />
-                          <div className="w-12 h-3 bg-slate-300/50 rounded animate-pulse" />
+                          <div className="w-16 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                          <div className="w-12 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                         </div>
                       </div>
                     ))}
                   </motion.div>
                 ) : grokUsageLogs.length === 0 ? (
-                  <p className="text-xs text-slate-600">No API requests yet</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">No API requests yet</p>
                 ) : (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-xs mb-3 pb-2 border-b border-slate-200">
-                      <span className="text-slate-600">Total Cost:</span>
-                      <span className="font-bold text-slate-950">
+                      <span className="text-slate-600 dark:text-slate-400">Total Cost:</span>
+                      <span className="font-bold text-slate-950 dark:text-slate-50">
                         ${grokUsageLogs.reduce((sum, log) => sum + log.estimatedCost, 0).toFixed(4)}
                       </span>
                     </div>
@@ -5108,7 +5189,7 @@ export default function App() {
                         const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                         const timeStr = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
                         return (
-                          <div key={idx} className="text-xs text-slate-700 py-1 border-b border-slate-100 last:border-0">
+                          <div key={idx} className="text-xs text-slate-700 dark:text-slate-300 py-1 border-b border-slate-100 last:border-0">
                             <div className="flex items-center justify-between">
                               <span className="font-medium">{
                                 log.function
@@ -5123,13 +5204,13 @@ export default function App() {
                                   .replace('getDiscussionQuestions', 'Discussion')
                                   .replace('generateTriviaQuestions', 'Trivia')
                               }</span>
-                              <span className="text-slate-500">{dateStr} {timeStr}</span>
+                              <span className="text-slate-500 dark:text-slate-400">{dateStr} {timeStr}</span>
                             </div>
                             <div className="flex items-center justify-between mt-0.5">
-                              <span className="text-slate-600">
+                              <span className="text-slate-600 dark:text-slate-400">
                                 {log.totalTokens.toLocaleString()} tokens
                               </span>
-                              <span className="font-medium text-slate-950">
+                              <span className="font-medium text-slate-950 dark:text-slate-50">
                                 ${log.estimatedCost.toFixed(4)}
                               </span>
                             </div>
@@ -5190,20 +5271,20 @@ export default function App() {
                   style={standardGlassmorphicStyle}
                 >
                   {/* Avatar skeleton */}
-                  <div className="w-12 h-12 rounded-full bg-slate-300/50 animate-pulse" />
+                  <div className="w-12 h-12 rounded-full bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" />
                   {/* Name/email skeleton */}
                   <div className="flex-1 min-w-0">
-                    <div className="w-32 h-5 bg-slate-300/50 rounded animate-pulse mb-2" />
-                    <div className="w-24 h-4 bg-slate-300/50 rounded animate-pulse" />
+                    <div className="w-32 h-5 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mb-2" />
+                    <div className="w-24 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                   </div>
                   {/* Chevron skeleton */}
-                  <div className="w-5 h-5 bg-slate-300/50 rounded animate-pulse" />
+                  <div className="w-5 h-5 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                 </motion.div>
               ) : followingUsers.length === 0 ? (
                 <div className="rounded-2xl p-6 text-center" style={standardGlassmorphicStyle}>
                   <Users size={48} className="mx-auto mb-4 text-slate-400" />
-                  <p className="text-slate-600">You're not following anyone yet.</p>
-                  <p className="text-sm text-slate-500 mt-2">
+                  <p className="text-slate-600 dark:text-slate-400">You're not following anyone yet.</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
                     Find readers in the community and follow them to see their books here.
                   </p>
                 </div>
@@ -5218,7 +5299,7 @@ export default function App() {
                         const nextIndex = (currentIndex + 1) % order.length;
                         setFollowingSortOrder(order[nextIndex]);
                       }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 hover:opacity-80 active:scale-95"
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 dark:text-slate-300 hover:opacity-80 active:scale-95"
                       style={standardGlassmorphicStyle}
                     >
                       <span>
@@ -5271,11 +5352,11 @@ export default function App() {
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        <p className="font-bold text-slate-950 truncate">
+                        <p className="font-bold text-slate-950 dark:text-slate-50 truncate">
                           {followedUser.full_name || followedUser.email.split('@')[0]}
                         </p>
                         {followedUser.full_name && (
-                          <p className="text-sm text-slate-600 truncate">{followedUser.email}</p>
+                          <p className="text-sm text-slate-600 dark:text-slate-400 truncate">{followedUser.email}</p>
                         )}
                       </div>
                       <ChevronRight size={20} className="text-slate-400 flex-shrink-0" />
@@ -5331,8 +5412,8 @@ export default function App() {
                   }}
                 >
                   <Birdhouse size={32} className="mx-auto mb-3 text-slate-400" />
-                  <p className="text-slate-800 font-medium mb-2">Your personalized feed</p>
-                  <p className="text-sm text-slate-500 mb-5">Connect an account to unlock your feed with insights, podcasts, and more for your books.</p>
+                  <p className="text-slate-800 dark:text-slate-200 font-medium mb-2">Your personalized feed</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">Connect an account to unlock your feed with insights, podcasts, and more for your books.</p>
                   <button
                     onClick={() => {
                       setConnectAccountReason('feed');
@@ -5407,7 +5488,7 @@ export default function App() {
                       e.stopPropagation();
                       setIsFeedTypeDropdownOpen(!isFeedTypeDropdownOpen);
                     }}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all text-slate-700"
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all text-slate-700 dark:text-slate-300"
                     style={feedCardStyle}
                   >
                     <span>
@@ -5467,7 +5548,7 @@ export default function App() {
                             className={`w-full px-3 py-2 text-left text-xs font-medium transition-colors ${
                               feedTypeFilter === option.value
                                 ? 'bg-slate-900 text-white'
-                                : 'text-slate-700 hover:bg-white/30'
+                                : 'text-slate-700 dark:text-slate-300 hover:bg-white/30 dark:bg-white/12'
                             } ${idx === 0 ? 'rounded-t-lg' : ''} ${idx === filteredArray.length - 1 ? 'rounded-b-lg' : ''}`}
                           >
                             {option.label}
@@ -5492,26 +5573,26 @@ export default function App() {
                     >
                       {/* Header skeleton */}
                       <div className="flex items-center gap-3 px-4 py-3">
-                        <div className="w-10 h-10 rounded-full bg-slate-300/50" />
+                        <div className="w-10 h-10 rounded-full bg-slate-300/50 dark:bg-slate-600/50" />
                         <div className="flex-1">
-                          <div className="w-24 h-4 bg-slate-300/50 rounded mb-1" />
-                          <div className="w-32 h-3 bg-slate-300/50 rounded" />
+                          <div className="w-24 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-1" />
+                          <div className="w-32 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
                         </div>
-                        <div className="w-12 h-3 bg-slate-300/50 rounded" />
+                        <div className="w-12 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
                       </div>
                       {/* Content skeleton */}
                       <div className="px-4 pb-4">
-                        <div className="bg-white/40 rounded-xl p-3 mb-3">
-                          <div className="w-full h-4 bg-slate-300/50 rounded mb-2" />
-                          <div className="w-3/4 h-4 bg-slate-300/50 rounded" />
+                        <div className="bg-white/40 dark:bg-white/10 rounded-xl p-3 mb-3">
+                          <div className="w-full h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-2" />
+                          <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
                         </div>
                         {/* Source book skeleton */}
-                        <div className="flex items-center gap-3 bg-white/30 rounded-xl p-2">
-                          <div className="w-10 h-14 bg-slate-300/50 rounded-lg" />
+                        <div className="flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2">
+                          <div className="w-10 h-14 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg" />
                           <div className="flex-1">
-                            <div className="w-12 h-3 bg-slate-300/50 rounded mb-1" />
-                            <div className="w-24 h-4 bg-slate-300/50 rounded mb-1" />
-                            <div className="w-20 h-3 bg-slate-300/50 rounded" />
+                            <div className="w-12 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-1" />
+                            <div className="w-24 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-1" />
+                            <div className="w-20 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
                           </div>
                         </div>
                       </div>
@@ -5533,8 +5614,8 @@ export default function App() {
                   }}
                 >
                   <Birdhouse size={32} className="mx-auto mb-3 text-slate-400" />
-                  <p className="text-slate-800 font-medium mb-2">Your feed is empty</p>
-                  <p className="text-sm text-slate-500">Add books and mark them as read to see personalized content here.</p>
+                  <p className="text-slate-800 dark:text-slate-200 font-medium mb-2">Your feed is empty</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Add books and mark them as read to see personalized content here.</p>
                 </div>
               )}
 
@@ -5551,8 +5632,8 @@ export default function App() {
                   }}
                 >
                   <Birdhouse size={32} className="mx-auto mb-3 text-slate-400" />
-                  <p className="text-slate-800 font-medium mb-2">No matching items</p>
-                  <p className="text-sm text-slate-500">Try adjusting your filters to see more content.</p>
+                  <p className="text-slate-800 dark:text-slate-200 font-medium mb-2">No matching items</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Try adjusting your filters to see more content.</p>
                 </div>
               )}
 
@@ -5571,7 +5652,7 @@ export default function App() {
                         prev.map(fi => fi.id === item.id ? { ...fi, read: newRead } : fi)
                       );
                     }}
-                    className="ml-1 p-1.5 rounded-full hover:bg-white/30 transition-colors flex items-center justify-center"
+                    className="ml-1 p-1.5 rounded-full hover:bg-white/30 dark:bg-white/12 transition-colors flex items-center justify-center"
                     title={item.read ? 'Mark as unread' : 'Mark as read'}
                   >
                     {item.read ? (
@@ -5612,19 +5693,19 @@ export default function App() {
                             <Lightbulb size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Insights</p>
-                            <p className="text-xs text-slate-500">Interesting facts about this book</p>
+                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Insights</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Interesting facts about this book</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
                         </div>
                         <div className="px-4 pb-4">
-                          <div className="bg-white/40 rounded-xl px-3 py-2 mb-3">
-                            <p className="text-sm text-slate-700">{item.content.fact}</p>
+                          <div className="bg-white/40 dark:bg-white/10 rounded-xl px-3 py-2 mb-3">
+                            <p className="text-sm text-slate-700 dark:text-slate-300">{item.content.fact}</p>
                           </div>
                           <button
                             onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
                           >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
@@ -5632,9 +5713,9 @@ export default function App() {
                               <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
                             )}
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500">About</p>
-                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400">About</p>
+                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
                             </div>
                           </button>
                         </div>
@@ -5650,21 +5731,21 @@ export default function App() {
                             <Info size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Context</p>
-                            <p className="text-xs text-slate-500">The world behind your book</p>
+                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Context</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">The world behind your book</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
                         </div>
                         <div className="px-4 pb-4">
-                          <div className="bg-white/40 rounded-xl p-3 mb-3">
-                            <p className="text-sm text-slate-700 leading-relaxed">
+                          <div className="bg-white/40 dark:bg-white/10 rounded-xl p-3 mb-3">
+                            <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
                               {typeof contextData === 'string' ? contextData : contextData?.text || JSON.stringify(contextData)}
                             </p>
                           </div>
                           <button
                             onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
                           >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
@@ -5672,9 +5753,9 @@ export default function App() {
                               <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
                             )}
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500">Context for</p>
-                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400">Context for</p>
+                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
                             </div>
                           </button>
                         </div>
@@ -5695,21 +5776,21 @@ export default function App() {
                             )}
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Deep Dive</p>
-                            <p className="text-xs text-slate-500">{domainLabel}</p>
+                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Deep Dive</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{domainLabel}</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
                         </div>
                         <div className="px-4 pb-4">
                           <div className="bg-gradient-to-br from-rose-50 to-pink-50 rounded-xl p-3 mb-3 border border-rose-100">
-                            <p className="text-sm text-slate-700 leading-relaxed">
+                            <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
                               {typeof drilldownData === 'string' ? drilldownData : drilldownData?.text || JSON.stringify(drilldownData)}
                             </p>
                           </div>
                           <button
                             onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
                           >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
@@ -5717,9 +5798,9 @@ export default function App() {
                               <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
                             )}
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500">From</p>
-                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400">From</p>
+                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
                             </div>
                           </button>
                         </div>
@@ -5735,21 +5816,21 @@ export default function App() {
                             <BookMarked size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Influences</p>
-                            <p className="text-xs text-slate-500">Books that shaped your read</p>
+                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Influences</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Books that shaped your read</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
                         </div>
                         <div className="px-4 pb-4">
-                          <div className="bg-white/40 rounded-xl px-3 py-2 mb-3">
-                            <p className="text-sm text-slate-700">
+                          <div className="bg-white/40 dark:bg-white/10 rounded-xl px-3 py-2 mb-3">
+                            <p className="text-sm text-slate-700 dark:text-slate-300">
                               {typeof influenceData === 'string' ? influenceData : influenceData?.title || JSON.stringify(influenceData)}
                             </p>
                           </div>
                           <button
                             onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
                           >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
@@ -5757,9 +5838,9 @@ export default function App() {
                               <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
                             )}
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500">Influenced</p>
-                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400">Influenced</p>
+                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
                             </div>
                           </button>
                         </div>
@@ -5777,8 +5858,8 @@ export default function App() {
                             <Headphones size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Podcasts</p>
-                            <p className="text-xs text-slate-500">Podcast about this book</p>
+                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Podcasts</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Podcast about this book</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
@@ -5796,15 +5877,15 @@ export default function App() {
                               )}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="font-bold text-slate-900 text-sm line-clamp-2">{episode?.title || 'Podcast Episode'}</p>
-                              <p className="text-xs text-slate-500 mt-1">{episode?.podcast_name || 'Podcast'}</p>
+                              <p className="font-bold text-slate-900 dark:text-slate-100 text-sm line-clamp-2">{episode?.title || 'Podcast Episode'}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{episode?.podcast_name || 'Podcast'}</p>
                               <div className="flex items-center gap-3 mt-2">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     handleFeedPodcastPlay(episode);
                                   }}
-                                  className="inline-flex items-center gap-1 text-xs text-blue-600 font-medium active:scale-95 transition-transform"
+                                  className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 font-medium active:scale-95 transition-transform"
                                 >
                                   {isPodcastPlaying ? (
                                     <>
@@ -5824,7 +5905,7 @@ export default function App() {
                                       e.stopPropagation();
                                       window.open(episode.url, '_blank');
                                     }}
-                                    className="inline-flex items-center gap-1 text-xs text-blue-600 font-medium active:scale-95 transition-transform"
+                                    className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 font-medium active:scale-95 transition-transform"
                                   >
                                     <ExternalLink size={12} />
                                     Link
@@ -5839,7 +5920,7 @@ export default function App() {
                           {/* Episode description preview */}
                           {episode?.episode_summary && (
                             <div className="mb-3">
-                              <p className={`text-sm text-slate-700 leading-relaxed ${!feedPodcastExpandedMap.get(item.id) ? 'line-clamp-2' : ''}`}>
+                              <p className={`text-sm text-slate-700 dark:text-slate-300 leading-relaxed ${!feedPodcastExpandedMap.get(item.id) ? 'line-clamp-2' : ''}`}>
                                 {episode.episode_summary}
                               </p>
                               {episode.episode_summary.length > 100 && (
@@ -5852,7 +5933,7 @@ export default function App() {
                                       return newMap;
                                     });
                                   }}
-                                  className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+                                  className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 font-medium mt-1"
                                 >
                                   {feedPodcastExpandedMap.get(item.id) ? 'Show less' : 'Read more'}
                                 </button>
@@ -5861,7 +5942,7 @@ export default function App() {
                           )}
                           <button
                             onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
                           >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
@@ -5869,9 +5950,9 @@ export default function App() {
                               <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
                             )}
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500">About</p>
-                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400">About</p>
+                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
                             </div>
                           </button>
                         </div>
@@ -5889,8 +5970,8 @@ export default function App() {
                             <Play size={20} className="text-white ml-0.5" fill="white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Videos</p>
-                            <p className="text-xs text-slate-500">Videos about the book and its author</p>
+                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Videos</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Videos about the book and its author</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
@@ -5925,10 +6006,10 @@ export default function App() {
                           </button>
                         )}
                         <div className="px-4 py-3">
-                          <p className="font-bold text-slate-900 text-sm mb-3 line-clamp-2">{decodeHtmlEntities(video?.title || 'YouTube Video')}</p>
+                          <p className="font-bold text-slate-900 dark:text-slate-100 text-sm mb-3 line-clamp-2">{decodeHtmlEntities(video?.title || 'YouTube Video')}</p>
                           <button
                             onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
                           >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
@@ -5936,9 +6017,9 @@ export default function App() {
                               <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
                             )}
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500">About</p>
-                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400">About</p>
+                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
                             </div>
                           </button>
                         </div>
@@ -5975,8 +6056,8 @@ export default function App() {
                             <BookMarked size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Related Books</p>
-                            <p className="text-xs text-slate-500">Similar books you might enjoy</p>
+                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Related Books</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Similar books you might enjoy</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
@@ -5995,10 +6076,10 @@ export default function App() {
                                 </div>
                               )}
                               <div className="flex-1 min-w-0 flex flex-col justify-center">
-                                <p className="font-bold text-slate-900 text-lg leading-tight">{decodeHtmlEntities(relatedBook?.title || 'Related Book')}</p>
-                                <p className="text-sm text-slate-600 mt-0.5">{decodeHtmlEntities(relatedBook?.author || 'Unknown Author')}</p>
+                                <p className="font-bold text-slate-900 dark:text-slate-100 text-lg leading-tight">{decodeHtmlEntities(relatedBook?.title || 'Related Book')}</p>
+                                <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">{decodeHtmlEntities(relatedBook?.author || 'Unknown Author')}</p>
                                 {relatedBook?.reason && (
-                                  <p className="text-sm text-slate-700 mt-2 leading-snug">{decodeHtmlEntities(relatedBook.reason)}</p>
+                                  <p className="text-sm text-slate-700 dark:text-slate-300 mt-2 leading-snug">{decodeHtmlEntities(relatedBook.reason)}</p>
                                 )}
                               </div>
                             </div>
@@ -6016,20 +6097,20 @@ export default function App() {
                             <FileText size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Articles</p>
-                            <p className="text-xs text-slate-500">Academic article about this book</p>
+                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Articles</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Academic article about this book</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
                         </div>
                         <div className="px-4 pb-4">
-                          <div className="bg-white/40 rounded-xl p-3 mb-3">
-                            <p className="font-semibold text-slate-800 text-sm mb-1">{decodeHtmlEntities(article?.title || 'Article')}</p>
+                          <div className="bg-white/40 dark:bg-white/10 rounded-xl p-3 mb-3">
+                            <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm mb-1">{decodeHtmlEntities(article?.title || 'Article')}</p>
                             {article?.snippet && (
-                              <p className="text-xs text-slate-600 line-clamp-2">{decodeHtmlEntities(article.snippet)}</p>
+                              <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">{decodeHtmlEntities(article.snippet)}</p>
                             )}
                             {article?.url && (
-                              <a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-2 text-xs text-blue-600 font-medium">
+                              <a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-2 text-xs text-blue-600 dark:text-blue-400 font-medium">
                                 <ExternalLink size={12} />
                                 Read article
                               </a>
@@ -6037,7 +6118,7 @@ export default function App() {
                           </div>
                           <button
                             onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
                           >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
@@ -6045,9 +6126,9 @@ export default function App() {
                               <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
                             )}
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500">About</p>
-                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400">About</p>
+                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
                             </div>
                           </button>
                         </div>
@@ -6081,8 +6162,8 @@ export default function App() {
                             <Users size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">A friend added a book</p>
-                            <p className="text-xs text-slate-500">{item.content.action || 'added'}</p>
+                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">A friend added a book</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{item.content.action || 'added'}</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
@@ -6100,11 +6181,11 @@ export default function App() {
                           </div>
                         ) : null}
                         <div className="px-4 py-3">
-                          <p className="font-bold text-slate-900">{item.source_book_title}</p>
-                          <p className="text-sm text-slate-600">{item.source_book_author}</p>
+                          <p className="font-bold text-slate-900 dark:text-slate-100">{item.source_book_title}</p>
+                          <p className="text-sm text-slate-600 dark:text-slate-400">{item.source_book_author}</p>
                           {item.content.description && (
                             <div className="mt-2">
-                              <p className={`text-sm text-slate-700 leading-relaxed ${
+                              <p className={`text-sm text-slate-700 dark:text-slate-300 leading-relaxed ${
                                 expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-4'
                               }`}>
                                 {item.content.description}
@@ -6123,7 +6204,7 @@ export default function App() {
                                       return next;
                                     });
                                   }}
-                                  className="text-blue-600 text-sm font-medium mt-1"
+                                  className="text-blue-600 dark:text-blue-400 text-sm font-medium mt-1"
                                 >
                                   {expandedFeedDescriptions.has(item.id) ? 'Show less' : 'Read more'}
                                 </button>
@@ -6176,8 +6257,8 @@ export default function App() {
                             <Lightbulb size={20} className="text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-slate-900 text-sm">Insights</p>
-                            <p className="text-xs text-slate-500">Interesting facts about this book</p>
+                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Insights</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">Interesting facts about this book</p>
                           </div>
                           <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
                           <ReadToggle />
@@ -6228,7 +6309,7 @@ export default function App() {
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: -20 }}
                                 transition={{ duration: 0.2 }}
-                                className="text-sm text-slate-700 leading-relaxed"
+                                className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed"
                               >
                                 {didYouKnowNotes[currentNoteIdx] || ''}
                               </motion.p>
@@ -6273,7 +6354,7 @@ export default function App() {
 
                           <button
                             onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 rounded-xl p-2 active:scale-[0.98] transition-transform"
+                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
                           >
                             {item.source_book_cover_url ? (
                               <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
@@ -6281,9 +6362,9 @@ export default function App() {
                               <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
                             )}
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500">About</p>
-                              <p className="text-sm font-medium text-slate-800 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 truncate">{item.source_book_author}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400">About</p>
+                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
                             </div>
                           </button>
                         </div>
@@ -6329,7 +6410,7 @@ export default function App() {
             {/* Sorting Results View */}
             <div className="w-full max-w-[600px] md:max-w-[800px] flex flex-col gap-4 px-4 py-8">
               <div className="flex items-center justify-between mb-4">
-                <h1 className="text-2xl font-bold text-slate-950">RANKED BY YOU</h1>
+                <h1 className="text-2xl font-bold text-slate-950 dark:text-slate-50">RANKED BY YOU</h1>
                 <button
                   onClick={() => {
                     // Reset merge sort state to replay
@@ -6341,7 +6422,7 @@ export default function App() {
                     setShowSortingResults(false);
                     // The Play button will now be available again
                   }}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-xs transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-xs transition-all bg-blue-600 dark:bg-blue-500 hover:bg-blue-700 text-white active:scale-95"
                 >
                   <Play size={14} />
                   <span>Replay</span>
@@ -6353,9 +6434,9 @@ export default function App() {
                 
                 if (sortedBooks.length === 0) {
                   return (
-                    <div className="w-full bg-white/80 backdrop-blur-md rounded-2xl p-8 border border-white/30 shadow-lg text-center">
+                    <div className="w-full bg-white/80 dark:bg-white/15 backdrop-blur-md rounded-2xl p-8 border border-white/30 dark:border-white/10 shadow-lg text-center">
                       <BookOpen size={32} className="mx-auto mb-3 text-slate-400" />
-                      <p className="text-slate-800 text-sm font-medium">No books to display</p>
+                      <p className="text-slate-800 dark:text-slate-200 text-sm font-medium">No books to display</p>
                     </div>
                   );
                 }
@@ -6368,7 +6449,7 @@ export default function App() {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: index * 0.05 }}
-                        className="bg-white/80 backdrop-blur-md rounded-2xl p-4 border border-white/30 shadow-lg cursor-pointer hover:shadow-xl transition-shadow"
+                        className="bg-white/80 dark:bg-white/15 backdrop-blur-md rounded-2xl p-4 border border-white/30 dark:border-white/10 shadow-lg cursor-pointer hover:shadow-xl transition-shadow"
                         onClick={() => {
                           const bookIndex = books.findIndex(b => b.id === book.id);
                           if (bookIndex !== -1) {
@@ -6379,7 +6460,7 @@ export default function App() {
                       >
                         <div className="flex gap-4 items-center">
                           {/* Rank Number */}
-                          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-lg">
+                          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 dark:bg-blue-500 text-white flex items-center justify-center font-black text-lg">
                             {index + 1}
                           </div>
                           
@@ -6400,15 +6481,15 @@ export default function App() {
                           
                           {/* Book Info */}
                           <div className="flex-1 min-w-0">
-                            <h2 className="text-sm font-bold text-slate-950 mb-1 line-clamp-1">{book.title}</h2>
-                            <p className="text-xs text-slate-600 mb-1">{book.author}</p>
+                            <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50 mb-1 line-clamp-1">{book.title}</h2>
+                            <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">{book.author}</p>
                             {(() => {
                               const avgScore = calculateAvg(book.ratings);
                               if (avgScore) {
                                 return (
                                   <div className="flex items-center gap-1">
                                     <Star size={12} className="fill-amber-400 text-amber-400" />
-                                    <span className="text-xs font-bold text-slate-700">{avgScore}</span>
+                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{avgScore}</span>
                                   </div>
                                 );
                               }
@@ -6450,8 +6531,8 @@ export default function App() {
                   return (
                     <div className="w-full rounded-2xl p-8 text-center" style={glassmorphicStyle}>
                       <Pencil size={32} className="mx-auto mb-3 text-slate-400" />
-                      <p className="text-slate-800 text-sm font-medium">No notes yet</p>
-                      <p className="text-slate-600 text-xs mt-1">Add notes to your books to see them here</p>
+                      <p className="text-slate-800 dark:text-slate-200 text-sm font-medium">No notes yet</p>
+                      <p className="text-slate-600 dark:text-slate-400 text-xs mt-1">Add notes to your books to see them here</p>
                     </div>
                   );
                 }
@@ -6505,8 +6586,8 @@ export default function App() {
                       
                       {/* Book Info and Notes */}
                       <div className="flex-1 min-w-0">
-                        <h2 className="text-sm font-bold text-slate-950 mb-1 line-clamp-1">{book.title}</h2>
-                        <p className="text-xs text-slate-600 mb-2">{book.author}</p>
+                        <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50 mb-1 line-clamp-1">{book.title}</h2>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">{book.author}</p>
                         
                         {editingNoteBookId === book.id ? (
                           <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
@@ -6532,7 +6613,7 @@ export default function App() {
                                 setEditingNoteBookId(null);
                               }}
                               placeholder="Write your notes here..."
-                              className="w-full text-xs text-slate-800 bg-transparent border border-slate-200 rounded-lg p-2 resize-none focus:outline-none focus:border-blue-500"
+                              className="w-full text-xs text-slate-800 dark:text-slate-200 bg-transparent border border-slate-200 rounded-lg p-2 resize-none focus:outline-none focus:border-blue-500"
                               rows={4}
                               autoFocus
                             />
@@ -6541,14 +6622,14 @@ export default function App() {
                                 handleSaveNote(book.notes || '', book.id);
                                 setEditingNoteBookId(null);
                               }}
-                              className="text-xs text-blue-600 font-medium hover:text-blue-700"
+                              className="text-xs text-blue-600 dark:text-blue-400 font-medium hover:text-blue-700"
                             >
                               Done
                             </button>
                           </div>
                         ) : (
                           <div>
-                            <p className="text-sm text-slate-700 leading-relaxed line-clamp-3">
+                            <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed line-clamp-3">
                               {book.notes}
                             </p>
                           </div>
@@ -6593,20 +6674,20 @@ export default function App() {
                   >
                     <div className="flex items-center gap-4">
                       {/* Avatar skeleton */}
-                      <div className="w-16 h-16 rounded-full bg-slate-300/50 animate-pulse" />
+                      <div className="w-16 h-16 rounded-full bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" />
                       {/* Stats skeleton */}
                       <div className="flex-1 flex gap-6">
                         <div className="text-center">
-                          <div className="w-8 h-7 bg-slate-300/50 rounded animate-pulse mx-auto mb-1" />
-                          <div className="w-10 h-4 bg-slate-300/50 rounded animate-pulse mx-auto" />
+                          <div className="w-8 h-7 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mx-auto mb-1" />
+                          <div className="w-10 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mx-auto" />
                         </div>
                         <div className="text-center">
-                          <div className="w-8 h-7 bg-slate-300/50 rounded animate-pulse mx-auto mb-1" />
-                          <div className="w-14 h-4 bg-slate-300/50 rounded animate-pulse mx-auto" />
+                          <div className="w-8 h-7 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mx-auto mb-1" />
+                          <div className="w-14 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mx-auto" />
                         </div>
                       </div>
                       {/* Follow button skeleton */}
-                      <div className="w-24 h-10 bg-slate-300/50 rounded-xl animate-pulse" />
+                      <div className="w-24 h-10 bg-slate-300/50 dark:bg-slate-600/50 rounded-xl animate-pulse" />
                     </div>
                   </motion.div>
                   {/* Grouping selector skeleton */}
@@ -6624,13 +6705,13 @@ export default function App() {
                     className="rounded-2xl p-4"
                     style={glassmorphicStyle}
                   >
-                    <div className="w-24 h-5 bg-slate-300/50 rounded animate-pulse mb-4" />
+                    <div className="w-24 h-5 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mb-4" />
                     <div className="flex gap-3 overflow-hidden">
                       {[1, 2, 3, 4].map((i) => (
                         <div key={i} className="flex-shrink-0 w-[100px]">
-                          <div className="w-full aspect-[2/3] bg-slate-300/50 rounded-lg animate-pulse mb-2" />
-                          <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse mb-1" />
-                          <div className="w-2/3 h-3 bg-slate-300/50 rounded animate-pulse" />
+                          <div className="w-full aspect-[2/3] bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse mb-2" />
+                          <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mb-1" />
+                          <div className="w-2/3 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                         </div>
                       ))}
                     </div>
@@ -6642,13 +6723,13 @@ export default function App() {
                     className="rounded-2xl p-4"
                     style={glassmorphicStyle}
                   >
-                    <div className="w-32 h-5 bg-slate-300/50 rounded animate-pulse mb-4" />
+                    <div className="w-32 h-5 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mb-4" />
                     <div className="flex gap-3 overflow-hidden">
                       {[1, 2, 3, 4].map((i) => (
                         <div key={i} className="flex-shrink-0 w-[100px]">
-                          <div className="w-full aspect-[2/3] bg-slate-300/50 rounded-lg animate-pulse mb-2" />
-                          <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse mb-1" />
-                          <div className="w-2/3 h-3 bg-slate-300/50 rounded animate-pulse" />
+                          <div className="w-full aspect-[2/3] bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse mb-2" />
+                          <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mb-1" />
+                          <div className="w-2/3 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                         </div>
                       ))}
                     </div>
@@ -6688,22 +6769,22 @@ export default function App() {
                       {/* Stats */}
                       <div className="flex-1 flex gap-6">
                         <div className="text-center">
-                          <p className="text-2xl font-bold text-slate-950">{books.length}</p>
-                          <p className="text-sm text-slate-600">Books</p>
+                          <p className="text-2xl font-bold text-slate-950 dark:text-slate-50">{books.length}</p>
+                          <p className="text-sm text-slate-600 dark:text-slate-400">Books</p>
                         </div>
                         <button
                           onClick={() => setShowNotesView(true)}
                           className="text-center hover:opacity-70 active:scale-95 transition-all"
                         >
-                          <p className="text-2xl font-bold text-slate-950">{books.filter(b => b.notes && b.notes.trim()).length}</p>
-                          <p className="text-sm text-slate-600">Notes</p>
+                          <p className="text-2xl font-bold text-slate-950 dark:text-slate-50">{books.filter(b => b.notes && b.notes.trim()).length}</p>
+                          <p className="text-sm text-slate-600 dark:text-slate-400">Notes</p>
                         </button>
                         <button
                           onClick={() => setShowFollowingPage(true)}
                           className="text-center hover:opacity-70 active:scale-95 transition-all"
                         >
-                          <p className="text-2xl font-bold text-slate-950">{myFollowingCount}</p>
-                          <p className="text-sm text-slate-600">Following</p>
+                          <p className="text-2xl font-bold text-slate-950 dark:text-slate-50">{myFollowingCount}</p>
+                          <p className="text-sm text-slate-600 dark:text-slate-400">Following</p>
                         </button>
                       </div>
                     </div>
@@ -6732,12 +6813,12 @@ export default function App() {
                       {/* Stats */}
                       <div className="flex-1 flex gap-6">
                         <div className="text-center">
-                          <p className="text-2xl font-bold text-slate-950">{viewingUserBooks.length}</p>
-                          <p className="text-sm text-slate-600">Books</p>
+                          <p className="text-2xl font-bold text-slate-950 dark:text-slate-50">{viewingUserBooks.length}</p>
+                          <p className="text-sm text-slate-600 dark:text-slate-400">Books</p>
                         </div>
                         <div className="text-center">
-                          <p className="text-2xl font-bold text-slate-950">{viewingUserFollowingCount}</p>
-                          <p className="text-sm text-slate-600">Following</p>
+                          <p className="text-2xl font-bold text-slate-950 dark:text-slate-50">{viewingUserFollowingCount}</p>
+                          <p className="text-sm text-slate-600 dark:text-slate-400">Following</p>
                         </div>
                       </div>
                       {/* Follow Button */}
@@ -6789,7 +6870,7 @@ export default function App() {
                         e.stopPropagation();
                         setIsBookshelfGroupingDropdownOpen(!isBookshelfGroupingDropdownOpen);
                       }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 hover:opacity-80"
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 dark:text-slate-300 hover:opacity-80"
                       style={glassmorphicStyle}
                     >
                       <span className="text-slate-400 font-normal">Group by</span>
@@ -6842,11 +6923,11 @@ export default function App() {
                                 setIsBookshelfGroupingDropdownOpen(false);
                               }}
                               className={`w-full px-4 py-3 flex items-center gap-2 text-sm font-medium transition-colors ${
-                                idx > 0 ? 'border-t border-white/20' : ''
+                                idx > 0 ? 'border-t border-white/20 dark:border-white/10' : ''
                               } ${
                                 bookshelfGrouping === option.value
-                                  ? 'text-slate-950 bg-white/20'
-                                  : 'text-slate-700 hover:bg-white/20 active:bg-white/30'
+                                  ? 'text-slate-950 dark:text-slate-50 bg-white/20 dark:bg-white/8'
+                                  : 'text-slate-700 dark:text-slate-300 hover:bg-white/20 dark:bg-white/8 active:bg-white/30 dark:bg-white/12'
                               }`}
                             >
                               {option.label}
@@ -6869,8 +6950,8 @@ export default function App() {
                       }}
                       className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
                         isSelectMode
-                          ? 'text-blue-600'
-                          : 'text-slate-600'
+                          ? 'text-blue-600 dark:text-blue-400'
+                          : 'text-slate-600 dark:text-slate-400'
                       }`}
                     >
                       {isSelectMode ? 'Done' : 'Select'}
@@ -6905,7 +6986,7 @@ export default function App() {
                     style={glassmorphicStyle}
                   >
                     <img src={getAssetPath("/logo.png")} alt="Book.luv" className="object-contain mx-auto" />
-                    <p className="text-sm text-slate-600">
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
                       {viewingUserIsPrivate ? "This user's bookshelf is private." : "This user hasn't added any books yet."}
                     </p>
                   </div>
@@ -6926,8 +7007,8 @@ export default function App() {
                     }}
                   >
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-slate-800">Enjoying the app?</p>
-                      <p className="text-xs text-slate-500 mt-1">Connect an account to unlock all features and keep your books safe.</p>
+                      <p className="text-sm font-medium text-slate-800 dark:text-slate-200">Enjoying the app?</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Connect an account to unlock all features and keep your books safe.</p>
                       <button
                         onClick={() => {
                           setConnectAccountReason('book_limit');
@@ -6967,14 +7048,14 @@ export default function App() {
                     }}
                   >
                     {/* Shelf Label */}
-                    <h2 className="text-xl font-bold text-slate-950 px-[4vw] flex items-center gap-2">
+                    <h2 className="text-xl font-bold text-slate-950 dark:text-slate-50 px-[4vw] flex items-center gap-2">
                       {group.label}
                       <span className="text-xs font-medium text-slate-400">{group.books.length}</span>
                       {bookshelfGrouping === 'reading_status' && (
                         <>
-                          {group.label === 'Read it' && <CheckCircle2 size={20} className="text-slate-950" />}
-                          {group.label === 'Reading' && <BookOpen size={20} className="text-slate-950" />}
-                          {group.label === 'Want to read' && <BookMarked size={20} className="text-slate-950" />}
+                          {group.label === 'Read it' && <CheckCircle2 size={20} className="text-slate-950 dark:text-slate-50" />}
+                          {group.label === 'Reading' && <BookOpen size={20} className="text-slate-950 dark:text-slate-50" />}
+                          {group.label === 'Want to read' && <BookMarked size={20} className="text-slate-950 dark:text-slate-50" />}
                           {group.label === 'TBD' && <span className="w-5 h-5" />}
                         </>
                       )}
@@ -7006,7 +7087,7 @@ export default function App() {
                             className="relative w-full aspect-[2/3] rounded-lg overflow-hidden shadow-lg mb-2 group-hover:scale-105 transition-all flex items-center justify-center"
                             style={glassmorphicStyle}
                           >
-                            <Plus size={32} className="text-slate-400 group-hover:text-blue-600 transition-colors" />
+                            <Plus size={32} className="text-slate-400 group-hover:text-blue-600 dark:text-blue-400 transition-colors" />
                           </div>
                         </motion.div>
                       )}
@@ -7161,7 +7242,7 @@ export default function App() {
                         )}
                       </div>
                             {/* Book Title or Author */}
-                            <p className="text-xs font-medium text-slate-800 text-center line-clamp-2 px-1">
+                            <p className="text-xs font-medium text-slate-800 dark:text-slate-200 text-center line-clamp-2 px-1">
                               {bookshelfGrouping === 'author' ? (book.author || 'Unknown Author') : book.title}
                             </p>
                   </motion.div>
@@ -7197,13 +7278,13 @@ export default function App() {
                 <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 py-20">
                   <img src={getAssetPath("/logo.png")} alt="Book.luv" className="object-contain mx-auto mb-4" />
                   {viewingUserId ? (
-                    <p className="text-sm text-slate-600">
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
                       {viewingUserIsPrivate ? "This user's bookshelf is private." : "This user hasn't added any books yet."}
                     </p>
                   ) : (
                     <button
                       onClick={() => openAddBookSheet()}
-                      className="px-6 py-3 bg-blue-600 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
+                      className="px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
                     >
                       Add first book
                     </button>
@@ -7219,7 +7300,7 @@ export default function App() {
                         e.stopPropagation();
                         setIsBookshelfGroupingDropdownOpen(!isBookshelfGroupingDropdownOpen);
                       }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 hover:opacity-80"
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 dark:text-slate-300 hover:opacity-80"
                       style={glassmorphicStyle}
                     >
                       <span className="text-slate-400 font-normal">Group by</span>
@@ -7272,11 +7353,11 @@ export default function App() {
                                 setIsBookshelfGroupingDropdownOpen(false);
                               }}
                               className={`w-full px-4 py-3 flex items-center gap-2 text-sm font-medium transition-colors ${
-                                idx > 0 ? 'border-t border-white/20' : ''
+                                idx > 0 ? 'border-t border-white/20 dark:border-white/10' : ''
                               } ${
                                 bookshelfGrouping === option.value
-                                  ? 'text-slate-950 bg-white/20'
-                                  : 'text-slate-700 hover:bg-white/20 active:bg-white/30'
+                                  ? 'text-slate-950 dark:text-slate-50 bg-white/20 dark:bg-white/8'
+                                  : 'text-slate-700 dark:text-slate-300 hover:bg-white/20 dark:bg-white/8 active:bg-white/30 dark:bg-white/12'
                               }`}
                             >
                               {option.label}
@@ -7312,29 +7393,29 @@ export default function App() {
                       <>
                         {/* Total Books KPI */}
                         <div className="rounded-xl p-4 flex flex-col items-center min-w-[100px]" style={glassmorphicStyle}>
-                          <span className="text-lg font-bold text-slate-950 mb-1">
+                          <span className="text-lg font-bold text-slate-950 dark:text-slate-50 mb-1">
                             {totalBooks}
                           </span>
-                          <span className="text-xs text-slate-600 font-medium">Total</span>
+                          <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Total</span>
                         </div>
 
                         {/* Average Score KPI */}
                         <div className="rounded-xl p-4 flex flex-col items-center min-w-[100px]" style={glassmorphicStyle}>
                           <div className="flex items-center gap-1 mb-1">
                             <Star size={16} className="fill-amber-400 text-amber-400" />
-                            <span className="text-lg font-bold text-slate-950">
+                            <span className="text-lg font-bold text-slate-950 dark:text-slate-50">
                               {avgScore > 0 ? avgScore.toFixed(1) : '—'}
                             </span>
                           </div>
-                          <span className="text-xs text-slate-600 font-medium">Avg Score</span>
+                          <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Avg Score</span>
                         </div>
 
                         {/* Total Unrated KPI */}
                         <div className="rounded-xl p-4 flex flex-col items-center min-w-[100px]" style={glassmorphicStyle}>
-                          <span className="text-lg font-bold text-slate-950 mb-1">
+                          <span className="text-lg font-bold text-slate-950 dark:text-slate-50 mb-1">
                             {totalUnrated}
                           </span>
-                          <span className="text-xs text-slate-600 font-medium">Unrated</span>
+                          <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Unrated</span>
                         </div>
                       </>
                     );
@@ -7351,14 +7432,14 @@ export default function App() {
                     }}
                   >
                     {/* Shelf Label */}
-                    <h2 className="text-xl font-bold text-slate-950 px-[10vw] flex items-center gap-2">
+                    <h2 className="text-xl font-bold text-slate-950 dark:text-slate-50 px-[10vw] flex items-center gap-2">
                       {group.label}
                       <span className="text-xs font-medium text-slate-400">{group.books.length}</span>
                       {bookshelfGrouping === 'reading_status' && (
                         <>
-                          {group.label === 'Read it' && <CheckCircle2 size={20} className="text-slate-950" />}
-                          {group.label === 'Reading' && <BookOpen size={20} className="text-slate-950" />}
-                          {group.label === 'Want to read' && <BookMarked size={20} className="text-slate-950" />}
+                          {group.label === 'Read it' && <CheckCircle2 size={20} className="text-slate-950 dark:text-slate-50" />}
+                          {group.label === 'Reading' && <BookOpen size={20} className="text-slate-950 dark:text-slate-50" />}
+                          {group.label === 'Want to read' && <BookMarked size={20} className="text-slate-950 dark:text-slate-50" />}
                           {group.label === 'TBD' && <span className="w-5 h-5" />}
                         </>
                       )}
@@ -7486,7 +7567,7 @@ export default function App() {
                           {avgScore && (
                             <div className="flex items-center gap-1 mb-3">
                               <Star size={14} className="fill-amber-400 text-amber-400" />
-                              <span className="font-black text-sm text-slate-950">
+                              <span className="font-black text-sm text-slate-950 dark:text-slate-50">
                                 {avgScore}
                               </span>
                             </div>
@@ -7665,12 +7746,12 @@ export default function App() {
               className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
               style={{ ...glassmorphicStyle, borderRadius: '50%' }}
             >
-              <ChevronLeft size={18} className="text-slate-950" />
+              <ChevronLeft size={18} className="text-slate-950 dark:text-slate-50" />
             </button>
             {activeBook && (
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-slate-900 truncate uppercase">{activeBook.title}</p>
-                <p className="text-xs text-slate-900 truncate">{activeBook.author}</p>
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate uppercase">{activeBook.title}</p>
+                <p className="text-xs text-slate-900 dark:text-slate-100 truncate">{activeBook.author}</p>
               </div>
             )}
           </motion.div>
@@ -7678,13 +7759,13 @@ export default function App() {
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
             <img src={getAssetPath("/logo.png")} alt="Book.luv" className="object-contain mx-auto mb-4" />
             {viewingUserId ? (
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-slate-600 dark:text-slate-400">
                 {viewingUserIsPrivate ? "This user's bookshelf is private." : "This user hasn't added any books yet."}
               </p>
             ) : (
               <button
                 onClick={() => openAddBookSheet()}
-                className="px-6 py-3 bg-blue-600 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
+                className="px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
               >
                 Add first book
               </button>
@@ -7766,7 +7847,7 @@ export default function App() {
                     }}
                   >
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-bold text-slate-950">
+                    <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50">
                       {activeBook ? `${activeBook.title} notes` : 'Notes'}
                     </h3>
                     <div className="flex items-center gap-2">
@@ -7801,7 +7882,7 @@ export default function App() {
                         className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-all"
                         style={{ ...glassmorphicStyle, borderRadius: '50%' }}
                       >
-                        <Plus size={16} className="text-slate-700" />
+                        <Plus size={16} className="text-slate-700 dark:text-slate-300" />
                       </button>
                       <button
                         onClick={() => {
@@ -7811,7 +7892,7 @@ export default function App() {
                         className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-all"
                         style={{ ...glassmorphicStyle, borderRadius: '50%' }}
                       >
-                        <X size={16} className="text-slate-700" />
+                        <X size={16} className="text-slate-700 dark:text-slate-300" />
                       </button>
                     </div>
                   </div>
@@ -7921,7 +8002,7 @@ export default function App() {
                               }
                             }}
                             placeholder="Write your note..."
-                            className="w-full resize-none border-none outline-none text-sm text-slate-800 placeholder:text-slate-400 bg-transparent"
+                            className="w-full resize-none border-none outline-none text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 bg-transparent"
                             style={{ minHeight: '24px', overflow: 'hidden' }}
                           />
                         </motion.div>
@@ -7955,7 +8036,7 @@ export default function App() {
                     >
                       <button
                         onClick={handleDelete}
-                        className="flex items-center gap-2 px-4 py-3 w-full text-left text-red-600 font-semibold text-sm hover:bg-white/30 active:scale-95 transition-all"
+                        className="flex items-center gap-2 px-4 py-3 w-full text-left text-red-600 font-semibold text-sm hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
                       >
                         <Trash2 size={16} />
                         Delete Book
@@ -7963,7 +8044,7 @@ export default function App() {
                       <div className="h-px bg-slate-200/50" />
                       <button
                         onClick={() => setIsConfirmingDelete(false)}
-                        className="flex items-center gap-2 px-4 py-3 w-full text-left text-slate-700 font-medium text-sm hover:bg-white/30 active:scale-95 transition-all"
+                        className="flex items-center gap-2 px-4 py-3 w-full text-left text-slate-700 dark:text-slate-300 font-medium text-sm hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
                       >
                         Cancel
                       </button>
@@ -7991,7 +8072,7 @@ export default function App() {
                         className="w-full flex flex-col items-center justify-center"
                         style={{ minHeight: '120px' }}
                       >
-                        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950 mb-4">Reading Status</h3>
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950 dark:text-slate-50 mb-4">Reading Status</h3>
                         <div className="flex flex-row gap-3 w-full justify-center">
                           <button
                             onClick={async () => {
@@ -8008,10 +8089,10 @@ export default function App() {
                                 }
                               }
                             }}
-                            className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
+                            className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
                           >
-                            <CheckCircle2 size={28} className="text-slate-950" />
-                            <span className="text-xs font-bold text-slate-950">Read it</span>
+                            <CheckCircle2 size={28} className="text-slate-950 dark:text-slate-50" />
+                            <span className="text-xs font-bold text-slate-950 dark:text-slate-50">Read it</span>
                           </button>
                           <button
                             onClick={async () => {
@@ -8023,10 +8104,10 @@ export default function App() {
                                 setIsEditing(false);
                               }
                             }}
-                            className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
+                            className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
                           >
-                            <BookOpen size={28} className="text-slate-950" />
-                            <span className="text-xs font-bold text-slate-950">Reading</span>
+                            <BookOpen size={28} className="text-slate-950 dark:text-slate-50" />
+                            <span className="text-xs font-bold text-slate-950 dark:text-slate-50">Reading</span>
                           </button>
                           <button
                             onClick={async () => {
@@ -8038,10 +8119,10 @@ export default function App() {
                                 setIsEditing(false);
                               }
                             }}
-                            className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 hover:bg-white/30 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
+                            className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
                           >
-                            <BookMarked size={28} className="text-slate-950" />
-                            <span className="text-xs font-bold text-slate-950">Want to</span>
+                            <BookMarked size={28} className="text-slate-950 dark:text-slate-50" />
+                            <span className="text-xs font-bold text-slate-950 dark:text-slate-50">Want to</span>
                           </button>
                         </div>
                       </motion.div>
@@ -8096,10 +8177,10 @@ export default function App() {
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex flex-col items-center gap-1">
-                        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950">
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950 dark:text-slate-50">
                           A {activeBook.ratings.writing === 5 ? 'GREAAAAAT' : activeBook.ratings.writing === 4.5 ? 'GREAT' : 'GOOD'} BOOK LIKE THIS...
                         </h3>
-                        <p className="text-xs text-slate-950">someone you know needs to read it</p>
+                        <p className="text-xs text-slate-950 dark:text-slate-50">someone you know needs to read it</p>
                         <div className="flex gap-3 mt-2">
                           <button
                             onClick={async (e) => {
@@ -8139,7 +8220,7 @@ export default function App() {
                               e.stopPropagation();
                               setShowShareDialog(false);
                             }}
-                            className="px-4 py-2 rounded-xl text-slate-950 text-sm font-medium hover:bg-white/30 active:scale-95 transition-all"
+                            className="px-4 py-2 rounded-xl text-slate-950 dark:text-slate-50 text-sm font-medium hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
                           >
                             Skip
                           </button>
@@ -8201,7 +8282,7 @@ export default function App() {
                                   }
                                 });
                               }}
-                              className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-900 font-medium text-sm hover:bg-white/30 active:scale-95 transition-all"
+                              className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-900 dark:text-slate-100 font-medium text-sm hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
                             >
                               <Share size={18} />
                               Share
@@ -8212,7 +8293,7 @@ export default function App() {
                                 setShowBookMenu(false);
                                 setIsShowingNotes(true);
                               }}
-                              className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-900 font-medium text-sm hover:bg-white/30 active:scale-95 transition-all"
+                              className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-900 dark:text-slate-100 font-medium text-sm hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
                             >
                               <Pencil size={18} />
                               Notes
@@ -8223,7 +8304,7 @@ export default function App() {
                                 setShowBookMenu(false);
                                 setIsConfirmingDelete(true);
                               }}
-                              className="flex items-center gap-3 px-4 py-3 w-full text-left text-red-600 font-medium text-sm hover:bg-white/30 active:scale-95 transition-all"
+                              className="flex items-center gap-3 px-4 py-3 w-full text-left text-red-600 font-medium text-sm hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
                             >
                               <Trash2 size={18} />
                               Delete
@@ -8257,7 +8338,7 @@ export default function App() {
                       style={coverButtonGlassmorphicStyle}
                     >
                       <Star size={14} className="fill-amber-400 text-amber-400" />
-                      <span className="font-black text-sm text-slate-950">
+                      <span className="font-black text-sm text-slate-950 dark:text-slate-50">
                         {calculateAvg(activeBook.ratings) || 'Rate'}
                       </span>
                     </button>
@@ -8269,17 +8350,17 @@ export default function App() {
                         setSelectingReadingStatusForExisting(true);
                         setIsEditing(true);
                       }}
-                      className="w-10 h-10 rounded-full shadow-lg text-black hover:text-blue-600 active:scale-95 transition-all flex items-center justify-center"
+                      className="w-10 h-10 rounded-full shadow-lg text-black hover:text-blue-600 dark:text-blue-400 active:scale-95 transition-all flex items-center justify-center"
                       style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
                     >
                       {activeBook.reading_status === 'read_it' ? (
-                        <CheckCircle2 size={18} className="text-slate-950" />
+                        <CheckCircle2 size={18} className="text-slate-950 dark:text-slate-50" />
                       ) : activeBook.reading_status === 'reading' ? (
-                        <BookOpen size={18} className="text-slate-950" />
+                        <BookOpen size={18} className="text-slate-950 dark:text-slate-50" />
                       ) : activeBook.reading_status === 'want_to_read' ? (
-                        <BookMarked size={18} className="text-slate-950" />
+                        <BookMarked size={18} className="text-slate-950 dark:text-slate-50" />
                       ) : (
-                        <BookOpen size={18} className="text-slate-950 opacity-50" />
+                        <BookOpen size={18} className="text-slate-950 dark:text-slate-50 opacity-50" />
                       )}
                     </button>
                   </motion.div>
@@ -8316,7 +8397,7 @@ export default function App() {
                 >
                   <div className="rounded-2xl px-4 py-3 mx-auto" style={bookPageGlassmorphicStyle}>
                   {/* Line 1: Title */}
-                  <h2 className="text-sm font-black text-slate-950 leading-tight line-clamp-2 mb-2">{activeBook.title}</h2>
+                  <h2 className="text-sm font-black text-slate-950 dark:text-slate-50 leading-tight line-clamp-2 mb-2">{activeBook.title}</h2>
                   {/* Line 2: Summary/Synopsis */}
                   {activeBook.summary && (
                     <div className="mb-2">
@@ -8332,7 +8413,7 @@ export default function App() {
                             e.stopPropagation();
                             setIsSummaryExpanded(!isSummaryExpanded);
                           }}
-                          className="text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+                          className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 font-medium mt-1"
                         >
                           {isSummaryExpanded ? 'Show less' : 'Show more'}
                         </button>
@@ -8340,7 +8421,7 @@ export default function App() {
                     </div>
                   )}
                   {/* Line 3: Author */}
-                  <p className="text-xs font-bold text-slate-800 mb-2">{activeBook.author}</p>
+                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-2">{activeBook.author}</p>
                   {/* Line 4: All Labels */}
                   <div className="flex items-center gap-2 flex-wrap">
                     {activeBook.first_issue_year && (
@@ -8352,21 +8433,21 @@ export default function App() {
                     )}
                     {activeBook.publish_year && !activeBook.first_issue_year && (
                       <>
-                        <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
+                        <span className="bg-slate-100/90 dark:bg-slate-700/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800 dark:text-slate-200">
                           {activeBook.publish_year}
                         </span>
                       </>
                     )}
                     {activeBook.genre && (
                       <>
-                        <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
+                        <span className="bg-slate-100/90 dark:bg-slate-700/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800 dark:text-slate-200">
                           {activeBook.genre}
                         </span>
                       </>
                     )}
                     {activeBook.isbn && (
                       <>
-                        <span className="bg-slate-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800">
+                        <span className="bg-slate-100/90 dark:bg-slate-700/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800 dark:text-slate-200">
                           ISBN: {activeBook.isbn}
                         </span>
                       </>
@@ -8408,10 +8489,10 @@ export default function App() {
                         >
                           <div className="flex -space-x-2">
                             {[1, 2, 3].map((i) => (
-                              <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-slate-300/50" style={{ zIndex: 5 - i }} />
+                              <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-slate-300/50 dark:bg-slate-600/50" style={{ zIndex: 5 - i }} />
                             ))}
                           </div>
-                          <div className="w-16 h-3 bg-slate-300/50 rounded ml-1" />
+                          <div className="w-16 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded ml-1" />
                         </motion.div>
                       ) : (
                         <>
@@ -8477,7 +8558,7 @@ export default function App() {
                               </div>
                             );
                           })()}
-                          <span className="text-xs text-slate-600 ml-1">
+                          <span className="text-xs text-slate-600 dark:text-slate-400 ml-1">
                             {bookReaders.length + 1 + (activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id) ? 1 : 0)} {bookReaders.length === 0 && !(activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id)) ? 'reader' : 'readers'}
                           </span>
                         </>
@@ -8492,8 +8573,8 @@ export default function App() {
                           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                           className="flex items-center gap-2"
                         >
-                          <div className="w-8 h-8 rounded-full bg-slate-300/50" />
-                          <div className="w-8 h-8 rounded-full bg-slate-300/50" />
+                          <div className="w-8 h-8 rounded-full bg-slate-300/50 dark:bg-slate-600/50" />
+                          <div className="w-8 h-8 rounded-full bg-slate-300/50 dark:bg-slate-600/50" />
                         </motion.div>
                       ) : (
                         <>
@@ -8562,7 +8643,7 @@ export default function App() {
                                 className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full"
                               />
                             ) : (
-                              <MessagesSquare size={16} className="text-slate-700" />
+                              <MessagesSquare size={16} className="text-slate-700 dark:text-slate-300" />
                             )}
                           </button>
 
@@ -8578,7 +8659,7 @@ export default function App() {
                               border: '1px solid rgba(255, 255, 255, 0.3)',
                             }}
                           >
-                            <Cloud size={16} className="text-slate-700" />
+                            <Cloud size={16} className="text-slate-700 dark:text-slate-300" />
                           </button>
                           )}
 
@@ -8616,7 +8697,7 @@ export default function App() {
                                 className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full"
                               />
                             ) : (
-                              <MapIcon size={16} className="text-slate-700" />
+                              <MapIcon size={16} className="text-slate-700 dark:text-slate-300" />
                             )}
                           </button>
                         </>
@@ -8639,13 +8720,13 @@ export default function App() {
                     {[1, 2, 3, 4, 5].map((i) => (
                       <div key={`book-page-skeleton-${i}`} className="rounded-xl p-4" style={glassmorphicStyle}>
                         <div className="flex items-center justify-between mb-3">
-                          <div className="w-24 h-3 bg-slate-300/50 rounded" />
-                          <div className="w-12 h-3 bg-slate-300/50 rounded" />
+                          <div className="w-24 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
+                          <div className="w-12 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
                         </div>
                         <div className="space-y-2">
-                          <div className="w-full h-4 bg-slate-300/50 rounded" />
-                          <div className="w-5/6 h-4 bg-slate-300/50 rounded" />
-                          <div className="w-3/4 h-4 bg-slate-300/50 rounded" />
+                          <div className="w-full h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
+                          <div className="w-5/6 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
+                          <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
                         </div>
                       </div>
                     ))}
@@ -8764,7 +8845,7 @@ export default function App() {
                       {!featureFlags.bookPageSectionHeaders.insights && (
                         <div className="flex items-center justify-center mb-2 relative z-[40]">
                           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm relative" style={bookPageGlassmorphicStyle}>
-                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">INSIGHTS:</span>
+                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">INSIGHTS:</span>
                             {categories.length > 1 && (
                               <>
                                 <span className="text-[10px] font-bold text-slate-400">/</span>
@@ -8783,7 +8864,7 @@ export default function App() {
                                     />
                                   </button>
                                   {isInsightCategoryDropdownOpen && (
-                                    <div className="absolute top-full left-0 mt-1 bg-white/95 backdrop-blur-md border border-white/30 rounded-lg shadow-xl z-[40] min-w-[120px] overflow-hidden">
+                                    <div className="absolute top-full left-0 mt-1 bg-white/95 backdrop-blur-md border border-white/30 dark:border-white/10 rounded-lg shadow-xl z-[40] min-w-[120px] overflow-hidden">
                                       {categories.map((cat) => (
                                         <button
                                           key={cat.id || `cat-${cat.label}`}
@@ -8795,7 +8876,7 @@ export default function App() {
                                           className={`w-full text-left text-[10px] font-bold px-3 py-2 transition-colors ${
                                             selectedInsightCategory === cat.id
                                               ? 'text-blue-700 bg-blue-100'
-                                              : 'text-slate-600 hover:bg-slate-100'
+                                              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                                           }`}
                                         >
                                           {cat.label}
@@ -8833,9 +8914,9 @@ export default function App() {
                       >
                         {shouldBlurInsights && (
                           <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-                            <div className="flex items-center gap-2 px-3 py-2 rounded-full bg-white/80 backdrop-blur-sm shadow-sm">
-                              <Lightbulb size={14} className="text-slate-600" />
-                              <span className="text-xs font-medium text-slate-600">Spoiler alert, tap to reveal</span>
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-full bg-white/80 dark:bg-white/15 backdrop-blur-sm shadow-sm">
+                              <Lightbulb size={14} className="text-slate-600 dark:text-slate-400" />
+                              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Spoiler alert, tap to reveal</span>
                             </div>
                           </div>
                         )}
@@ -8848,10 +8929,10 @@ export default function App() {
                               style={glassmorphicStyle}
                             >
                               <div className="flex flex-col items-center gap-2">
-                                <div className="w-16 h-3 bg-slate-300/50 rounded animate-pulse" />
-                                <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
-                                <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-                                <div className="w-20 h-3 bg-slate-300/50 rounded animate-pulse mt-1" />
+                                <div className="w-16 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                                <div className="w-full h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                                <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                                <div className="w-20 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mt-1" />
                               </div>
                             </motion.div>
                           ) : currentInsights.length > 0 ? (
@@ -8883,7 +8964,7 @@ export default function App() {
                       {!featureFlags.bookPageSectionHeaders.podcasts && (
                         <div className="flex items-center justify-center mb-2">
                           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">PODCASTS:</span>
+                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">PODCASTS:</span>
                             <span className="text-[10px] font-bold text-slate-400">/</span>
                             <span className="text-[10px] font-bold text-blue-700">Curated + Apple</span>
                           </div>
@@ -8899,15 +8980,15 @@ export default function App() {
                               style={glassmorphicStyle}
                             >
                               <div className="flex items-start gap-3 mb-3">
-                                <div className="w-12 h-12 bg-slate-300/50 rounded-lg animate-pulse flex-shrink-0" />
+                                <div className="w-12 h-12 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse flex-shrink-0" />
                                 <div className="flex-1 space-y-2">
-                                  <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-                                  <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
+                                  <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                                  <div className="w-1/2 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                                 </div>
                               </div>
                               <div className="space-y-2">
-                                <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
-                                <div className="w-2/3 h-3 bg-slate-300/50 rounded animate-pulse" />
+                                <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                                <div className="w-2/3 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                               </div>
                             </motion.div>
                           ) : (
@@ -8937,7 +9018,7 @@ export default function App() {
                       {!featureFlags.bookPageSectionHeaders.youtube && (
                         <div className="flex items-center justify-center mb-2">
                           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">VIDEOS:</span>
+                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">VIDEOS:</span>
                             <span className="text-[10px] font-bold text-slate-400">/</span>
                             <span className="text-[10px] font-bold text-blue-700">YouTube</span>
                           </div>
@@ -8953,14 +9034,14 @@ export default function App() {
                               className="rounded-xl overflow-hidden"
                               style={glassmorphicStyle}
                             >
-                              <div className="relative w-full bg-slate-300/50 animate-pulse" style={{ paddingBottom: '56.25%' }}>
+                              <div className="relative w-full bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" style={{ paddingBottom: '56.25%' }}>
                                 <div className="absolute inset-0 flex items-center justify-center">
                                   <Play size={32} className="text-slate-400/50" />
                                 </div>
                               </div>
                               <div className="p-4 space-y-2">
-                                <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-                                <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
+                                <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                                <div className="w-1/2 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                               </div>
                             </motion.div>
                           ) : (
@@ -8998,7 +9079,7 @@ export default function App() {
                       {!featureFlags.bookPageSectionHeaders.articles && (
                         <div className="flex items-center justify-center mb-2">
                           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">ANALYSIS:</span>
+                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">ANALYSIS:</span>
                             <span className="text-[10px] font-bold text-slate-400">/</span>
                             <span className="text-[10px] font-bold text-blue-700">Google Scholar</span>
                           </div>
@@ -9015,10 +9096,10 @@ export default function App() {
                               style={glassmorphicStyle}
                             >
                               <div className="space-y-2">
-                                <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-                                <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
-                                <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse mt-3" />
-                                <div className="w-5/6 h-3 bg-slate-300/50 rounded animate-pulse" />
+                                <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                                <div className="w-1/2 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                                <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mt-3" />
+                                <div className="w-5/6 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                               </div>
                             </motion.div>
                           ) : (
@@ -9052,7 +9133,7 @@ export default function App() {
                       {!featureFlags.bookPageSectionHeaders.relatedBooks && (
                         <div className="flex items-center justify-center mb-2">
                           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">RELATED:</span>
+                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">RELATED:</span>
                             <span className="text-[10px] font-bold text-slate-400">/</span>
                             <span className="text-[10px] font-bold text-blue-700">Grok</span>
                           </div>
@@ -9067,16 +9148,16 @@ export default function App() {
                           style={glassmorphicStyle}
                         >
                           <div className="flex items-start gap-3 mb-3">
-                            <div className="w-16 h-20 bg-slate-300/50 rounded-lg animate-pulse flex-shrink-0" />
+                            <div className="w-16 h-20 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse flex-shrink-0" />
                             <div className="flex-1 space-y-2">
-                              <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-                              <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
-                              <div className="w-20 h-6 bg-slate-300/50 rounded-lg animate-pulse mt-2" />
+                              <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                              <div className="w-1/2 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                              <div className="w-20 h-6 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse mt-2" />
                             </div>
                           </div>
                           <div className="space-y-2">
-                            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
-                            <div className="w-4/5 h-3 bg-slate-300/50 rounded animate-pulse" />
+                            <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                            <div className="w-4/5 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                           </div>
                         </motion.div>
                       ) : (
@@ -9105,7 +9186,7 @@ export default function App() {
                       {!featureFlags.bookPageSectionHeaders.relatedMovies && (
                         <div className="flex items-center justify-center mb-2">
                           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                            <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">MOVIES:</span>
+                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">MOVIES:</span>
                             <span className="text-[10px] font-bold text-slate-400">/</span>
                             <span className="text-[10px] font-bold text-indigo-700">Grok + iTunes</span>
                           </div>
@@ -9119,16 +9200,16 @@ export default function App() {
                           style={glassmorphicStyle}
                         >
                           <div className="flex items-start gap-3 mb-3">
-                            <div className="w-16 h-20 bg-slate-300/50 rounded-lg animate-pulse flex-shrink-0" />
+                            <div className="w-16 h-20 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse flex-shrink-0" />
                             <div className="flex-1 space-y-2">
-                              <div className="w-3/4 h-4 bg-slate-300/50 rounded animate-pulse" />
-                              <div className="w-1/2 h-3 bg-slate-300/50 rounded animate-pulse" />
-                              <div className="w-20 h-6 bg-slate-300/50 rounded-lg animate-pulse mt-2" />
+                              <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                              <div className="w-1/2 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                              <div className="w-20 h-6 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse mt-2" />
                             </div>
                           </div>
                           <div className="space-y-2">
-                            <div className="w-full h-3 bg-slate-300/50 rounded animate-pulse" />
-                            <div className="w-4/5 h-3 bg-slate-300/50 rounded animate-pulse" />
+                            <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                            <div className="w-4/5 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                           </div>
                         </motion.div>
                       ) : (
@@ -9165,7 +9246,7 @@ export default function App() {
             className="flex items-center gap-3 rounded-2xl px-5 py-2.5 pointer-events-auto shadow-lg"
             style={glassmorphicStyle}
           >
-            <span className="text-sm font-semibold text-slate-700">
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
               {selectedBookIds.size} selected
             </span>
             <button
@@ -9221,14 +9302,14 @@ export default function App() {
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
               showBookshelfCovers
-                ? 'bg-white/40 hover:bg-white/50'
-                : 'bg-white/20 hover:bg-white/30'
+                ? 'bg-white/40 dark:bg-white/10 hover:bg-white/50 dark:bg-white/15'
+                : 'bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12'
             }`}
           >
             {featureFlags.hand_drawn_icons ? (
               <img src={getAssetPath("/library.svg")} alt="Library" className="w-[18px] h-[18px]" />
             ) : (
-              <Library size={18} className="text-slate-700" />
+              <Library size={18} className="text-slate-700 dark:text-slate-300" />
             )}
           </button>
 
@@ -9270,14 +9351,14 @@ export default function App() {
                     disabled={isDisabled}
                     className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
                       isPlayingTrivia
-                        ? 'bg-white/40 hover:bg-white/50'
-                        : 'bg-white/20 hover:bg-white/30'
+                        ? 'bg-white/40 dark:bg-white/10 hover:bg-white/50 dark:bg-white/15'
+                        : 'bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12'
                     }`}
                   >
                     {featureFlags.hand_drawn_icons ? (
                       <img src={getAssetPath("/Trophy.svg")} alt="Trivia" className="w-[18px] h-[18px]" />
                     ) : (
-                      <Trophy size={18} className="text-slate-700" />
+                      <Trophy size={18} className="text-slate-700 dark:text-slate-300" />
                     )}
                   </button>
                   {isDisabled && (
@@ -9306,12 +9387,12 @@ export default function App() {
           <div className="relative group">
             <button
               onClick={() => {}}
-              className="w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center bg-white/20 hover:bg-white/30"
+              className="w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12"
             >
               {featureFlags.hand_drawn_icons ? (
                 <img src={getAssetPath("/shield.svg")} alt="Clubs" className="w-[18px] h-[18px]" />
               ) : (
-                <ShieldUser size={18} className="text-slate-700" />
+                <ShieldUser size={18} className="text-slate-700 dark:text-slate-300" />
               )}
             </button>
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50"
@@ -9349,26 +9430,26 @@ export default function App() {
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
               showFeedPage
-                ? 'bg-white/40 hover:bg-white/50'
-                : 'bg-white/20 hover:bg-white/30'
+                ? 'bg-white/40 dark:bg-white/10 hover:bg-white/50 dark:bg-white/15'
+                : 'bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12'
             }`}
           >
             {featureFlags.hand_drawn_icons ? (
               <img src={getAssetPath("/feed.svg")} alt="Feed" className="w-[18px] h-[18px]" />
             ) : (
-              <Birdhouse size={18} className="text-slate-700" />
+              <Birdhouse size={18} className="text-slate-700 dark:text-slate-300" />
             )}
           </button>
 
           {/* Search button - right (circular) */}
           <button
             onClick={() => openAddBookSheet()}
-            className="w-11 h-11 rounded-full bg-white/20 hover:bg-white/30 active:scale-95 transition-all flex items-center justify-center ml-auto"
+            className="w-11 h-11 rounded-full bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all flex items-center justify-center ml-auto"
           >
             {featureFlags.hand_drawn_icons ? (
               <img src={getAssetPath("/search.svg")} alt="Search" className="w-[18px] h-[18px]" />
             ) : (
-              <Search size={18} className="text-slate-700" />
+              <Search size={18} className="text-slate-700 dark:text-slate-300" />
             )}
           </button>
         </div>
@@ -9398,7 +9479,7 @@ export default function App() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="w-full max-w-md bg-white/80 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 relative"
+              className="w-full max-w-md bg-white/80 dark:bg-white/15 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 dark:border-white/10 relative"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Handle bar */}
@@ -9409,7 +9490,7 @@ export default function App() {
               <div className="px-4 pb-6 max-h-[90vh] overflow-y-auto">
                 {/* Game Header */}
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-bold text-slate-950">
+                  <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">
                     {showGameResults ? 'Ranked Results' : 'Pick Your Favorite'}
                   </h2>
                   <button
@@ -9418,9 +9499,9 @@ export default function App() {
                       setShowGameResults(false);
                       setIsGameCompleting(false);
                     }}
-                    className="w-8 h-8 rounded-full bg-white/80 backdrop-blur-md hover:bg-white/85 border border-white/30 active:scale-95 transition-all flex items-center justify-center shadow-sm"
+                    className="w-8 h-8 rounded-full bg-white/80 dark:bg-white/15 backdrop-blur-md hover:bg-white/85 border border-white/30 dark:border-white/10 active:scale-95 transition-all flex items-center justify-center shadow-sm"
                   >
-                    <ChevronLeft size={16} className="text-slate-700 rotate-90" />
+                    <ChevronLeft size={16} className="text-slate-700 dark:text-slate-300 rotate-90" />
                   </button>
                 </div>
               
@@ -9434,15 +9515,15 @@ export default function App() {
                   
                   return (
                     <div className="mb-4">
-                      <div className="text-xs text-slate-600 text-center mb-2">
+                      <div className="text-xs text-slate-600 dark:text-slate-400 text-center mb-2">
                         {comparedCount} / ~{totalComparisons} comparisons ({Math.round(progress)}%)
                       </div>
-                      <div className="w-full h-2 bg-slate-300/50 rounded-full overflow-hidden">
+                      <div className="w-full h-2 bg-slate-300/50 dark:bg-slate-600/50 rounded-full overflow-hidden">
                         <motion.div
                           initial={{ width: 0 }}
                           animate={{ width: `${progress}%` }}
                           transition={{ duration: 0.3 }}
-                          className="h-full bg-blue-600 rounded-full"
+                          className="h-full bg-blue-600 dark:bg-blue-500 rounded-full"
                         />
                       </div>
                     </div>
@@ -9487,7 +9568,7 @@ export default function App() {
                     setGameShownBooks(new Set([newBook1.id, newBook2.id]));
                     setGameRound(prev => prev + 1);
                   }}
-                  className="flex items-center justify-center p-2 rounded-2xl hover:bg-white/20 transition-colors"
+                  className="flex items-center justify-center p-2 rounded-2xl hover:bg-white/20 dark:bg-white/8 transition-colors"
                 >
                   {gameBook1 && (
                     <>
@@ -9542,7 +9623,7 @@ export default function App() {
                     setGameShownBooks(new Set([newBook1.id, newBook2.id]));
                     setGameRound(prev => prev + 1);
                   }}
-                  className="flex items-center justify-center p-2 rounded-2xl hover:bg-white/20 transition-colors"
+                  className="flex items-center justify-center p-2 rounded-2xl hover:bg-white/20 dark:bg-white/8 transition-colors"
                 >
                   {gameBook2 && (
                     <>
@@ -9596,7 +9677,7 @@ export default function App() {
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
                         transition={{ duration: 0.6, ease: "easeInOut" }}
-                        className="flex items-center justify-center min-h-[200px] text-slate-700"
+                        className="flex items-center justify-center min-h-[200px] text-slate-700 dark:text-slate-300"
                       >
                         <p className="text-xs">No books to display</p>
                       </motion.div>
@@ -9674,7 +9755,7 @@ export default function App() {
                               setDraggedBookId(null);
                               setDragOverIndex(null);
                             }}
-                            className={`bg-white/80 backdrop-blur-md rounded-xl p-4 border border-white/30 shadow-sm transition-all ${
+                            className={`bg-white/80 dark:bg-white/15 backdrop-blur-md rounded-xl p-4 border border-white/30 dark:border-white/10 shadow-sm transition-all ${
                               isDragging ? 'cursor-grabbing opacity-50' : 'cursor-grab hover:bg-white/85'
                             } ${isDragOver ? 'border-blue-400 border-2' : ''}`}
                             onClick={(e) => {
@@ -9705,7 +9786,7 @@ export default function App() {
                             </div>
                             
                             {/* Rank Number */}
-                            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm">
+                            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 dark:bg-blue-500 text-white flex items-center justify-center font-bold text-sm">
                               {index + 1}
                             </div>
                             
@@ -9726,10 +9807,10 @@ export default function App() {
                             
                             {/* Book Info */}
                             <div className="flex-1 min-w-0">
-                              <h2 className="text-xs font-bold text-slate-950 mb-1 line-clamp-1">{book.title}</h2>
-                              <p className="text-xs text-slate-700 mb-1">{book.author}</p>
+                              <h2 className="text-xs font-bold text-slate-950 dark:text-slate-50 mb-1 line-clamp-1">{book.title}</h2>
+                              <p className="text-xs text-slate-700 dark:text-slate-300 mb-1">{book.author}</p>
                               {book.genre && (
-                                <p className="text-xs text-slate-600 mb-1">{book.genre}</p>
+                                <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">{book.genre}</p>
                               )}
                               {(() => {
                                 const avgScore = calculateAvg(book.ratings);
@@ -9737,7 +9818,7 @@ export default function App() {
                                   return (
                                     <div className="flex items-center gap-1">
                                       <Star size={12} className="fill-amber-400 text-amber-400" />
-                                      <span className="text-xs font-bold text-slate-950">{avgScore}</span>
+                                      <span className="text-xs font-bold text-slate-950 dark:text-slate-50">{avgScore}</span>
                                     </div>
                                   );
                                 }
@@ -9815,11 +9896,11 @@ export default function App() {
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: sortedBooks.length * 0.05 }}
-                            className="mt-4 pt-4 border-t border-white/30"
+                            className="mt-4 pt-4 border-t border-white/30 dark:border-white/10"
                           >
                             <button
                               onClick={buttonAction}
-                              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all bg-blue-600 hover:bg-blue-700 text-white active:scale-95 shadow-sm"
+                              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all bg-blue-600 dark:bg-blue-500 hover:bg-blue-700 text-white active:scale-95 shadow-sm"
                             >
                               <Play size={16} />
                               <span>{buttonText}</span>
@@ -9868,7 +9949,7 @@ export default function App() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="w-full max-w-md bg-white/80 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 relative"
+              className="w-full max-w-md bg-white/80 dark:bg-white/15 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 dark:border-white/10 relative"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Trivia Logo - Anchored to top of trivia box, centered on box x-axis */}
@@ -9902,8 +9983,8 @@ export default function App() {
               <div className="px-4 pb-6 max-h-[90vh] overflow-y-auto">
                   {isTriviaReady && !isTriviaLoading && !triviaGameComplete && triviaQuestions.length === 0 ? (
                   <div className="text-center">
-                    <h2 className="text-sm font-bold text-slate-950 mb-0">Ready to play!</h2>
-                    <p className="text-xs text-slate-700 mb-4">Tap to test your knowledge</p>
+                    <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50 mb-0">Ready to play!</h2>
+                    <p className="text-xs text-slate-700 dark:text-slate-300 mb-4">Tap to test your knowledge</p>
                   <button
                     onClick={async () => {
                       setIsTriviaLoading(true);
@@ -9972,7 +10053,7 @@ export default function App() {
           style={glassmorphicStyle}
                   >
                     <div className="h-12 flex items-center justify-center">
-                      <div className="w-full h-4 bg-slate-300/50 rounded animate-pulse" />
+                      <div className="w-full h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
                     </div>
                   </motion.div>
                 </div>
@@ -9984,7 +10065,7 @@ export default function App() {
                   className="space-y-4"
                 >
                   <div className="flex items-center justify-between mb-2">
-                      <h2 className="text-sm font-bold text-slate-950">Trivia Complete!</h2>
+                      <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">Trivia Complete!</h2>
                       <button
                         onClick={() => {
                           setIsPlayingTrivia(false);
@@ -9997,15 +10078,15 @@ export default function App() {
                           setTriviaShuffledAnswers([]);
                           setIsTriviaReady(false);
                         }}
-                        className="w-8 h-8 rounded-full bg-white/80 backdrop-blur-md hover:bg-white/85 border border-white/30 active:scale-95 transition-all flex items-center justify-center shadow-sm"
+                        className="w-8 h-8 rounded-full bg-white/80 dark:bg-white/15 backdrop-blur-md hover:bg-white/85 border border-white/30 dark:border-white/10 active:scale-95 transition-all flex items-center justify-center shadow-sm"
                       >
-                        <ChevronLeft size={16} className="text-slate-700 rotate-90" />
+                        <ChevronLeft size={16} className="text-slate-700 dark:text-slate-300 rotate-90" />
                       </button>
                     </div>
                     <div className="rounded-xl p-4 mb-4 shadow-sm" style={{ background: 'rgba(255,255,255,0.5)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)' }}>
-                      <p className="text-xs font-medium text-slate-700 text-center mb-2">Your Score</p>
-                      <p className="text-slate-950 text-center text-2xl font-bold mb-2">{triviaScore} / {triviaQuestions.length}</p>
-                      <p className="text-xs text-slate-600 text-center">
+                      <p className="text-xs font-medium text-slate-700 dark:text-slate-300 text-center mb-2">Your Score</p>
+                      <p className="text-slate-950 dark:text-slate-50 text-center text-2xl font-bold mb-2">{triviaScore} / {triviaQuestions.length}</p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 text-center">
                       {triviaScore === triviaQuestions.length 
                         ? 'Perfect score! 🎉' 
                         : triviaScore >= triviaQuestions.length * 0.8
@@ -10018,21 +10099,21 @@ export default function App() {
                   
                     {/* Answers Summary */}
                     <div className="rounded-xl p-4 space-y-3 max-h-[50vh] overflow-y-auto shadow-sm" style={{ background: 'rgba(255,255,255,0.5)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)' }}>
-                      <h3 className="text-xs font-medium text-slate-700 mb-3">Answers Summary</h3>
+                      <h3 className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-3">Answers Summary</h3>
                     {triviaQuestions.map((question, qIdx) => {
                       const selectedAnswer = triviaSelectedAnswers.get(qIdx);
                       const isCorrect = selectedAnswer === question.correct_answer;
                       
                       return (
-                        <div key={qIdx} className="border-b border-white/30 pb-3 last:border-b-0 last:pb-0">
-                          <p className="text-xs font-bold text-slate-950 mb-2">{qIdx + 1}. {question.question}</p>
+                        <div key={qIdx} className="border-b border-white/30 dark:border-white/10 pb-3 last:border-b-0 last:pb-0">
+                          <p className="text-xs font-bold text-slate-950 dark:text-slate-50 mb-2">{qIdx + 1}. {question.question}</p>
                           <div className="space-y-1.5">
                             <div className="px-3 py-2 rounded-xl shadow-sm" style={{ background: isCorrect ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)', border: '1px solid rgba(255,255,255,0.2)' }}>
-                              <p className="text-xs text-slate-800">Your answer: <span className="font-bold">{selectedAnswer || 'No answer'}</span></p>
+                              <p className="text-xs text-slate-800 dark:text-slate-200">Your answer: <span className="font-bold">{selectedAnswer || 'No answer'}</span></p>
                             </div>
                             {!isCorrect && (
                               <div className="px-3 py-2 rounded-xl shadow-sm" style={{ background: 'rgba(34,197,94,0.5)', border: '1px solid rgba(255,255,255,0.2)' }}>
-                                <p className="text-xs text-slate-800">Correct answer: <span className="font-bold">{question.correct_answer}</span></p>
+                                <p className="text-xs text-slate-800 dark:text-slate-200">Correct answer: <span className="font-bold">{question.correct_answer}</span></p>
                               </div>
                             )}
                           </div>
@@ -10042,8 +10123,8 @@ export default function App() {
                   </div>
                   
                   {nextQuestionsCountdown && triviaFirstPlayTimestamp ? (
-                    <div className="bg-slate-100/80 backdrop-blur-md rounded-xl p-4 border border-slate-200/30 shadow-sm mt-4">
-                      <p className="text-xs text-slate-700 text-center font-medium mb-3">New questions available in:</p>
+                    <div className="bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-md rounded-xl p-4 border border-slate-200/30 shadow-sm mt-4">
+                      <p className="text-xs text-slate-700 dark:text-slate-300 text-center font-medium mb-3">New questions available in:</p>
                       <div className="flex justify-center">
                         <span className="countdown font-mono text-2xl">
                           <span 
@@ -10081,8 +10162,8 @@ export default function App() {
                       </div>
                     </div>
                   ) : triviaFirstPlayTimestamp ? (
-                    <div className="bg-slate-100/80 backdrop-blur-md rounded-xl p-4 border border-slate-200/30 shadow-sm mt-4">
-                      <p className="text-xs text-slate-700 text-center font-medium">
+                    <div className="bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-md rounded-xl p-4 border border-slate-200/30 shadow-sm mt-4">
+                      <p className="text-xs text-slate-700 dark:text-slate-300 text-center font-medium">
                         New questions available on next play!
                       </p>
                     </div>
@@ -10103,20 +10184,20 @@ export default function App() {
                     
                       <div className="rounded-xl p-3 mb-3 shadow-sm" style={{ background: 'rgba(255,255,255,0.5)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)' }}>
                         <div className="flex items-center justify-between">
-                          <h2 className="text-sm font-bold text-slate-950">Trivia Game</h2>
+                          <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">Trivia Game</h2>
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => setIsTriviaMuted(!isTriviaMuted)}
-                              className="w-8 h-8 rounded-full bg-white/80 backdrop-blur-md hover:bg-white/85 border border-white/30 active:scale-95 transition-all flex items-center justify-center shadow-sm"
+                              className="w-8 h-8 rounded-full bg-white/80 dark:bg-white/15 backdrop-blur-md hover:bg-white/85 border border-white/30 dark:border-white/10 active:scale-95 transition-all flex items-center justify-center shadow-sm"
                               aria-label={isTriviaMuted ? 'Unmute music' : 'Mute music'}
                             >
                               {isTriviaMuted ? (
-                                <VolumeX size={14} className="text-slate-700" />
+                                <VolumeX size={14} className="text-slate-700 dark:text-slate-300" />
                               ) : (
-                                <Volume2 size={14} className="text-slate-700" />
+                                <Volume2 size={14} className="text-slate-700 dark:text-slate-300" />
                               )}
                             </button>
-                            <span className="text-xs text-slate-700">
+                            <span className="text-xs text-slate-700 dark:text-slate-300">
                               Question {currentTriviaQuestionIndex + 1} / {triviaQuestions.length}
                             </span>
                           </div>
@@ -10144,19 +10225,19 @@ export default function App() {
                                   style={{ border: '2px solid rgba(255, 255, 255, 0.6)' }}
                                 />
                               ) : (
-                                <div className="w-10 h-14 bg-white/60 rounded-lg flex-shrink-0 flex items-center justify-center">
-                                  <BookOpen size={14} className="text-slate-500" />
+                                <div className="w-10 h-14 bg-white/60 dark:bg-white/12 rounded-lg flex-shrink-0 flex items-center justify-center">
+                                  <BookOpen size={14} className="text-slate-500 dark:text-slate-400" />
                                 </div>
                               )}
                               <div className="min-w-0">
-                                <p className="text-[11px] text-slate-600">From</p>
-                                <p className="text-xs font-semibold text-slate-900 truncate">{sourceBook.title}</p>
-                                <p className="text-[11px] text-slate-500 truncate">{sourceBook.author}</p>
+                                <p className="text-[11px] text-slate-600 dark:text-slate-400">From</p>
+                                <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">{sourceBook.title}</p>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{sourceBook.author}</p>
                               </div>
                             </div>
                           );
                         })()}
-                        <p className="text-xs font-bold text-slate-950 mb-4">
+                        <p className="text-xs font-bold text-slate-950 dark:text-slate-50 mb-4">
                           {triviaQuestions[currentTriviaQuestionIndex].question}
                         </p>
                       
@@ -10240,7 +10321,7 @@ export default function App() {
                                 }}
                               />
                               <div className={`flex items-center justify-between w-full relative z-10 ${
-                                feedbackState === 'incorrect' || feedbackState === 'correct' ? 'text-slate-950' : 'text-slate-950'
+                                feedbackState === 'incorrect' || feedbackState === 'correct' ? 'text-slate-950 dark:text-slate-50' : 'text-slate-950 dark:text-slate-50'
                               }`}>
                                 <span>{answer}</span>
                                 {isSelected && showFeedback && (
@@ -10304,8 +10385,8 @@ export default function App() {
               >
                 <Library size={24} className="text-green-600" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900 mb-2">Books migrated</h3>
-              <p className="text-sm text-slate-600 mb-5">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mb-2">Books migrated</h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-5">
                 {migratedBooksCount} book{migratedBooksCount !== 1 ? 's' : ''} from your guest account {migratedBooksCount !== 1 ? 'have' : 'has'} been added to your library.
               </p>
               <button
@@ -10389,11 +10470,11 @@ export default function App() {
                       className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
                       style={standardGlassmorphicStyle}
                     >
-                      <X size={18} className="text-slate-950" />
+                      <X size={18} className="text-slate-950 dark:text-slate-50" />
                     </button>
                     <div>
-                      <h2 className="font-bold text-slate-950 text-sm">Discussions</h2>
-                      <p className="text-xs text-slate-500 truncate max-w-[200px]">{activeBook.title}</p>
+                      <h2 className="font-bold text-slate-950 dark:text-slate-50 text-sm">Discussions</h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[200px]">{activeBook.title}</p>
                     </div>
                   </div>
                   <div className="flex -space-x-1">
@@ -10432,8 +10513,8 @@ export default function App() {
                 {/* Section header */}
                 <div className="flex items-center gap-2 mb-2">
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg shadow-sm" style={glassmorphicStyle}>
-                    <Cloud size={16} className="text-slate-500" />
-                    <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Discussion Topics</span>
+                    <Cloud size={16} className="text-slate-500 dark:text-slate-400" />
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Discussion Topics</span>
                   </div>
                 </div>
 
@@ -10447,11 +10528,11 @@ export default function App() {
                     {[1, 2, 3, 4, 5].map((i) => (
                       <div key={i} className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
                         <div className="flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-full bg-slate-300/50 flex-shrink-0" />
+                          <div className="w-8 h-8 rounded-full bg-slate-300/50 dark:bg-slate-600/50 flex-shrink-0" />
                           <div className="flex-1 space-y-2">
-                            <div className="w-16 h-3 bg-slate-300/50 rounded" />
-                            <div className="w-full h-4 bg-slate-300/50 rounded" />
-                            <div className="w-3/4 h-4 bg-slate-300/50 rounded" />
+                            <div className="w-16 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
+                            <div className="w-full h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
+                            <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
                           </div>
                         </div>
                       </div>
@@ -10468,7 +10549,7 @@ export default function App() {
                       'personal reflection': 'bg-amber-100 text-amber-700',
                       'real world': 'bg-cyan-100 text-cyan-700',
                     };
-                    const colorClass = categoryColors[question.category] || 'bg-slate-100 text-slate-700';
+                    const colorClass = categoryColors[question.category] || 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300';
 
                     return (
                       <motion.div
@@ -10481,7 +10562,7 @@ export default function App() {
                       >
                         <div className="flex items-start gap-3">
                           <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                            <span className="text-sm font-bold text-blue-600">{question.id}</span>
+                            <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{question.id}</span>
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-2">
@@ -10489,7 +10570,7 @@ export default function App() {
                                 {question.category}
                               </span>
                             </div>
-                            <p className="text-sm text-slate-800 leading-relaxed">{question.question}</p>
+                            <p className="text-sm text-slate-800 dark:text-slate-200 leading-relaxed">{question.question}</p>
                           </div>
                         </div>
                       </motion.div>
@@ -10498,7 +10579,7 @@ export default function App() {
                 ) : (
                   // Empty state
                   <div className="rounded-xl p-4 text-center" style={standardGlassmorphicStyle}>
-                    <p className="text-xs text-slate-600">No discussion topics available yet.</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">No discussion topics available yet.</p>
                   </div>
                 )}
               </motion.div>
@@ -10592,24 +10673,24 @@ export default function App() {
                             className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
                             style={standardGlassmorphicStyle}
                           >
-                            <X size={18} className="text-slate-950" />
+                            <X size={18} className="text-slate-950 dark:text-slate-50" />
                           </button>
                           <div>
-                            <h2 className="font-bold text-slate-950 text-sm">Reader's Guide</h2>
-                            <p className="text-xs text-slate-500 truncate max-w-[200px]">{activeBook.title}</p>
+                            <h2 className="font-bold text-slate-950 dark:text-slate-50 text-sm">Reader's Guide</h2>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[200px]">{activeBook.title}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={glassmorphicStyle}>
-                          <MapIcon size={14} className="text-blue-600" />
+                          <MapIcon size={14} className="text-blue-600 dark:text-blue-400" />
                         </div>
                       </div>
 
                       {/* Book title and author */}
                       <div className="text-center pt-4">
-                        <h1 className="text-3xl font-black tracking-tight text-slate-900 leading-tight px-4">
+                        <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-slate-100 leading-tight px-4">
                           {activeBook.title}
                         </h1>
-                        <p className="text-slate-500 font-bold uppercase tracking-[0.2em] text-xs mt-2">{activeBook.author}</p>
+                        <p className="text-slate-500 dark:text-slate-400 font-bold uppercase tracking-[0.2em] text-xs mt-2">{activeBook.author}</p>
                       </div>
 
                       <div className="flex justify-center pt-4">
@@ -10627,7 +10708,7 @@ export default function App() {
                     {/* Section 1: Core Cast */}
                     {infographic.core_cast && infographic.core_cast.length > 0 && (
                       <section className="space-y-4 mb-10">
-                        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-blue-600 flex items-center gap-2 px-1">
+                        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-blue-600 dark:text-blue-400 flex items-center gap-2 px-1">
                           <Star size={16} /> Main Characters
                         </h2>
                         <div className="space-y-4">
@@ -10641,37 +10722,37 @@ export default function App() {
                               <GlassCard className="p-5">
                                 <div className="flex justify-between items-start mb-3">
                                   <div>
-                                    <h3 className="text-xl font-black text-slate-900 leading-tight">{char.name}</h3>
-                                    <p className="text-xs font-bold text-blue-600 uppercase tracking-widest mt-1.5">{char.role}</p>
+                                    <h3 className="text-xl font-black text-slate-900 dark:text-slate-100 leading-tight">{char.name}</h3>
+                                    <p className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest mt-1.5">{char.role}</p>
                                   </div>
                                 </div>
 
                                 <div className="space-y-4">
-                                  <p className="text-sm text-slate-600 leading-relaxed italic">"{char.short_identity}"</p>
+                                  <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed italic">"{char.short_identity}"</p>
 
                                   <div className="grid grid-cols-2 gap-4 border-t border-slate-200/50 pt-4">
                                     {char.main_goal && (
                                       <div>
-                                        <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                                        <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                                           <Target size={14} /> Goal
                                         </h4>
-                                        <p className="text-sm text-slate-700 leading-snug">{char.main_goal}</p>
+                                        <p className="text-sm text-slate-700 dark:text-slate-300 leading-snug">{char.main_goal}</p>
                                       </div>
                                     )}
                                     {char.key_connections && char.key_connections.length > 0 && (
                                       <div>
-                                        <h4 className="text-xs font-black text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                                        <h4 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                                           <Users size={14} /> Ties
                                         </h4>
-                                        <p className="text-sm text-slate-700 leading-snug">{char.key_connections.join(', ')}</p>
+                                        <p className="text-sm text-slate-700 dark:text-slate-300 leading-snug">{char.key_connections.join(', ')}</p>
                                       </div>
                                     )}
                                   </div>
 
                                   {char.why_reader_should_track && (
                                     <div className="bg-blue-50/80 p-3 rounded-xl border border-blue-100/50">
-                                      <p className="text-sm text-slate-700 leading-relaxed">
-                                        <span className="text-blue-600 font-black uppercase text-xs mr-1.5">Reader Tip:</span>
+                                      <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                                        <span className="text-blue-600 dark:text-blue-400 font-black uppercase text-xs mr-1.5">Reader Tip:</span>
                                         {char.why_reader_should_track}
                                       </p>
                                     </div>
@@ -10701,8 +10782,8 @@ export default function App() {
                               <GlassCard className="p-4 flex items-center gap-3">
                                 <div className={`w-1.5 h-10 rounded-full flex-shrink-0 ${char.importance === 'supporting' ? 'bg-purple-500' : 'bg-slate-300'}`} />
                                 <div className="flex-1 min-w-0">
-                                  <h4 className="text-base font-black text-slate-900">{char.name}</h4>
-                                  <p className="text-sm text-slate-500 leading-snug">{char.short_identity}</p>
+                                  <h4 className="text-base font-black text-slate-900 dark:text-slate-100">{char.name}</h4>
+                                  <p className="text-sm text-slate-500 dark:text-slate-400 leading-snug">{char.short_identity}</p>
                                 </div>
                                 <div className="text-xs font-black text-slate-400 uppercase tracking-tight">
                                   {char.importance}
@@ -10755,18 +10836,18 @@ export default function App() {
                                     strokeWidth={2}
                                     className={
                                       event.phase === 'opening' ? 'text-emerald-600' :
-                                      event.phase === 'early_setup' ? 'text-blue-600' :
+                                      event.phase === 'early_setup' ? 'text-blue-600 dark:text-blue-400' :
                                       event.phase === 'early_story' ? 'text-purple-600' :
                                       event.phase === 'mid_story' ? 'text-amber-600' :
-                                      'text-slate-600'
+                                      'text-slate-600 dark:text-slate-400'
                                     }
                                   />
                                 </div>
 
                                 <div className="space-y-2">
-                                  <h4 className="text-base font-bold text-slate-900 tracking-tight">{event.event_label}</h4>
+                                  <h4 className="text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight">{event.event_label}</h4>
                                   <GlassCard className="p-4">
-                                    <p className="text-sm text-slate-600 leading-relaxed mb-3">{event.what_happens}</p>
+                                    <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-3">{event.what_happens}</p>
                                     {event.characters_involved && event.characters_involved.length > 0 && (
                                       <div className="flex items-center gap-2 pt-3 border-t border-slate-200/30 text-xs font-black uppercase text-slate-400 tracking-tight">
                                         <Users size={14} /> {event.characters_involved.join(', ')}
@@ -10788,8 +10869,8 @@ export default function App() {
 
                     {/* Footer */}
                     <div className="pt-10 flex flex-col items-center gap-3 opacity-40">
-                      <BookOpen size={24} className="text-slate-500" />
-                      <p className="text-xs uppercase font-black tracking-[0.3em] text-slate-500">End of Guide</p>
+                      <BookOpen size={24} className="text-slate-500 dark:text-slate-400" />
+                      <p className="text-xs uppercase font-black tracking-[0.3em] text-slate-500 dark:text-slate-400">End of Guide</p>
                     </div>
                   </motion.div>
                 );
@@ -10831,9 +10912,9 @@ export default function App() {
                 {/* Close button - top right */}
                 <button
                   onClick={() => setViewingBookFromOtherUser(null)}
-                  className="absolute top-[-50px] right-0 w-8 h-8 rounded-full bg-white/80 backdrop-blur-md hover:bg-white/85 border border-white/30 active:scale-95 transition-all flex items-center justify-center shadow-sm"
+                  className="absolute top-[-50px] right-0 w-8 h-8 rounded-full bg-white/80 dark:bg-white/15 backdrop-blur-md hover:bg-white/85 border border-white/30 dark:border-white/10 active:scale-95 transition-all flex items-center justify-center shadow-sm"
                 >
-                  <X size={16} className="text-slate-700" />
+                  <X size={16} className="text-slate-700 dark:text-slate-300" />
                 </button>
                 {/* Book Cover - matching book page style */}
                 <div
@@ -10874,16 +10955,16 @@ export default function App() {
 
                 {/* Book Info */}
                 <div className="mt-4 text-center space-y-2 max-w-[272px]">
-                  <h2 className="text-lg font-bold text-slate-950">
+                  <h2 className="text-lg font-bold text-slate-950 dark:text-slate-50">
                     {viewingBookFromOtherUser.title}
                   </h2>
                   {viewingBookFromOtherUser.author && (
-                    <p className="text-sm text-slate-800">
+                    <p className="text-sm text-slate-800 dark:text-slate-200">
                       {viewingBookFromOtherUser.author}
                     </p>
                   )}
                   {viewingBookFromOtherUser.publish_year && (
-                    <p className="text-xs text-slate-600">
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
                       {viewingBookFromOtherUser.publish_year}
                     </p>
                   )}
@@ -10962,9 +11043,9 @@ export default function App() {
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              <MessagesSquare size={32} className="text-blue-600 mx-auto mb-3" />
-              <h3 className="text-lg font-bold text-slate-950 mb-2">Join the Book Chat</h3>
-              <p className="text-sm text-slate-600 mb-5">
+              <MessagesSquare size={32} className="text-blue-600 dark:text-blue-400 mx-auto mb-3" />
+              <h3 className="text-lg font-bold text-slate-950 dark:text-slate-50 mb-2">Join the Book Chat</h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-5">
                 To discuss this book with others, first join our Telegram group. Then come back and tap the chat button again to jump straight to the conversation.
               </p>
               <button
@@ -10984,7 +11065,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setShowTelegramJoinModal(false)}
-                className="mt-2 text-sm text-slate-500 hover:text-slate-700 transition-colors"
+                className="mt-2 text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:text-slate-300 transition-colors"
               >
                 Cancel
               </button>
@@ -11016,7 +11097,7 @@ export default function App() {
               className="absolute top-[65px] right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
               style={standardGlassmorphicStyle}
             >
-              <X size={18} className="text-slate-950" />
+              <X size={18} className="text-slate-950 dark:text-slate-50" />
             </button>
             {/* Background image */}
             <div
@@ -11118,10 +11199,10 @@ export default function App() {
                         animate={{ opacity: 1 }}
                         transition={{ duration: 0.3, delay: 0.1 }}
                       >
-                        <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 text-center uppercase leading-tight">
+                        <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 dark:text-slate-100 text-center uppercase leading-tight">
                           GET MORE FROM READING
                         </h1>
-                        <p className="text-[min(17px,2.2vh)] text-slate-600 text-center">
+                        <p className="text-[min(17px,2.2vh)] text-slate-600 dark:text-slate-400 text-center">
                           Videos, podcasts, fun facts and context around your book — All in one place.
                         </p>
                       </motion.div>
@@ -11150,10 +11231,10 @@ export default function App() {
                     >
                       {/* Header - anchored to top */}
                       <div className="absolute top-[14vh] left-0 right-0 flex flex-col items-center gap-[1vh] px-8">
-                        <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 text-center uppercase leading-tight">
+                        <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 dark:text-slate-100 text-center uppercase leading-tight">
                           TALK ABOUT<br />YOUR BOOK
                         </h1>
-                        <p className="text-[min(17px,2.2vh)] text-slate-600 text-center px-4">
+                        <p className="text-[min(17px,2.2vh)] text-slate-600 dark:text-slate-400 text-center px-4">
                           Join discussions and book clubs, with real people or with your private AI bot.
                         </p>
                       </div>
@@ -11179,7 +11260,7 @@ export default function App() {
                               backdropFilter: 'blur(10px)',
                               border: '1px solid rgba(255, 255, 255, 0.4)',
                             }}>
-                              <p className="text-[min(14px,1.8vh)] text-slate-700">What did you think of the ending?</p>
+                              <p className="text-[min(14px,1.8vh)] text-slate-700 dark:text-slate-300">What did you think of the ending?</p>
                             </div>
                           </motion.div>
 
@@ -11201,7 +11282,7 @@ export default function App() {
                               backdropFilter: 'blur(10px)',
                               border: '1px solid rgba(59, 130, 246, 0.3)',
                             }}>
-                              <p className="text-[min(14px,1.8vh)] text-slate-700">I was shocked! Didn&apos;t see it coming</p>
+                              <p className="text-[min(14px,1.8vh)] text-slate-700 dark:text-slate-300">I was shocked! Didn&apos;t see it coming</p>
                             </div>
                           </motion.div>
 
@@ -11223,7 +11304,7 @@ export default function App() {
                               backdropFilter: 'blur(10px)',
                               border: '1px solid rgba(16, 185, 129, 0.3)',
                             }}>
-                              <p className="text-[min(14px,1.8vh)] text-slate-700">The foreshadowing in chapter 3 hinted at it!</p>
+                              <p className="text-[min(14px,1.8vh)] text-slate-700 dark:text-slate-300">The foreshadowing in chapter 3 hinted at it!</p>
                             </div>
                           </motion.div>
                         </div>
@@ -11243,10 +11324,10 @@ export default function App() {
                     >
                       {/* Header - anchored to top */}
                       <div className="absolute top-[14vh] left-0 right-0 flex flex-col items-center gap-[1vh] px-8">
-                        <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 text-center uppercase leading-tight">
+                        <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 dark:text-slate-100 text-center uppercase leading-tight">
                           START WITH<br />YOUR BOOK
                         </h1>
-                        <p className="text-[min(17px,2.2vh)] text-slate-600 text-center">
+                        <p className="text-[min(17px,2.2vh)] text-slate-600 dark:text-slate-400 text-center">
                           Add a book you're reading to start exploring now
                         </p>
                       </div>
@@ -11332,7 +11413,7 @@ export default function App() {
                   initial={{ opacity: 0, y: -20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: 0.2 }}
-                  className="text-[30px] font-bold text-slate-900 text-center uppercase leading-tight"
+                  className="text-[30px] font-bold text-slate-900 dark:text-slate-100 text-center uppercase leading-tight"
                 >
                   DISCOVER THE WORLD AROUND THE BOOK
                 </motion.h1>
@@ -11454,7 +11535,7 @@ export default function App() {
                           WebkitBackdropFilter: 'blur(9.4px)',
                           border: '1px solid rgba(255, 255, 255, 0.3)',
                         }}>
-                          <MessagesSquare size={30} className="text-slate-800" />
+                          <MessagesSquare size={30} className="text-slate-800 dark:text-slate-200" />
                         </div>
                       </motion.div>
                     </>
@@ -11466,9 +11547,9 @@ export default function App() {
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: 0.5 }}
-                  className="text-[18.4px] text-slate-600 text-center"
+                  className="text-[18.4px] text-slate-600 dark:text-slate-400 text-center"
                 >
-                  Book.Luv finds interesting <span className="font-semibold text-slate-800">facts</span>, <span className="font-semibold text-slate-800">videos</span>, <span className="font-semibold text-slate-800">podcasts</span> and <span className="font-semibold text-slate-800">discussions</span> around the book you're reading.
+                  Book.Luv finds interesting <span className="font-semibold text-slate-800 dark:text-slate-200">facts</span>, <span className="font-semibold text-slate-800 dark:text-slate-200">videos</span>, <span className="font-semibold text-slate-800 dark:text-slate-200">podcasts</span> and <span className="font-semibold text-slate-800 dark:text-slate-200">discussions</span> around the book you're reading.
                 </motion.p>
 
                 {/* 5) BUTTON */}
@@ -11516,9 +11597,9 @@ export default function App() {
                   setShowAccountPage(true);
                   setShowProfileMenu(false);
                 }}
-                className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 hover:bg-white/20 active:bg-white/30 transition-colors border-b border-white/20"
+                className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-white/20 dark:bg-white/8 active:bg-white/30 dark:bg-white/12 transition-colors border-b border-white/20 dark:border-white/10"
               >
-                <User size={16} className="text-slate-600" />
+                <User size={16} className="text-slate-600 dark:text-slate-400" />
                 <span>Account</span>
               </button>
               )}
@@ -11527,9 +11608,9 @@ export default function App() {
                   await signOut();
                   setShowProfileMenu(false);
                 }}
-                className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 hover:bg-white/20 active:bg-white/30 transition-colors"
+                className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-white/20 dark:bg-white/8 active:bg-white/30 dark:bg-white/12 transition-colors"
               >
-                <LogOut size={16} className="text-slate-600" />
+                <LogOut size={16} className="text-slate-600 dark:text-slate-400" />
                 <span>Logout</span>
               </button>
             </motion.div>
@@ -11568,9 +11649,9 @@ export default function App() {
               </div>
 
               {/* Header */}
-              <div className="px-5 pt-2 pb-3 border-b border-white/20">
-                <p className="text-base font-bold text-slate-950">Add to List</p>
-                <p className="text-xs text-slate-500">{selectedBookIds.size} book{selectedBookIds.size !== 1 ? 's' : ''} selected</p>
+              <div className="px-5 pt-2 pb-3 border-b border-white/20 dark:border-white/10">
+                <p className="text-base font-bold text-slate-950 dark:text-slate-50">Add to List</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{selectedBookIds.size} book{selectedBookIds.size !== 1 ? 's' : ''} selected</p>
               </div>
 
               {/* List rows */}
@@ -11618,7 +11699,7 @@ export default function App() {
                         }
                       }}
                       className={`w-full px-5 py-3 flex items-center gap-3 text-sm transition-colors ${
-                        isTop5Full ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700 hover:bg-white/20 active:bg-white/30'
+                        isTop5Full ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700 dark:text-slate-300 hover:bg-white/20 dark:bg-white/8 active:bg-white/30 dark:bg-white/12'
                       }`}
                     >
                       <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
@@ -11644,7 +11725,7 @@ export default function App() {
               </div>
 
               {/* New list section */}
-              <div className="border-t border-white/20">
+              <div className="border-t border-white/20 dark:border-white/10">
                 {showNewListInput ? (
                   <div className="px-4 py-3 flex items-center gap-2">
                     <input
@@ -11671,7 +11752,7 @@ export default function App() {
                         }
                       }}
                       placeholder="List name..."
-                      className="flex-1 text-sm bg-white/30 rounded-lg px-3 py-2 text-slate-800 placeholder-slate-400 outline-none focus:ring-1 focus:ring-blue-400/50"
+                      className="flex-1 text-sm bg-white/30 dark:bg-white/12 rounded-lg px-3 py-2 text-slate-800 dark:text-slate-200 placeholder-slate-400 outline-none focus:ring-1 focus:ring-blue-400/50"
                     />
                     <button
                       onClick={() => {
@@ -11688,7 +11769,7 @@ export default function App() {
                           setShowNewListInput(false);
                         }
                       }}
-                      className="text-blue-600 text-sm font-bold px-2"
+                      className="text-blue-600 dark:text-blue-400 text-sm font-bold px-2"
                     >
                       Add
                     </button>
@@ -11696,7 +11777,7 @@ export default function App() {
                 ) : (
                   <button
                     onClick={() => setShowNewListInput(true)}
-                    className="w-full px-5 py-3 flex items-center gap-3 text-sm font-medium text-blue-600 hover:bg-white/20 active:bg-white/30 transition-colors"
+                    className="w-full px-5 py-3 flex items-center gap-3 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-white/20 dark:bg-white/8 active:bg-white/30 dark:bg-white/12 transition-colors"
                   >
                     <Plus size={14} />
                     <span>New list</span>
@@ -11729,7 +11810,7 @@ export default function App() {
               exit={{ y: "100%" }}
               transition={{ type: 'spring', damping: 25, stiffness: 300, duration: 0.4 }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-md bg-white/80 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 flex flex-col"
+              className="w-full max-w-md bg-white/80 dark:bg-white/15 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 dark:border-white/10 flex flex-col"
               style={{ maxHeight: '70vh' }}
             >
               {/* Handle bar */}
@@ -11739,8 +11820,8 @@ export default function App() {
 
               {/* Header */}
               <div className="px-4 pb-3 flex-shrink-0">
-                <h2 className="text-lg font-bold text-slate-950">Start Reading</h2>
-                <p className="text-xs text-slate-600">Pick from your "Want to read" list</p>
+                <h2 className="text-lg font-bold text-slate-950 dark:text-slate-50">Start Reading</h2>
+                <p className="text-xs text-slate-600 dark:text-slate-400">Pick from your "Want to read" list</p>
               </div>
 
               {/* Book List */}
@@ -11752,7 +11833,7 @@ export default function App() {
                     return (
                       <div className="text-center py-8">
                         <BookMarked size={32} className="mx-auto mb-3 text-slate-400" />
-                        <p className="text-sm text-slate-600">No books in your "Want to read" list</p>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">No books in your "Want to read" list</p>
                         <button
                           onClick={() => {
                             setShowReadingBookPicker(false);
@@ -11816,11 +11897,11 @@ export default function App() {
 
                       {/* Book Info */}
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-bold text-slate-950 truncate">{book.title}</h3>
-                        <p className="text-xs text-slate-800 truncate">{book.author}</p>
+                        <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50 truncate">{book.title}</h3>
+                        <p className="text-xs text-slate-800 dark:text-slate-200 truncate">{book.author}</p>
                         <div className="flex items-center gap-2 mt-1">
                           {book.publish_year && (
-                            <p className="text-[10px] text-slate-600">{book.publish_year}</p>
+                            <p className="text-[10px] text-slate-600 dark:text-slate-400">{book.publish_year}</p>
                           )}
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-blue-700 bg-blue-100">
                             Your Book
@@ -11857,7 +11938,7 @@ export default function App() {
                 maxWidth: '90%',
               }}
             >
-              <p className="text-xl font-bold text-slate-900">
+              <p className="text-xl font-bold text-slate-900 dark:text-slate-100">
                 {screenshotOverlayText}
               </p>
             </div>

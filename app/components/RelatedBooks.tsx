@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BookMarked, BookOpen, CheckCircle2, Minimize2, Maximize2 } from 'lucide-react';
-import { decodeHtmlEntities, useImageBrightness } from './utils';
+import { decodeHtmlEntities, useImageBrightness, glassmorphicStyle } from './utils';
 
 interface PodcastEpisode {
   title: string;
@@ -77,15 +77,6 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
 
-  const glassmorphicStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.45)',
-    borderRadius: '16px',
-    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-    backdropFilter: 'blur(9.4px)',
-    WebkitBackdropFilter: 'blur(9.4px)',
-    border: '1px solid rgba(255, 255, 255, 0.2)',
-  };
-
   const coverImage = books[currentIndex]?.cover_url || books[currentIndex]?.thumbnail;
   const imageBrightness = useImageBrightness(coverImage);
 
@@ -153,7 +144,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
   if (isLoading) {
     return (
       <div className="w-full">
-        <div className="aspect-[10/9] rounded-2xl bg-slate-300/50 animate-pulse" />
+        <div className="aspect-[10/9] rounded-2xl bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" />
       </div>
     );
   }
@@ -162,7 +153,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
     return (
       <div className="w-full">
         <div className="rounded-xl p-4" style={glassmorphicStyle}>
-          <p className="text-xs text-slate-600 text-center">No related books found</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 text-center">No related books found</p>
         </div>
       </div>
     );
@@ -242,8 +233,8 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
                   <BookMarked size={20} className="text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 text-sm">Related Books</p>
-                  <p className="text-xs text-slate-500">Similar books you might enjoy</p>
+                  <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Related Books</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Similar books you might enjoy</p>
                 </div>
                 {books.length > 1 && (
                   <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">

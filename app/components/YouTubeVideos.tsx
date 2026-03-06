@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Play, Minimize2, Maximize2 } from 'lucide-react';
 import { openSystemBrowser } from '@/lib/capacitor';
-import { useImageBrightness } from './utils';
+import { useImageBrightness, glassmorphicStyle } from './utils';
 
 interface YouTubeVideo {
   id: string;
@@ -29,15 +29,6 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
-
-  const glassmorphicStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.45)',
-    borderRadius: '16px',
-    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-    backdropFilter: 'blur(9.4px)',
-    WebkitBackdropFilter: 'blur(9.4px)',
-    border: '1px solid rgba(255, 255, 255, 0.2)',
-  };
 
   const imageBrightness = useImageBrightness(videos[currentIndex]?.thumbnail);
 
@@ -105,7 +96,7 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
   if (isLoading) {
     return (
       <div className="w-full">
-        <div className="aspect-[10/9] rounded-2xl bg-slate-300/50 animate-pulse" />
+        <div className="aspect-[10/9] rounded-2xl bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" />
       </div>
     );
   }
@@ -114,7 +105,7 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
     return (
       <div className="w-full">
         <div className="rounded-xl p-4" style={glassmorphicStyle}>
-          <p className="text-xs text-slate-600 text-center">No videos found</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 text-center">No videos found</p>
         </div>
       </div>
     );
@@ -172,8 +163,8 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
                   <Play size={20} className="text-white ml-0.5" fill="white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 text-sm">Videos</p>
-                  <p className="text-xs text-slate-500">Videos about the book and its author</p>
+                  <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Videos</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Videos about the book and its author</p>
                 </div>
                 {videos.length > 1 && (
                   <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
