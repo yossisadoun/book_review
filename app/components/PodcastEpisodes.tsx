@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Headphones, Play, Pause, ExternalLink } from 'lucide-react';
+import { Headphones, Play, Pause, ExternalLink, Minimize2, Maximize2 } from 'lucide-react';
 import { decodeHtmlEntities, useImageBrightness, glassmorphicStyle } from './utils';
 import { openSystemBrowser } from '@/lib/capacitor';
 
@@ -28,6 +28,7 @@ interface PodcastEpisodesProps {
 function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisodesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(true);
   const [playingAudioUrl, setPlayingAudioUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
@@ -53,9 +54,9 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
       };
 
   const pillButtonStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.55)',
-    backdropFilter: 'blur(8px)',
-    WebkitBackdropFilter: 'blur(8px)',
+    background: 'rgba(255, 255, 255, 0.6)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
     border: '1px solid rgba(255, 255, 255, 0.3)',
     color: '#334155',
   };
@@ -254,11 +255,24 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                   </div>
                 )}
 
-                {/* Subtle play hint */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-10 h-10 rounded-full bg-black/20 flex items-center justify-center">
-                    <Play size={20} className="text-white/60 ml-0.5" fill="white" fillOpacity={0.6} />
-                  </div>
+                {/* Play button — opens podcast */}
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openSystemBrowser(currentEpisode.url);
+                    }}
+                    className="w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-95"
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.25)',
+                      backdropFilter: 'blur(9.4px)',
+                      WebkitBackdropFilter: 'blur(9.4px)',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+                    }}
+                  >
+                    <Play size={24} className="text-white ml-0.5" fill="white" />
+                  </button>
                 </div>
 
                 <div className="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
@@ -268,50 +282,79 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false }: PodcastEpisode
                   className="absolute inset-x-3 bottom-3 rounded-xl px-3 py-2.5 overflow-hidden"
                   style={overlayGlassStyle}
                 >
-                  {/* Title */}
-                  <h3 className="text-sm font-bold text-white line-clamp-2" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
-                    {decodeHtmlEntities(currentEpisode.title)}
-                  </h3>
+                  {/* Title + toggle */}
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className={`text-sm font-bold text-white flex-1 min-w-0 ${isMinimized ? 'line-clamp-1' : 'line-clamp-2'}`} style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
+                      {decodeHtmlEntities(currentEpisode.title)}
+                    </h3>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
+                      className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"
+                      style={{ background: 'rgba(255, 255, 255, 0.25)' }}
+                    >
+                      {isMinimized ? <Maximize2 size={12} className="text-white/80" /> : <Minimize2 size={12} className="text-white/80" />}
+                    </button>
+                  </div>
 
-                  <p className="text-xs text-white/80 mt-0.5" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
-                    {decodeHtmlEntities(currentEpisode.podcast_name || 'Podcast')}
-                    {currentEpisode.length && ` • ${currentEpisode.length}`}
-                  </p>
+                  {/* Expandable content */}
+                  <AnimatePresence initial={false}>
+                    {!isMinimized && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.25, ease: 'easeInOut' }}
+                        className="overflow-hidden mt-0.5"
+                      >
+                        <p className="text-xs text-white/80" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                          {decodeHtmlEntities(currentEpisode.podcast_name || 'Podcast')}
+                          {currentEpisode.length && ` • ${currentEpisode.length}`}
+                        </p>
 
-                  {currentEpisode.episode_summary && (
-                    <p className="text-xs text-white/70 line-clamp-6 mt-1" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
-                      {decodeHtmlEntities(currentEpisode.episode_summary)}
-                    </p>
-                  )}
+                        {currentEpisode.episode_summary && (
+                          <p className="text-xs text-white/70 line-clamp-6 mt-1" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                            {decodeHtmlEntities(currentEpisode.episode_summary)}
+                          </p>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
                   {/* Button row — always visible */}
-                  <div className="flex items-center gap-2 pt-2">
-                    <button
-                      onClick={(e) => handlePlay(e, currentEpisode)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
-                      style={{
-                        background: 'rgba(139, 92, 246, 0.85)',
-                        backdropFilter: 'blur(8px)',
-                        WebkitBackdropFilter: 'blur(8px)',
-                        border: '1px solid rgba(139, 92, 246, 0.3)',
-                        color: 'white',
-                      }}
-                    >
-                      {isPlaying ? <Pause size={14} fill="white" /> : <Play size={14} className="ml-0.5" fill="white" />}
-                      {isPlaying ? 'Pause' : 'Preview'}
-                    </button>
-                    {currentEpisode.url && (
+                  <div className="flex items-center justify-between pt-2">
+                    <div className="flex items-center gap-2">
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openSystemBrowser(currentEpisode.url);
-                        }}
+                        onClick={(e) => handlePlay(e, currentEpisode)}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
-                        style={pillButtonStyle}
+                        style={{
+                          background: 'rgba(59, 130, 246, 0.85)',
+                          backdropFilter: 'blur(9.4px)',
+                          WebkitBackdropFilter: 'blur(9.4px)',
+                          border: '1px solid rgba(59, 130, 246, 0.3)',
+                          color: 'white',
+                        }}
                       >
-                        <ExternalLink size={14} />
-                        Open
+                        {isPlaying ? <Pause size={14} fill="white" /> : <Play size={14} className="ml-0.5" fill="white" />}
+                        {isPlaying ? 'Pause' : 'Preview'}
                       </button>
+                      {currentEpisode.url && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openSystemBrowser(currentEpisode.url);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
+                          style={pillButtonStyle}
+                        >
+                          <ExternalLink size={14} />
+                          Podcast
+                        </button>
+                      )}
+                    </div>
+                    {currentEpisode.length && (
+                      <span className="text-xs text-white/70 font-medium" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                        {currentEpisode.length}
+                      </span>
                     )}
                   </div>
                 </div>

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, ExternalLink } from 'lucide-react';
+import { FileText, ExternalLink, Minimize2, Maximize2 } from 'lucide-react';
 import { decodeHtmlEntities, glassmorphicStyle } from './utils';
 import { openSystemBrowser } from '@/lib/capacitor';
 
@@ -23,6 +23,7 @@ interface AnalysisArticlesProps {
 function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArticlesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
@@ -157,32 +158,52 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
 
                 <div className="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black/40 to-transparent" />
 
-                {/* Floating glassmorphic overlay — always maximized, fills image area */}
+                {/* Floating glassmorphic overlay */}
                 <div
-                  className="absolute inset-3 rounded-xl px-3 py-2.5 overflow-hidden flex flex-col"
+                  className="absolute inset-x-3 bottom-3 rounded-xl px-3 py-2.5 overflow-hidden"
                   style={overlayGlassStyle}
                 >
-                  {/* Title */}
-                  <h3 className="text-sm font-bold text-white line-clamp-3" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
-                    {decodeHtmlEntities(currentArticle.title)}
-                  </h3>
+                  {/* Title + toggle */}
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className={`text-sm font-bold text-white flex-1 min-w-0 ${isMinimized ? 'line-clamp-1' : 'line-clamp-3'}`} style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
+                      {decodeHtmlEntities(currentArticle.title)}
+                    </h3>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
+                      className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"
+                      style={{ background: 'rgba(255, 255, 255, 0.25)' }}
+                    >
+                      {isMinimized ? <Maximize2 size={12} className="text-white/80" /> : <Minimize2 size={12} className="text-white/80" />}
+                    </button>
+                  </div>
 
-                  {/* Authors + year */}
-                  {(currentArticle.authors || currentArticle.year) && (
-                    <p className="text-xs text-white/80 mt-0.5" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
-                      {currentArticle.authors && decodeHtmlEntities(currentArticle.authors)}
-                      {currentArticle.year && ` • ${currentArticle.year}`}
-                    </p>
-                  )}
+                  {/* Expandable content */}
+                  <AnimatePresence initial={false}>
+                    {!isMinimized && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.25, ease: 'easeInOut' }}
+                        className="overflow-hidden mt-0.5"
+                      >
+                        {(currentArticle.authors || currentArticle.year) && (
+                          <p className="text-xs text-white/80" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                            {currentArticle.authors && decodeHtmlEntities(currentArticle.authors)}
+                            {currentArticle.year && ` • ${currentArticle.year}`}
+                          </p>
+                        )}
 
-                  {/* Snippet — fills remaining space */}
-                  {currentArticle.snippet && (
-                    <p className="text-xs text-white/70 mt-1 flex-1 overflow-hidden" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)', display: '-webkit-box', WebkitLineClamp: 20, WebkitBoxOrient: 'vertical' }}>
-                      {decodeHtmlEntities(currentArticle.snippet)}
-                    </p>
-                  )}
+                        {currentArticle.snippet && (
+                          <p className="text-xs text-white/70 line-clamp-6 mt-1" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                            {decodeHtmlEntities(currentArticle.snippet)}
+                          </p>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
 
-                  {/* Button row */}
+                  {/* Button row — always visible */}
                   {currentArticle.url && (
                     <div className="flex items-center gap-2 pt-2">
                       <button
@@ -193,14 +214,14 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
                         style={{
                           background: 'rgba(59, 130, 246, 0.85)',
-                          backdropFilter: 'blur(8px)',
-                          WebkitBackdropFilter: 'blur(8px)',
+                          backdropFilter: 'blur(9.4px)',
+                          WebkitBackdropFilter: 'blur(9.4px)',
                           border: '1px solid rgba(59, 130, 246, 0.3)',
                           color: 'white',
                         }}
                       >
                         <ExternalLink size={14} />
-                        Read Article
+                        Read
                       </button>
                     </div>
                   )}

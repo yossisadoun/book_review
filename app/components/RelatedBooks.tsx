@@ -72,7 +72,7 @@ interface RelatedBooksProps {
 function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBooksProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(true);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
@@ -99,7 +99,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
   useEffect(() => {
     setCurrentIndex(0);
     setIsVisible(false);
-    setIsMinimized(false);
+    setIsMinimized(true);
 
     if (books.length === 0) return;
 
@@ -212,8 +212,8 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
       <div className="relative pb-3">
         {books.length > 1 && (
           <>
-            <div style={stackedCardStyle(4, 0.96, 0.4)} />
-            <div style={stackedCardStyle(-4, 0.98, 0.6)} />
+            <div style={stackedCardStyle(10, 0.96, 0.4)} />
+            <div style={stackedCardStyle(-1, 0.98, 0.6)} />
           </>
         )}
         <AnimatePresence mode="wait">
@@ -243,20 +243,46 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
                 )}
               </div>
               {/* Image area */}
-              <div className="relative aspect-[2/3]">
+              <div className="relative aspect-[2/3] flex items-start justify-center pt-3">
+              <div className="relative w-[70%] aspect-[2/3] rounded-lg overflow-hidden border-2 border-white/50" style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2)' }}>
               {coverImage ? (
+                <>
                 <img
                   src={coverImage}
                   alt={decodeHtmlEntities(currentBook.title)}
-                  className="absolute inset-0 w-full h-full object-contain"
+                  className="w-full h-full object-contain"
+                  style={{ filter: 'contrast(1.15) saturate(1.25)' }}
                 />
+                {/* Skeuomorphic book spine effect */}
+                <div
+                  className="absolute inset-0 pointer-events-none rounded-lg"
+                  style={{
+                    background: `linear-gradient(to right,
+                      rgba(0,0,0,0.02) 0%,
+                      rgba(0,0,0,0.05) 0.75%,
+                      rgba(255,255,255,0.5) 1.0%,
+                      rgba(255,255,255,0.6) 1.3%,
+                      rgba(255,255,255,0.5) 1.4%,
+                      rgba(255,255,255,0.3) 1.5%,
+                      rgba(255,255,255,0.3) 2.4%,
+                      rgba(0,0,0,0.05) 2.7%,
+                      rgba(0,0,0,0.05) 3.5%,
+                      rgba(255,255,255,0.3) 4%,
+                      rgba(255,255,255,0.3) 4.5%,
+                      transparent 5.4%,
+                      transparent 99%,
+                      rgba(144,144,144,0.08) 100%)`
+                  }}
+                />
+                </>
               ) : (
-                <div className="absolute inset-0 bg-gradient-to-b from-amber-800 to-amber-950 flex items-center justify-center">
+                <div className="w-full h-full bg-gradient-to-b from-amber-800 to-amber-950 flex items-center justify-center">
                   <BookOpen size={48} className="text-white/30" />
                 </div>
               )}
+              </div>
 
-              <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
 
               {/* Floating glassmorphic overlay */}
               <div
@@ -302,21 +328,26 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
 
                 {/* Button row — always visible */}
                 {onAddBook && (
-                  <div className="flex items-center gap-2 pt-2">
+                  <div className="flex items-center justify-between pt-2">
                     <button
                       onClick={handleAddBook}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
                       style={{
-                        background: 'rgba(37, 99, 235, 0.85)',
-                        backdropFilter: 'blur(8px)',
-                        WebkitBackdropFilter: 'blur(8px)',
-                        border: '1px solid rgba(37, 99, 235, 0.3)',
+                        background: 'rgba(59, 130, 246, 0.85)',
+                        backdropFilter: 'blur(9.4px)',
+                        WebkitBackdropFilter: 'blur(9.4px)',
+                        border: '1px solid rgba(59, 130, 246, 0.3)',
                         color: 'white',
                       }}
                     >
                       <CheckCircle2 size={14} />
-                      Add to Library
+                      Add Book
                     </button>
+                    {isMinimized && (
+                      <span className="text-xs text-white/70 font-medium truncate ml-2" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                        {decodeHtmlEntities(currentBook.author)}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>

@@ -25,7 +25,7 @@ interface RelatedMoviesProps {
 function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(true);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
@@ -51,7 +51,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
   useEffect(() => {
     setCurrentIndex(0);
     setIsVisible(false);
-    setIsMinimized(false);
+    setIsMinimized(true);
 
     if (movies.length === 0) return;
 
@@ -131,11 +131,11 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
   });
 
   const pillButtonStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.55)',
-    backdropFilter: 'blur(8px)',
-    WebkitBackdropFilter: 'blur(8px)',
-    border: '1px solid rgba(255, 255, 255, 0.3)',
-    color: '#334155',
+    background: 'rgba(59, 130, 246, 0.85)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(59, 130, 246, 0.3)',
+    color: 'white',
   };
 
   return (
@@ -261,8 +261,8 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                 </AnimatePresence>
 
                 {/* Button row — always visible */}
-                {currentMovie.wikipedia_url && (
-                  <div className="flex items-center gap-2 pt-2">
+                <div className="flex items-center justify-between pt-2">
+                  {currentMovie.wikipedia_url && (
                     <a
                       href={currentMovie.wikipedia_url}
                       target="_blank"
@@ -272,10 +272,15 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                       style={pillButtonStyle}
                     >
                       <ExternalLink size={14} />
-                      Wikipedia
+                      Source
                     </a>
-                  </div>
-                )}
+                  )}
+                  {isMinimized && currentMovie.director && (
+                    <span className="text-xs text-white/70 font-medium truncate ml-2" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                      {decodeHtmlEntities(currentMovie.director)}{currentMovie.release_year ? ` (${currentMovie.release_year})` : ''}
+                    </span>
+                  )}
+                </div>
               </div>
               </div>
             </motion.div>

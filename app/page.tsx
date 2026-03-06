@@ -8920,7 +8920,7 @@ export default function App() {
                             </div>
                           </div>
                         )}
-                        <div className={`[&_p]:transition-[filter] [&_p]:duration-300 [&_span]:transition-[filter] [&_span]:duration-300 ${shouldBlurInsights ? '[&_p]:blur-[5px] [&_span]:blur-[5px] select-none pointer-events-none' : ''}`}>
+                        <div className={`[&_p]:transition-[filter] [&_p]:duration-300 [&_span]:transition-[filter] [&_span]:duration-300 [&_button]:transition-[filter] [&_button]:duration-300 ${shouldBlurInsights ? '[&_p]:blur-[5px] [&_span]:blur-[5px] [&_button]:blur-[5px] select-none pointer-events-none' : ''}`}>
                           {isLoading ? (
                             <motion.div
                               animate={{ opacity: [0.5, 0.8, 0.5] }}

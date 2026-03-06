@@ -14,6 +14,7 @@ interface YouTubeVideo {
   channelTitle: string;
   publishedAt: string;
   videoId: string;
+  duration?: string;
 }
 
 interface YouTubeVideosProps {
@@ -187,11 +188,24 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
                   </div>
                 )}
 
-                {/* Subtle play hint — centered on the 16:9 thumbnail area */}
-                <div className="absolute inset-x-0 top-[8px] aspect-video flex items-center justify-center pointer-events-none">
-                  <div className="w-10 h-10 rounded-full bg-black/20 flex items-center justify-center">
-                    <Play size={20} className="text-white/60 ml-0.5" fill="white" fillOpacity={0.6} />
-                  </div>
+                {/* Play button — centered on the 16:9 thumbnail area */}
+                <div className="absolute inset-x-0 top-[8px] aspect-video flex items-center justify-center">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openSystemBrowser(videoUrl);
+                    }}
+                    className="w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-95"
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.25)',
+                      backdropFilter: 'blur(9.4px)',
+                      WebkitBackdropFilter: 'blur(9.4px)',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+                    }}
+                  >
+                    <Play size={24} className="text-white ml-0.5" fill="white" />
+                  </button>
                 </div>
 
                 <div className="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
@@ -240,7 +254,7 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
                   </AnimatePresence>
 
                   {/* Button row — always visible */}
-                  <div className="flex items-center gap-2 pt-2">
+                  <div className="flex items-center justify-between pt-2">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -248,16 +262,21 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
                       style={{
-                        background: 'rgba(239, 68, 68, 0.85)',
-                        backdropFilter: 'blur(8px)',
-                        WebkitBackdropFilter: 'blur(8px)',
-                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                        background: 'rgba(59, 130, 246, 0.85)',
+                        backdropFilter: 'blur(9.4px)',
+                        WebkitBackdropFilter: 'blur(9.4px)',
+                        border: '1px solid rgba(59, 130, 246, 0.3)',
                         color: 'white',
                       }}
                     >
                       <Play size={14} className="ml-0.5" fill="white" />
                       Watch
                     </button>
+                    {currentVideo.duration && (
+                      <span className="text-xs text-white/70 font-medium" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
+                        {currentVideo.duration}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

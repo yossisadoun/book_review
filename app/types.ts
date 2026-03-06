@@ -41,6 +41,7 @@ export interface YouTubeVideo {
   channelTitle: string;
   publishedAt: string;
   videoId: string;
+  duration?: string;
 }
 
 export interface RelatedBook {

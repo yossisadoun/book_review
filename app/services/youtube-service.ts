@@ -3,6 +3,17 @@ import type { YouTubeVideo } from '../types';
 import { youtubeApiKey } from './api-utils';
 import { decodeHtmlEntities } from '../components/utils';
 
+// Parse ISO 8601 duration (e.g. "PT1H2M30S") to "1:02:30"
+function parseDuration(iso: string): string {
+  const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return '';
+  const h = parseInt(match[1] || '0');
+  const m = parseInt(match[2] || '0');
+  const s = parseInt(match[3] || '0');
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 // --- YouTube Data API ---
 export async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouTubeVideo[]> {
   console.log(`[getYouTubeVideos] 🔄 Searching YouTube for "${bookTitle}" by ${author}`);
@@ -192,6 +203,32 @@ export async function getYouTubeVideos(bookTitle: string, author: string): Promi
 
     // Limit to top 10 videos
     const limitedVideos = videos.slice(0, 10);
+
+    // Fetch durations via videos endpoint (batch)
+    if (limitedVideos.length > 0) {
+      try {
+        const videoIds = limitedVideos.map(v => v.videoId).join(',');
+        const durationUrl = `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${videoIds}&key=${youtubeApiKey}`;
+        const durationRes = await fetch(durationUrl);
+        if (durationRes.ok) {
+          const durationData = await durationRes.json();
+          const durationMap = new Map<string, string>();
+          for (const item of durationData.items || []) {
+            const iso = item.contentDetails?.duration;
+            if (iso) {
+              durationMap.set(item.id, parseDuration(iso));
+            }
+          }
+          for (const video of limitedVideos) {
+            const dur = durationMap.get(video.videoId);
+            if (dur) video.duration = dur;
+          }
+        }
+      } catch (err) {
+        console.warn('[getYouTubeVideos] ⚠️ Could not fetch durations:', err);
+      }
+    }
+
     console.log(`[getYouTubeVideos] ✅ Found ${limitedVideos.length} videos`);
 
     // Save to database

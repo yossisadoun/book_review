@@ -190,10 +190,10 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
                       style={{
-                        background: 'rgba(6, 182, 212, 0.85)',
-                        backdropFilter: 'blur(8px)',
-                        WebkitBackdropFilter: 'blur(8px)',
-                        border: '1px solid rgba(6, 182, 212, 0.3)',
+                        background: 'rgba(59, 130, 246, 0.85)',
+                        backdropFilter: 'blur(9.4px)',
+                        WebkitBackdropFilter: 'blur(9.4px)',
+                        border: '1px solid rgba(59, 130, 246, 0.3)',
                         color: 'white',
                       }}
                     >
