@@ -6,6 +6,8 @@ export const featureFlags = {
   hand_drawn_icons: false,
   // Info page variant: 'a' = animated icons, 'b' = rotating tooltips, 'c' = 3-page stepper
   info_page_variant: 'c' as 'a' | 'b' | 'c',
+  // When true, show the Book Chat AI companion (replaces Clubs button in bottom nav)
+  chat_enabled: true,
 
   // Insights feature flags - control which insight types are fetched/displayed
   // When false: not fetched, not shown in book page, not added to feed

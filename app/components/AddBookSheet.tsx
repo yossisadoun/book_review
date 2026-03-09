@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { featureFlags } from '@/lib/feature-flags';
 import { isHebrew, getAssetPath } from './utils';
+import { isAndroid } from '@/lib/capacitor';
 
 interface PodcastEpisode {
   title: string;
@@ -248,8 +249,19 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
 
       const userMap = new Map(usersData?.map(u => [u.id, u]) || []);
 
+      // Deduplicate by title+author, preferring entries with cover images
+      const seen = new Map<string, typeof booksData[0]>();
+      for (const book of booksData) {
+        const key = `${book.title.toLowerCase().trim()}::${book.author.toLowerCase().trim()}`;
+        const existing = seen.get(key);
+        if (!existing || (!existing.cover_url && book.cover_url)) {
+          seen.set(key, book);
+        }
+      }
+      const dedupedBooks = Array.from(seen.values());
+
       // Map books with user info
-      return booksData.map(book => ({
+      return dedupedBooks.map(book => ({
         id: book.id,
         title: book.title,
         author: book.author,
@@ -345,39 +357,40 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
     handleSearch(bookTitle);
   }
 
-  // Track keyboard visibility
+  // Track keyboard height via Capacitor Keyboard plugin
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const isKeyboardVisible = keyboardHeight > 0;
 
-  // Monitor viewport changes to detect keyboard
   useEffect(() => {
     if (!isOpen) return;
-
-    const handleViewportChange = () => {
-            if (window.visualViewport) {
-        const viewportHeight = window.visualViewport.height;
-        const windowHeight = window.innerHeight;
-        const heightDiff = windowHeight - viewportHeight;
-
-        if (heightDiff > 150) {
-          setIsKeyboardVisible(true);
-          setKeyboardHeight(heightDiff);
-        } else {
-          setIsKeyboardVisible(false);
+    let willShowListener: any;
+    let willHideListener: any;
+    (async () => {
+      try {
+        const { Keyboard } = await import('@capacitor/keyboard');
+        willShowListener = await Keyboard.addListener('keyboardWillShow', (info) => {
+          setKeyboardHeight(info.keyboardHeight);
+        });
+        willHideListener = await Keyboard.addListener('keyboardWillHide', () => {
           setKeyboardHeight(0);
+        });
+      } catch {
+        // Not on native — fall back to visualViewport
+        const handleViewportChange = () => {
+          if (window.visualViewport) {
+            const heightDiff = window.innerHeight - window.visualViewport.height;
+            setKeyboardHeight(heightDiff > 150 ? heightDiff : 0);
+          }
+        };
+        if (window.visualViewport) {
+          window.visualViewport.addEventListener('resize', handleViewportChange);
+          handleViewportChange();
         }
       }
-    };
-
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', handleViewportChange);
-      handleViewportChange();
-    }
-
+    })();
     return () => {
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', handleViewportChange);
-      }
+      willShowListener?.remove();
+      willHideListener?.remove();
     };
   }, [isOpen]);
 
@@ -411,7 +424,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
       className="fixed inset-0 z-[100] flex flex-col items-center justify-end bg-black/40 backdrop-blur-sm px-4"
       onClick={onClose}
       style={{
-        paddingBottom: '0px'
+        paddingBottom: isKeyboardVisible && !isAndroid ? `${keyboardHeight}px` : '0px'
       }}
     >
       <motion.div
@@ -422,13 +435,11 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
         className="w-full max-w-md bg-white/80 dark:bg-white/15 dark:bg-slate-900/85 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 dark:border-white/10 dark:border-white/10 flex flex-col"
         onClick={e => e.stopPropagation()}
         style={{
-          maxHeight: isKeyboardVisible && window.visualViewport
-            ? `${window.visualViewport.height - 40}px`
-            : '90vh'
+          maxHeight: 'calc(100% - 120px)'
         }}
       >
         {/* Handle bar */}
-        <div className="w-full flex justify-center pt-3 pb-2 flex-shrink-0">
+        <div className="w-full flex justify-center pt-3 pb-2 shrink-0">
           <div className="w-12 h-1 bg-slate-400 rounded-full" />
         </div>
 
@@ -437,10 +448,8 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
           ref={resultsContainerRef}
           className="flex-1 overflow-y-auto px-4 ios-scroll"
           style={{
+            paddingTop: '12px',
             paddingBottom: '120px', // Space for search box at bottom
-            maxHeight: isKeyboardVisible && window.visualViewport
-              ? `${window.visualViewport.height - (window.visualViewport.offsetTop || 0) - 200}px` // Account for keyboard and search box
-              : 'calc(100vh - 250px)' // Default: account for header, handle bar, and search box
           }}
         >
           <div className="space-y-4">
@@ -734,13 +743,13 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
           className="sticky bottom-0 left-0 right-0 z-30 px-3 pb-3 pt-2"
           style={{
             paddingBottom: isKeyboardVisible
-              ? `${Math.max(12, keyboardHeight > 0 ? 16 : 12)}px`
+              ? '12px'
               : 'calc(12px + env(safe-area-inset-bottom, 0px))',
             marginTop: '-120px' // Overlap with results area
           }}
         >
           <div className="bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-full px-1.5 py-1.5 shadow-2xl border border-white/30 dark:border-white/10">
-            <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }}>
+            <form onSubmit={(e) => { e.preventDefault(); inputRef.current?.blur(); handleSearch(); }}>
               <div className="relative flex items-center">
                 <input
                   ref={inputRef}

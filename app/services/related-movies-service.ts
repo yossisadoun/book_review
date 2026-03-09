@@ -1,8 +1,107 @@
 import { supabase } from '@/lib/supabase';
-import type { RelatedMovie } from '../types';
+import type { RelatedMovie, MusicLinks } from '../types';
 import { fetchWithRetry, grokApiKey, logGrokUsage } from './api-utils';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 import { lookupMovieOnWikipedia } from './wikipedia-service';
+
+// --- iTunes enrichment for albums ---
+// Normalize for comparison: lowercase, strip "(Deluxe Edition)" etc., normalize quotes
+function normalize(s: string): string {
+  return s.toLowerCase()
+    .replace(/\s*[\(\[][^\)\]]*[\)\]]\s*/g, '')
+    .replace(/['']/g, "'")
+    .trim();
+}
+
+// --- Odesli (song.link) API: resolve universal music links ---
+async function fetchMusicLinks(itunesUrl: string): Promise<MusicLinks | null> {
+  const tag = `[Odesli:${itunesUrl}]`;
+  try {
+    const apiUrl = `https://api.song.link/v1-alpha.1/links?url=${encodeURIComponent(itunesUrl)}&userCountry=US`;
+    console.log(`${tag} Fetching...`);
+    const res = await fetch(apiUrl);
+    if (!res.ok) {
+      console.warn(`${tag} HTTP ${res.status}`);
+      return null;
+    }
+    const data = await res.json();
+    const byPlatform = data.linksByPlatform || {};
+    const links: MusicLinks = {};
+    if (byPlatform.spotify?.url) links.spotify = byPlatform.spotify.url;
+    if (byPlatform.appleMusic?.url) links.appleMusic = byPlatform.appleMusic.url;
+    if (byPlatform.youtubeMusic?.url) links.youtubeMusic = byPlatform.youtubeMusic.url;
+    if (byPlatform.tidal?.url) links.tidal = byPlatform.tidal.url;
+    if (byPlatform.deezer?.url) links.deezer = byPlatform.deezer.url;
+    if (byPlatform.amazonMusic?.url) links.amazonMusic = byPlatform.amazonMusic.url;
+    console.log(`${tag} Found ${Object.keys(links).length} platform links`);
+    return Object.keys(links).length > 0 ? links : null;
+  } catch (err) {
+    console.warn(`${tag} Error:`, err);
+    return null;
+  }
+}
+
+async function enrichAlbumWithItunes(movie: RelatedMovie): Promise<RelatedMovie> {
+  if (movie.type !== 'album') return movie;
+  const tag = `[iTunes:${movie.title}|${movie.director}]`;
+
+  // Strip parentheticals from search query
+  const cleanTitle = movie.title.replace(/\s*[\(\[][^\)\]]*[\)\]]\s*/g, '').trim();
+  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(cleanTitle)}&entity=song&limit=25`;
+  console.log(`${tag} ${url}`);
+
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    const results: any[] = data.results || [];
+    console.log(`${tag} ${results.length} results`);
+
+    // Find first result whose collectionName matches our album title
+    const normalizedTitle = normalize(movie.title);
+    const match = results.find((r: any) => {
+      if (!r.collectionName) return false;
+      const nc = normalize(r.collectionName);
+      return nc === normalizedTitle || nc.includes(normalizedTitle) || normalizedTitle.includes(nc);
+    });
+
+    if (match?.collectionViewUrl) {
+      // collectionViewUrl may point to a track (?i=...) — strip to get album URL
+      // e.g. "https://music.apple.com/us/album/real-death/1193426815?i=1193426978&uo=4"
+      // → "https://music.apple.com/us/album/1193426815"
+      let albumUrl = match.collectionViewUrl;
+      try {
+        const parsed = new URL(albumUrl);
+        // Path looks like /us/album/track-slug/1234567 — keep just the numeric album ID
+        const pathParts = parsed.pathname.split('/');
+        const albumId = pathParts.find((p: string) => /^\d+$/.test(p));
+        if (albumId) {
+          albumUrl = `${parsed.origin}/${pathParts.slice(1, 3).join('/')}/album/${albumId}`;
+        }
+        // Strip query params (?i=..., ?uo=...)
+      } catch {}
+
+      // artworkUrl100 → replace size for high-res
+      const artwork = match.artworkUrl100
+        ? match.artworkUrl100.replace('100x100', '600x600')
+        : match.artworkUrl60;
+
+      console.log(`${tag} MATCHED: "${match.collectionName}" by ${match.artistName} | ${albumUrl} | artwork: ${artwork}`);
+      const music_links = await fetchMusicLinks(albumUrl);
+      return {
+        ...movie,
+        itunes_url: albumUrl,
+        itunes_artwork: artwork,
+        ...(music_links && { music_links }),
+      };
+    }
+
+    console.log(`${tag} NO MATCH`, results.slice(0, 5).map((r: any) => `"${r.collectionName || r.trackName}" by ${r.artistName}`));
+  } catch (err) {
+    console.warn(`${tag} Error:`, err);
+  }
+
+  return movie;
+}
 
 // --- Related Movies/Shows (Grok API) ---
 export async function getRelatedMovies(bookTitle: string, author: string): Promise<RelatedMovie[]> {
@@ -23,7 +122,28 @@ export async function getRelatedMovies(bookTitle: string, author: string): Promi
     if (!cacheError && cachedData && cachedData.related_movies && Array.isArray(cachedData.related_movies)) {
       if (cachedData.related_movies.length > 0) {
         console.log(`[getRelatedMovies] Found ${cachedData.related_movies.length} cached related movies in database`);
-        return cachedData.related_movies as RelatedMovie[];
+        const cached = cachedData.related_movies as RelatedMovie[];
+
+        // Auto re-enrich albums missing itunes_url or music_links
+        const needsItunes = cached.some(m => m.type === 'album' && !m.itunes_url);
+        const needsMusicLinks = cached.some(m => m.type === 'album' && m.itunes_url && !m.music_links);
+        if (needsItunes || needsMusicLinks) {
+          console.log(`[getRelatedMovies] Re-enriching cached albums (needsItunes=${needsItunes}, needsMusicLinks=${needsMusicLinks})`);
+          const reEnriched = await Promise.all(
+            cached.map(async m => {
+              if (m.type === 'album' && !m.itunes_url) return enrichAlbumWithItunes(m);
+              if (m.type === 'album' && m.itunes_url && !m.music_links) {
+                const music_links = await fetchMusicLinks(m.itunes_url);
+                return music_links ? { ...m, music_links } : m;
+              }
+              return m;
+            })
+          );
+          await saveRelatedMoviesToDatabase(bookTitle, author, reEnriched);
+          return reEnriched;
+        }
+
+        return cached;
       } else {
         // Empty array means "no results" was already cached - don't try again
         console.log(`[getRelatedMovies] Found cached "no results" - skipping Grok API call`);
@@ -127,10 +247,16 @@ export async function getRelatedMovies(bookTitle: string, author: string): Promi
 
     console.log('[getRelatedMovies] Enriched', enrichedMovies.length, 'related movies');
 
-    // Save to database cache
-    await saveRelatedMoviesToDatabase(bookTitle, author, enrichedMovies);
+    // Enrich albums with iTunes URLs
+    const itunesEnrichedMovies = await Promise.all(
+      enrichedMovies.map(movie => enrichAlbumWithItunes(movie))
+    );
+    console.log('[getRelatedMovies] iTunes enrichment complete');
 
-    return enrichedMovies;
+    // Save to database cache
+    await saveRelatedMoviesToDatabase(bookTitle, author, itunesEnrichedMovies);
+
+    return itunesEnrichedMovies;
   } catch (err: any) {
     console.error('[getRelatedMovies] Error:', err);
     return [];

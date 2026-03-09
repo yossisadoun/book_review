@@ -87,7 +87,6 @@ export function useImageBrightness(imageUrl: string | undefined): 'light' | 'dar
   return brightness;
 }
 
-// Consistent glassmorphism style (less transparent for book page info cards)
 export const glassmorphicStyle: React.CSSProperties = {
   background: 'var(--glass-bg)',
   borderRadius: '16px',

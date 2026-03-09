@@ -56,6 +56,15 @@ export interface RelatedBook {
   genre?: string;
 }
 
+export interface MusicLinks {
+  spotify?: string;
+  appleMusic?: string;
+  youtubeMusic?: string;
+  tidal?: string;
+  deezer?: string;
+  amazonMusic?: string;
+}
+
 export interface RelatedMovie {
   title: string;
   director: string;
@@ -65,6 +74,9 @@ export interface RelatedMovie {
   release_year?: number;
   genre?: string;
   wikipedia_url?: string;
+  itunes_url?: string;
+  itunes_artwork?: string;
+  music_links?: MusicLinks;
 }
 
 export interface ResearchContentItem {

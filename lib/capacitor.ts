@@ -7,6 +7,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { SecureStoragePlugin } from 'capacitor-secure-storage-plugin';
 
 export const isNativePlatform = Capacitor.isNativePlatform();
+export const isAndroid = isNativePlatform && Capacitor.getPlatform() === 'android';
 
 export function listenForAppUrlOpen(handler: (url: string) => void): () => void {
   if (!isNativePlatform) return () => {};

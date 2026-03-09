@@ -238,7 +238,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
                   <BookMarked size={20} className="text-white" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Related Books</p>
+                  <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Books</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Similar books you might enjoy</p>
                 </div>
                 {books.length > 1 && (

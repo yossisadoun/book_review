@@ -4,6 +4,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Film, Play, Disc3, ExternalLink, Minimize2, Maximize2 } from 'lucide-react';
 import { decodeHtmlEntities, useImageBrightness, glassmorphicStyle } from './utils';
+import { isNativePlatform } from '@/lib/capacitor';
+import { openSystemBrowser } from '@/lib/capacitor';
+import MusicModal from './MusicModal';
+import type { MusicLinks } from '../types';
 
 interface RelatedMovie {
   title: string;
@@ -14,6 +18,9 @@ interface RelatedMovie {
   release_year?: number;
   genre?: string;
   wikipedia_url?: string;
+  itunes_url?: string;
+  itunes_artwork?: string;
+  music_links?: MusicLinks;
 }
 
 interface RelatedMoviesProps {
@@ -29,10 +36,11 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const [albumCoverLoaded, setAlbumCoverLoaded] = useState(false);
+  const [musicModalData, setMusicModalData] = useState<{ musicLinks: MusicLinks; title: string; artist: string } | null>(null);
   const minSwipeDistance = 50;
 
   const shuffledMovies = useMemo(() => {
-    const arr = [...movies];
+    const arr = movies.filter(m => m.type !== 'album' || m.itunes_url);
     for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [arr[i], arr[j]] = [arr[j], arr[i]];
@@ -40,7 +48,8 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
     return arr;
   }, [movies]);
 
-  const imageBrightness = useImageBrightness(shuffledMovies[currentIndex]?.poster_url);
+  const currentPosterUrl = (shuffledMovies[currentIndex]?.type === 'album' && shuffledMovies[currentIndex]?.itunes_artwork) || shuffledMovies[currentIndex]?.poster_url;
+  const imageBrightness = useImageBrightness(currentPosterUrl);
 
   const overlayGlassStyle: React.CSSProperties = imageBrightness === 'light'
     ? {
@@ -72,6 +81,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
 
     return () => clearTimeout(timeout);
   }, [shuffledMovies, bookId]);
+
 
   function handleNext() {
     setIsVisible(false);
@@ -153,7 +163,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
 
   return (
     <div
-      onClick={handleNext}
+      onClick={() => { if (!musicModalData) handleNext(); }}
       onTouchStart={(e) => {
         e.stopPropagation();
         const touch = e.touches[0];
@@ -210,7 +220,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
               {currentMovie.type === 'album' ? (
                 /* Vinyl record layout for albums */
                 <div className="absolute inset-0 flex items-start justify-center pt-3">
-                  <div className="relative w-[57%] aspect-square transition-opacity duration-500" style={{ transform: 'translateX(calc(-13.5% - 15px)) translateY(27px)', opacity: albumCoverLoaded || !currentMovie.poster_url ? 1 : 0 }}>
+                  <div className="relative w-[57%] aspect-square transition-opacity duration-500" style={{ transform: 'translateX(calc(-13.5% - 15px)) translateY(27px)', opacity: albumCoverLoaded || !(currentMovie.itunes_artwork || currentMovie.poster_url) ? 1 : 0, zIndex: 25 }}>
                     {/* Vinyl Record (behind sleeve) */}
                     <div
                       className="absolute z-10 w-[90%] aspect-square top-[5%]"
@@ -230,10 +240,10 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                       />
                       {/* Center label */}
                       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1/3 aspect-square rounded-full bg-zinc-800 border-4 border-black/20 overflow-hidden shadow-inner flex items-center justify-center">
-                        {currentMovie.poster_url && (
+                        {(currentMovie.itunes_artwork || currentMovie.poster_url) && (
                           <div
                             className="absolute inset-0 bg-center bg-cover opacity-80"
-                            style={{ backgroundImage: `url('${currentMovie.poster_url}')` }}
+                            style={{ backgroundImage: `url('${currentMovie.itunes_artwork || currentMovie.poster_url}')` }}
                           />
                         )}
                         <div className="absolute inset-0 bg-black/30" />
@@ -247,9 +257,9 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                       className="absolute z-20 w-full h-full rounded-sm overflow-hidden"
                       style={{ boxShadow: '15px 15px 50px rgba(0,0,0,0.7)' }}
                     >
-                      {currentMovie.poster_url ? (
+                      {(currentMovie.itunes_artwork || currentMovie.poster_url) ? (
                         <img
-                          src={currentMovie.poster_url}
+                          src={currentMovie.itunes_artwork || currentMovie.poster_url!}
                           alt={decodeHtmlEntities(currentMovie.title)}
                           className="absolute inset-0 w-full h-full object-cover"
                           onLoad={() => setAlbumCoverLoaded(true)}
@@ -262,6 +272,34 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                       {/* Edge shadow on right side */}
                       <div className="absolute inset-y-0 right-0 w-4 bg-gradient-to-l from-black/30 to-transparent z-30" />
                     </div>
+                    {/* Play overlay — centered on sleeve + vinyl */}
+                    {currentMovie.itunes_url && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
+                            openSystemBrowser(currentMovie.itunes_url!);
+                          } else if (currentMovie.music_links) {
+                            setMusicModalData({ musicLinks: currentMovie.music_links, title: currentMovie.title, artist: currentMovie.director });
+                          } else {
+                            window.open(`https://song.link/${currentMovie.itunes_url}`, '_blank');
+                          }
+                        }}
+                        className="absolute z-30 w-12 h-12 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                        style={{
+                          top: '50%',
+                          left: 'calc(50% + 18%)',
+                          transform: 'translate(-50%, -50%)',
+                          background: 'rgba(255, 255, 255, 0.25)',
+                          backdropFilter: 'blur(9.4px)',
+                          WebkitBackdropFilter: 'blur(9.4px)',
+                          border: '1px solid rgba(255, 255, 255, 0.3)',
+                          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+                        }}
+                      >
+                        <Play size={20} className="text-white ml-0.5" fill="white" />
+                      </button>
+                    )}
                   </div>
                   <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
                 </div>
@@ -273,16 +311,16 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                       className="relative overflow-visible"
                       style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.5)', filter: 'drop-shadow(2px 3px 6px rgba(0,0,0,0.4))' }}
                     >
-                      <div className="relative overflow-hidden">
+                      <div className="relative overflow-hidden bg-black aspect-[2/3]">
                         {currentMovie.poster_url ? (
                           <img
                             src={currentMovie.poster_url}
                             alt={decodeHtmlEntities(currentMovie.title)}
-                            className="w-full aspect-[2/3] object-cover"
+                            className="w-full h-full object-contain"
                             onLoad={() => setAlbumCoverLoaded(true)}
                           />
                         ) : (
-                          <div className="w-full aspect-[2/3] bg-gradient-to-b from-slate-700 to-slate-900 flex items-center justify-center">
+                          <div className="w-full h-full bg-gradient-to-b from-slate-700 to-slate-900 flex items-center justify-center">
                             <Film size={48} className="text-white/30" />
                           </div>
                         )}
@@ -311,16 +349,16 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                       className="relative overflow-visible"
                       style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.5)', filter: 'drop-shadow(2px 3px 6px rgba(0,0,0,0.4))' }}
                     >
-                      <div className="relative overflow-hidden">
+                      <div className="relative overflow-hidden bg-black aspect-[2/3]">
                         {currentMovie.poster_url ? (
                           <img
                             src={currentMovie.poster_url}
                             alt={decodeHtmlEntities(currentMovie.title)}
-                            className="w-full"
+                            className="w-full h-full object-contain"
                             onLoad={() => setAlbumCoverLoaded(true)}
                           />
                         ) : (
-                          <div className="w-full aspect-[2/3] bg-gradient-to-b from-slate-700 to-slate-900 flex items-center justify-center">
+                          <div className="w-full h-full bg-gradient-to-b from-slate-700 to-slate-900 flex items-center justify-center">
                             <TypeIcon size={48} className="text-white/30" />
                           </div>
                         )}
@@ -398,7 +436,30 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                 {/* Button row — always visible */}
                 <div className="flex items-center justify-between pt-2">
                   <div className="flex items-center gap-2">
-                    {currentMovie.wikipedia_url && (
+                    {currentMovie.type === 'album' ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const url = currentMovie.itunes_url;
+                          if (url) {
+                            if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
+                              openSystemBrowser(url);
+                            } else if (currentMovie.music_links) {
+                              setMusicModalData({ musicLinks: currentMovie.music_links, title: currentMovie.title, artist: currentMovie.director });
+                            } else {
+                              window.open(`https://song.link/${url}`, '_blank');
+                            }
+                          } else {
+                            window.open(`https://music.apple.com/us/search?term=${encodeURIComponent(currentMovie.title + ' ' + currentMovie.director)}`, '_blank');
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
+                        style={pillButtonStyle}
+                      >
+                        <Play size={14} fill="white" />
+                        Play
+                      </button>
+                    ) : currentMovie.wikipedia_url ? (
                       <a
                         href={currentMovie.wikipedia_url}
                         target="_blank"
@@ -410,7 +471,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                         <ExternalLink size={14} />
                         Source
                       </a>
-                    )}
+                    ) : null}
                   </div>
                   {isMinimized && currentMovie.director && (
                     <span className="text-xs text-white/70 font-medium truncate ml-2 min-w-0" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
@@ -430,6 +491,12 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
           to { transform: rotate(360deg); }
         }
       `}} />
+      <MusicModal
+        musicLinks={musicModalData?.musicLinks ?? null}
+        albumTitle={musicModalData?.title}
+        albumArtist={musicModalData?.artist}
+        onClose={() => setMusicModalData(null)}
+      />
     </div>
   );
 }

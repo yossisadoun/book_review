@@ -1,4 +1,5 @@
 import type { CapacitorConfig } from '@capacitor/cli';
+import { KeyboardResize } from '@capacitor/keyboard';
 
 const config: CapacitorConfig = {
   appId: 'com.bookreview.app',
@@ -20,6 +21,10 @@ const config: CapacitorConfig = {
     },
     StatusBar: {
       style: 'DEFAULT'
+    },
+    Keyboard: {
+      resize: KeyboardResize.None,
+      resizeOnFullScreen: true,
     }
   }
 };

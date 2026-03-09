@@ -41,7 +41,6 @@ import {
   Cloud,
   Share,
   MoreVertical,
-  ShieldUser,
   PlusCircle,
   Plus,
   Bot,
@@ -102,6 +101,8 @@ import Lottie from 'lottie-react';
 import spinnerAnimation from '@/public/spinner.json';
 import heartAnimation from '@/public/heart_anim.json';
 import bookPageOnboardingAnimation from '@/public/onboarding_anim_book_page_new.json';
+import triviaAnimation from '@/public/trivia.json';
+import nextReadsAnimation from '@/public/next_reads.json';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginScreen } from '@/components/LoginScreen';
 import { BookLoading } from '@/components/BookLoading';
@@ -124,6 +125,9 @@ import InfoPageTooltips from './components/InfoPageTooltips';
 import RatingStars, { RATING_FEEDBACK } from './components/RatingStars';
 import AddBookSheet from './components/AddBookSheet';
 import ConnectAccountModal from './components/ConnectAccountModal';
+import BookChat from './components/BookChat';
+import NotesEditorOverlay from './components/NotesEditorOverlay';
+import { getChatList, deleteChatForBook, type ChatListItem, type BookChatContext } from './services/chat-service';
 
 // Helper function to get the correct path for static assets (handles basePath)
 // getAssetPath imported from ./components/utils
@@ -304,6 +308,7 @@ export default function App() {
   const [isShowingNotes, setIsShowingNotes] = useState(false);
   const openNotesAfterNavRef = useRef(false); // Track when to open notes after navigating from notes list
   const [newlyAddedNoteTimestamp, setNewlyAddedNoteTimestamp] = useState<string | null>(null);
+  const [noteSavedToast, setNoteSavedToast] = useState(false);
   const [noteText, setNoteText] = useState('');
   const lastSavedNoteTextRef = useRef<string>('');
   const noteTextOnFocusRef = useRef<string>('');
@@ -394,11 +399,20 @@ export default function App() {
   const [isProfilePublic, setIsProfilePublic] = useState(true);
   const [isLoadingPrivacySetting, setIsLoadingPrivacySetting] = useState(false);
   const [isSavingPrivacySetting, setIsSavingPrivacySetting] = useState(false);
+  const [showDeleteAccountConfirm, setShowDeleteAccountConfirm] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [showBookshelf, setShowBookshelf] = useState(() => getLastPageState().showBookshelf);
   const [showBookshelfCovers, setShowBookshelfCovers] = useState(() => getLastPageState().showBookshelfCovers);
   const [showNotesView, setShowNotesView] = useState(() => getLastPageState().showNotesView);
   const [showFollowingPage, setShowFollowingPage] = useState(() => getLastPageState().showFollowingPage);
   const [showFeedPage, setShowFeedPage] = useState(() => getLastPageState().showFeedPage);
+  const [showChatPage, setShowChatPage] = useState(false);
+  const [chatComingSoon, setChatComingSoon] = useState(false);
+  const [chatBookSelected, setChatBookSelected] = useState(false);
+  const [chatList, setChatList] = useState<ChatListItem[]>([]);
+  const [chatListLoading, setChatListLoading] = useState(false);
+  const [chatSwipeId, setChatSwipeId] = useState<string | null>(null);
+  const chatSwipeRef = useRef<{ startX: number; currentX: number; bookId: string } | null>(null);
   const [showAboutScreen, setShowAboutScreen] = useState(false);
   const [showBookPageOnboarding, setShowBookPageOnboarding] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -517,6 +531,7 @@ export default function App() {
   const [triviaQuestionsRefreshTrigger, setTriviaQuestionsRefreshTrigger] = useState(0);
   const [nextQuestionsCountdown, setNextQuestionsCountdown] = useState<{hours: number; minutes: number; seconds: number} | null>(null);
   const triviaAudioRef = useRef<HTMLAudioElement | null>(null);
+  const triviaLottieRef = useRef<any>(null);
   const prevTriviaGameCompleteRef = useRef(false);
   const [spoilerRevealed, setSpoilerRevealed] = useState<Map<string, Set<string>>>(() => getSpoilerRevealedFromStorage());
   
@@ -1507,14 +1522,14 @@ export default function App() {
   const backButtonStateRef = useRef({
     isPlayingTrivia, showAboutScreen, isAdding, showShareDialog, showBookMenu,
     isEditing, isShowingNotes, isConfirmingDelete,
-    showAccountPage, showFollowingPage, showFeedPage, showSortingResults, showNotesView,
+    showAccountPage, showFollowingPage, showFeedPage, showChatPage, chatBookSelected, showSortingResults, showNotesView,
     showBookshelf, showBookshelfCovers,
   });
   useEffect(() => {
     backButtonStateRef.current = {
       isPlayingTrivia, showAboutScreen, isAdding, showShareDialog, showBookMenu,
       isEditing, isShowingNotes, isConfirmingDelete,
-      showAccountPage, showFollowingPage, showFeedPage, showSortingResults, showNotesView,
+      showAccountPage, showFollowingPage, showFeedPage, showChatPage, chatBookSelected, showSortingResults, showNotesView,
       showBookshelf, showBookshelfCovers,
     };
   });
@@ -1535,6 +1550,8 @@ export default function App() {
       if (s.showAccountPage) { setShowAccountPage(false); setShowBookshelfCovers(true); return; }
       if (s.showFollowingPage) { setShowFollowingPage(false); setShowBookshelfCovers(true); return; }
       if (s.showFeedPage) { setShowFeedPage(false); setShowBookshelfCovers(true); return; }
+      if (s.showChatPage && s.chatBookSelected) { setChatBookSelected(false); return; }
+      if (s.showChatPage) { setShowChatPage(false); return; }
       if (s.showSortingResults) { setShowSortingResults(false); setShowBookshelfCovers(true); return; }
       if (s.showNotesView) { setShowNotesView(false); setShowBookshelfCovers(true); return; }
       // 4. Book detail → bookshelf covers
@@ -1545,6 +1562,21 @@ export default function App() {
       exitApp();
     });
   }, []);
+
+  // Load chat list when entering chat page
+  useEffect(() => {
+    if (!showChatPage || chatBookSelected) return;
+    let cancelled = false;
+    (async () => {
+      setChatListLoading(true);
+      const list = await getChatList();
+      if (!cancelled) {
+        setChatList(list);
+        setChatListLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showChatPage, chatBookSelected]);
 
   // Load Grok usage logs when account page is shown
   useEffect(() => {
@@ -3935,6 +3967,8 @@ export default function App() {
     setPendingBookMeta(meta);
     setIsAdding(false);
     setShowFeedPage(false);
+    setShowChatPage(false);
+    setChatBookSelected(false);
     // Add book without status first, then show rating overlay
     // Pass meta directly to avoid race conditions with state updates
     await handleAddBookWithStatus(null as any, meta); // Add with null status, will update later
@@ -4663,7 +4697,7 @@ export default function App() {
   })() : null;
   
   // Use background image for bookshelf, notes, account, and following pages
-  const shouldUseBackgroundImage = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage || showFollowingPage || showFeedPage;
+  const shouldUseBackgroundImage = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage || showFollowingPage || showFeedPage || showChatPage;
   const backgroundImageStyle: React.CSSProperties = {
     backgroundImage: `url(${getAssetPath('/bg.webp')})`,
     backgroundSize: 'cover',
@@ -4845,7 +4879,7 @@ export default function App() {
       )}
 
       {/* Simple header - fades on scroll and during transitions (hidden on book pages) */}
-      {!(!showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults && !showFollowingPage && !showFeedPage) && (
+      {!(!showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults && !showFollowingPage && !showFeedPage && (!showChatPage || chatBookSelected)) && (
       <AnimatePresence mode="wait">
         <motion.div
           key={showSortingResults ? 'sorting-results-header' : showNotesView ? 'notes-header' : showBookshelf ? 'bookshelf-header' : 'books-header'}
@@ -4906,6 +4940,7 @@ export default function App() {
                   showAccountPage ? 'account' :
                   showFollowingPage ? 'following' :
                   showFeedPage ? 'feed' :
+                  showChatPage ? 'chat' :
                   showSortingResults ? 'sorted' :
                   showNotesView ? 'notes' :
                   showBookshelfCovers ? 'bookshelf-covers' :
@@ -4930,6 +4965,8 @@ export default function App() {
                   ) : (
                     <Birdhouse size={24} className="text-slate-950 dark:text-slate-50" />
                   )
+                ) : showChatPage ? (
+                  <MessageCircle size={24} className="text-slate-950 dark:text-slate-50" />
                 ) : showSortingResults ? (
                   <Star size={24} className="text-slate-950 dark:text-slate-50" />
                 ) : showNotesView ? (
@@ -4958,7 +4995,9 @@ export default function App() {
                         ? 'FOLLOWING'
                         : showFeedPage
                           ? 'FEED'
-                          : showSortingResults
+                          : showChatPage
+                            ? 'CHATS'
+                            : showSortingResults
                             ? 'SORTED RESULTS'
                             : showNotesView
                               ? 'NOTES'
@@ -5060,6 +5099,24 @@ export default function App() {
                     >
                       Connect account
                     </button>
+
+                    <div className="flex items-center justify-center pt-4 mt-4 border-t border-slate-200/50">
+                      <button
+                        onClick={async () => {
+                          const confirmed = window.confirm(
+                            `You have ${books.length} book${books.length !== 1 ? 's' : ''} saved as a guest. Signing out will permanently lose this data. Continue?`
+                          );
+                          if (!confirmed) return;
+                          await signOut();
+                          setShowAccountPage(false);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-slate-700 hover:opacity-80 active:scale-95 transition-all"
+                        style={glassmorphicStyle}
+                      >
+                        <LogOut size={16} className="text-slate-600" />
+                        <span>Sign Out</span>
+                      </button>
+                    </div>
                   </>
                 ) : (
                   <>
@@ -5084,21 +5141,27 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* Stats */}
-                    <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
-                      <div>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Total Books</p>
-                        <p className="text-2xl font-bold text-slate-950 dark:text-slate-50">{books.length}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Books with Ratings</p>
-                        <p className="text-2xl font-bold text-slate-950 dark:text-slate-50">
-                          {books.filter(book => {
-                            const values = Object.values(book.ratings).filter(v => v != null) as number[];
-                            return values.length > 0;
-                          }).length}
-                        </p>
-                      </div>
+                    {/* Sign Out & Delete Account */}
+                    <div className="flex items-center justify-center gap-2 pt-4 border-t border-slate-200/50">
+                      <button
+                        onClick={async () => {
+                          await signOut();
+                          setShowAccountPage(false);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-slate-700 hover:opacity-80 active:scale-95 transition-all"
+                        style={glassmorphicStyle}
+                      >
+                        <LogOut size={16} className="text-slate-600" />
+                        <span>Sign Out</span>
+                      </button>
+                      <button
+                        onClick={() => setShowDeleteAccountConfirm(true)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-red-500 hover:opacity-80 active:scale-95 transition-all"
+                        style={glassmorphicStyle}
+                      >
+                        <Trash2 size={16} />
+                        <span>Delete Account</span>
+                      </button>
                     </div>
                   </>
                 )}
@@ -5242,27 +5305,7 @@ export default function App() {
               </div>}
 
               {/* Actions */}
-              {isAnonymous && (
-                <p className="text-[11px] text-amber-600 mb-1 px-3">
-                  Signing out will permanently lose your guest data.
-                </p>
-              )}
-              <button
-                onClick={async () => {
-                  if (isAnonymous) {
-                    const confirmed = window.confirm(
-                      `You have ${books.length} book${books.length !== 1 ? 's' : ''} saved as a guest. Signing out will permanently lose this data. Continue?`
-                    );
-                    if (!confirmed) return;
-                  }
-                  await signOut();
-                  setShowAccountPage(false);
-                }}
-                className="flex items-center gap-2 text-xs font-bold text-blue-700 hover:bg-blue-50 active:scale-95 transition-all px-3 py-1.5 rounded"
-              >
-                <LogOut size={14} />
-                <span>Sign Out</span>
-              </button>
+
             </div>
           </motion.main>
         ) : showFollowingPage ? (
@@ -6411,6 +6454,325 @@ export default function App() {
               </>)}
             </div>
           </motion.main>
+        ) : showChatPage ? (
+          <motion.main
+            key={chatBookSelected && activeBook ? 'chat-book' : 'chat-list'}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className={chatBookSelected && activeBook ? 'flex-1' : 'flex-1 flex flex-col relative pt-20 overflow-y-auto ios-scroll'}
+            style={chatBookSelected && activeBook ? undefined : { backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
+            {...(!(chatBookSelected && activeBook) ? { onScroll: (e: React.UIEvent<HTMLElement>) => { setScrollY(e.currentTarget.scrollTop); } } : {})}
+          >
+            {chatBookSelected && activeBook ? (
+              <BookChat
+                book={activeBook}
+                bookContext={(() => {
+                  const ctx: BookChatContext = {
+                    title: activeBook.title,
+                    author: activeBook.author,
+                    genre: activeBook.genre,
+                    publishYear: activeBook.publish_year,
+                    summary: activeBook.summary,
+                    readingStatus: activeBook.reading_status || null,
+                    userNotes: activeBook.notes,
+                    userRatings: activeBook.ratings,
+                  };
+                  const insights: BookChatContext['insights'] = {};
+                  const authorFacts = activeBook.author_facts;
+                  if (authorFacts?.length) insights.authorFacts = authorFacts;
+                  const influences = bookInfluences.get(activeBook.id);
+                  if (influences?.length) insights.influences = influences;
+                  const domain = bookDomain.get(activeBook.id);
+                  if (domain) insights.domain = domain;
+                  const context = bookContext.get(activeBook.id);
+                  if (context?.length) insights.context = context;
+                  const dyk = didYouKnow.get(activeBook.id);
+                  if (dyk?.length) insights.didYouKnow = dyk;
+                  if (Object.keys(insights).length) ctx.insights = insights;
+                  if (combinedPodcastEpisodes?.length) ctx.podcasts = combinedPodcastEpisodes.map(p => ({ title: p.title, podcast_name: p.podcast_name, url: p.url, thumbnail: p.thumbnail, length: p.length }));
+                  const videos = youtubeVideos.get(activeBook.id);
+                  if (videos?.length) ctx.videos = videos.map(v => ({ title: v.title, channelTitle: v.channelTitle, videoId: v.videoId }));
+                  const articles = analysisArticles.get(activeBook.id);
+                  if (articles?.length) ctx.articles = articles.map(a => ({ title: a.title, url: a.url, snippet: a.snippet, authors: a.authors, year: a.year }));
+                  const related = relatedBooks.get(activeBook.id);
+                  if (related?.length) ctx.relatedBooks = related.map(b => ({ title: b.title, author: b.author, reason: b.reason, cover_url: b.cover_url, thumbnail: b.thumbnail }));
+                  const movies = relatedMovies.get(activeBook.id);
+                  if (movies?.length) ctx.relatedWorks = movies.map(m => ({ title: m.title, director: m.director, reason: m.reason, type: m.type, poster_url: m.poster_url, release_year: m.release_year, wikipedia_url: m.wikipedia_url, itunes_url: m.itunes_url, itunes_artwork: m.itunes_artwork, music_links: m.music_links }));
+                  if (discussionQuestions?.length) ctx.discussionQuestions = discussionQuestions.map(q => ({ question: q.question, category: q.category }));
+                  return ctx;
+                })()}
+                onBack={() => {
+                  setChatBookSelected(false);
+                }}
+                onAddBook={async (meta) => {
+                  setChatBookSelected(false);
+                  setShowChatPage(false);
+                  await handleAddBook(meta);
+                }}
+              />
+            ) : (
+              /* Chat list view */
+                <div className="w-full max-w-[600px] mx-auto px-4 py-4" style={{ marginTop: '30px' }}>
+                  {/* Book picker for new chat */}
+                  {books.length > 0 && (
+                    <div
+                      className="mb-4 rounded-2xl px-3 py-3"
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.35)',
+                        backdropFilter: 'blur(12px)',
+                        WebkitBackdropFilter: 'blur(12px)',
+                        border: '0.5px solid rgba(255, 255, 255, 0.4)',
+                        boxShadow: '0 2px 16px rgba(0, 0, 0, 0.04)',
+                      }}
+                    >
+                      <p className="text-[11px] font-semibold text-slate-900 uppercase tracking-wider mb-2">PICK A BOOK</p>
+                      <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1" style={{ scrollbarWidth: 'none' }}>
+                        {[...books].sort((a, b) => {
+                          const aReading = a.reading_status === 'reading' ? 0 : 1;
+                          const bReading = b.reading_status === 'reading' ? 0 : 1;
+                          if (aReading !== bReading) return aReading - bReading;
+                          return a.title.localeCompare(b.title);
+                        }).map((b) => {
+                          const isReading = b.reading_status === 'reading';
+                          return (
+                            <button
+                              key={b.id}
+                              onClick={() => {
+                                const idx = books.indexOf(b);
+                                if (idx >= 0) setSelectedIndex(idx);
+                                setChatBookSelected(true);
+                              }}
+                              className="shrink-0 flex flex-col items-center gap-1 active:scale-95 transition-transform"
+                              style={{ width: isReading ? '82px' : '67px' }}
+                            >
+                              {b.cover_url ? (
+                                <img
+                                  src={b.cover_url}
+                                  alt={b.title}
+                                  className={`${isReading ? 'rounded-xl' : 'rounded-lg'} object-cover`}
+                                  style={{ width: isReading ? '67px' : '53px', height: isReading ? '94px' : '72px', boxShadow: isReading ? '0 4px 14px rgba(0,0,0,0.18)' : '0 2px 8px rgba(0,0,0,0.12)', border: isReading ? '2px solid rgba(59, 130, 246, 0.4)' : 'none' }}
+                                />
+                              ) : (
+                                <div className={`${isReading ? 'rounded-xl' : 'rounded-lg'} bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center`}
+                                  style={{ width: isReading ? '67px' : '53px', height: isReading ? '94px' : '72px', border: isReading ? '2px solid rgba(59, 130, 246, 0.4)' : 'none' }}
+                                >
+                                  <BookOpen size={isReading ? 22 : 18} className="text-white/60" />
+                                </div>
+                              )}
+                              <p className={`${isReading ? 'text-[10px] font-semibold text-slate-800' : 'text-[9px] text-slate-600'} text-center line-clamp-2 leading-tight w-full`}>{b.title}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Divider */}
+                  {chatList.length > 0 && (
+                    <div className="h-px bg-slate-200/60 mb-4" />
+                  )}
+
+                  {/* Chat list */}
+                  {chatListLoading ? (
+                    <div className="flex flex-col gap-3">
+                      {[1, 2, 3].map(i => (
+                        <motion.div
+                          key={i}
+                          animate={{ opacity: [0.5, 0.8, 0.5] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut', delay: i * 0.15 }}
+                          className="rounded-xl p-3.5 flex items-center gap-3"
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.6)',
+                            backdropFilter: 'blur(9.4px)',
+                            WebkitBackdropFilter: 'blur(9.4px)',
+                            border: '1px solid rgba(255, 255, 255, 0.3)',
+                          }}
+                        >
+                          <div className="w-14 h-20 rounded-xl bg-slate-300/50 shrink-0" />
+                          <div className="flex-1 flex flex-col gap-2">
+                            <div className="w-3/4 h-3.5 bg-slate-300/50 rounded" />
+                            <div className="w-1/2 h-3 bg-slate-300/50 rounded" />
+                            <div className="w-full h-3 bg-slate-300/50 rounded" />
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  ) : chatList.length === 0 && books.find(b => b.reading_status === 'reading') ? (
+                    <button
+                      onClick={() => {
+                        const readingBook = books.find(b => b.reading_status === 'reading')!;
+                        const idx = books.indexOf(readingBook);
+                        if (idx >= 0) setSelectedIndex(idx);
+                        setChatBookSelected(true);
+                      }}
+                      className="w-full flex items-center gap-3 p-3.5 rounded-2xl text-left active:scale-[0.98] transition-transform"
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.6)',
+                        backdropFilter: 'blur(16px)',
+                        WebkitBackdropFilter: 'blur(16px)',
+                        border: '1px solid rgba(59, 130, 246, 0.2)',
+                        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.06)',
+                      }}
+                    >
+                      {books.find(b => b.reading_status === 'reading')!.cover_url ? (
+                        <img
+                          src={books.find(b => b.reading_status === 'reading')!.cover_url!}
+                          alt={books.find(b => b.reading_status === 'reading')!.title}
+                          className="w-14 h-20 rounded-xl object-cover shrink-0"
+                          style={{ boxShadow: '0 3px 12px rgba(0,0,0,0.15)' }}
+                        />
+                      ) : (
+                        <div className="w-14 h-20 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
+                          <BookOpen size={20} className="text-white/60" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-semibold text-blue-500 uppercase tracking-wide mb-0.5">Start a conversation</p>
+                        <p className="text-[14px] font-bold text-slate-800 truncate">{books.find(b => b.reading_status === 'reading')!.title}</p>
+                        <p className="text-[12px] text-slate-500 truncate">{books.find(b => b.reading_status === 'reading')!.author}</p>
+                      </div>
+                      <MessageCircle size={20} className="text-blue-400 shrink-0" />
+                    </button>
+                  ) : chatList.length === 0 ? (
+                    <div className="flex flex-col items-center pt-8 pb-6">
+                      <MessageCircle size={36} className="text-slate-300 mb-3" />
+                      <p className="text-sm text-slate-400 text-center">No conversations yet</p>
+                      <p className="text-xs text-slate-400 text-center mt-1">Tap a book above to start chatting</p>
+                    </div>
+                  ) : (() => {
+                    const readingChats = chatList.filter(c => {
+                      const b = books.find(bk => bk.id === c.book_id);
+                      return b?.reading_status === 'reading';
+                    });
+                    const otherChats = chatList.filter(c => {
+                      const b = books.find(bk => bk.id === c.book_id);
+                      return b?.reading_status !== 'reading';
+                    });
+
+                    const handleDeleteChat = async (bookId: string) => {
+                      setChatList(prev => prev.filter(c => c.book_id !== bookId));
+                      setChatSwipeId(null);
+                      await deleteChatForBook(bookId);
+                    };
+
+                    const swipeHandlers = (bookId: string) => ({
+                      onTouchStart: (e: React.TouchEvent) => {
+                        chatSwipeRef.current = { startX: e.touches[0].clientX, currentX: e.touches[0].clientX, bookId };
+                        // Close any other open swipe
+                        if (chatSwipeId && chatSwipeId !== bookId) setChatSwipeId(null);
+                      },
+                      onTouchMove: (e: React.TouchEvent) => {
+                        if (!chatSwipeRef.current || chatSwipeRef.current.bookId !== bookId) return;
+                        chatSwipeRef.current.currentX = e.touches[0].clientX;
+                      },
+                      onTouchEnd: () => {
+                        if (!chatSwipeRef.current || chatSwipeRef.current.bookId !== bookId) return;
+                        const dx = chatSwipeRef.current.startX - chatSwipeRef.current.currentX;
+                        if (dx > 60) {
+                          setChatSwipeId(bookId);
+                        } else if (dx < -30) {
+                          setChatSwipeId(null);
+                        }
+                        chatSwipeRef.current = null;
+                      },
+                    });
+
+                    const renderChatItem = (chat: ChatListItem, variant: 'reading' | 'other') => {
+                      const matchingBook = books.find(b => b.id === chat.book_id);
+                      const coverUrl = matchingBook?.cover_url;
+                      const isReading = variant === 'reading';
+                      const isSwiped = chatSwipeId === chat.book_id;
+                      return (
+                        <div key={chat.book_id} className="relative overflow-hidden rounded-2xl" {...swipeHandlers(chat.book_id)}>
+                          {/* Delete button behind */}
+                          <div
+                            className="absolute right-0 top-0 bottom-0 w-20 flex items-center justify-center rounded-r-2xl"
+                          >
+                            <button
+                              onClick={() => handleDeleteChat(chat.book_id)}
+                              className="flex flex-col items-center gap-0.5 active:scale-95 transition-transform"
+                            >
+                              <Trash2 size={18} className="text-red-500" />
+                              <span className="text-[10px] font-semibold text-red-500">Delete</span>
+                            </button>
+                          </div>
+                          {/* Sliding card */}
+                          <button
+                            onClick={() => {
+                              if (isSwiped) { setChatSwipeId(null); return; }
+                              if (matchingBook) {
+                                const idx = books.indexOf(matchingBook);
+                                if (idx >= 0) setSelectedIndex(idx);
+                              }
+                              setChatBookSelected(true);
+                            }}
+                            className={`w-full flex items-center gap-3 ${isReading ? 'p-3.5' : 'p-3'} rounded-2xl text-left active:scale-[0.98] relative z-10`}
+                            style={{
+                              background: isReading ? 'rgba(255, 255, 255, 0.6)' : 'rgba(255, 255, 255, 0.5)',
+                              backdropFilter: `blur(${isReading ? 16 : 12}px)`,
+                              WebkitBackdropFilter: `blur(${isReading ? 16 : 12}px)`,
+                              border: isReading ? '1px solid rgba(255, 255, 255, 0.4)' : '0.5px solid rgba(255, 255, 255, 0.3)',
+                              boxShadow: isReading ? '0 4px 20px rgba(0, 0, 0, 0.06)' : '0 2px 12px rgba(0, 0, 0, 0.04)',
+                              transform: isSwiped ? 'translateX(-80px)' : 'translateX(0)',
+                              transition: 'transform 0.25s ease-out',
+                            }}
+                          >
+                            {coverUrl ? (
+                              <img
+                                src={coverUrl}
+                                alt={chat.book_title}
+                                className={`${isReading ? 'w-14 h-20 rounded-xl' : 'w-10 h-14 rounded-lg'} object-cover shrink-0`}
+                                style={{ boxShadow: isReading ? '0 3px 12px rgba(0,0,0,0.15)' : '0 2px 8px rgba(0,0,0,0.1)' }}
+                              />
+                            ) : (
+                              <div className={`${isReading ? 'w-14 h-20 rounded-xl' : 'w-10 h-14 rounded-lg'} bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0`}>
+                                <BookOpen size={isReading ? 20 : 16} className="text-white/60" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className={`${isReading ? 'text-[14px] font-bold' : 'text-[13px] font-semibold'} text-slate-800 truncate`}>{chat.book_title}</p>
+                                <span className="text-[10px] text-slate-400 shrink-0">{timeAgo(chat.last_message_at)}</span>
+                              </div>
+                              <p className={`${isReading ? 'text-[12px]' : 'text-[11px]'} text-slate-500 truncate`}>{chat.book_author}</p>
+                              <p className={`text-[12px] text-slate-500 truncate ${isReading ? 'mt-1' : 'mt-0.5'}`}>{chat.last_message}</p>
+                            </div>
+                          </button>
+                        </div>
+                      );
+                    };
+
+                    return (
+                      <>
+                        {/* Currently reading — pinned */}
+                        {readingChats.length > 0 && (
+                          <div className="mb-5">
+                            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2.5">Currently Reading</p>
+                            <div className="flex flex-col gap-3">
+                              {readingChats.map(chat => renderChatItem(chat, 'reading'))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Other chats */}
+                        {otherChats.length > 0 && (
+                          <div>
+                            {readingChats.length > 0 && (
+                              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2.5">Other</p>
+                            )}
+                            <div className="flex flex-col gap-2.5">
+                              {otherChats.map(chat => renderChatItem(chat, 'other'))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+            )}
+          </motion.main>
         ) : showSortingResults ? (
           <motion.main
             key="sorting-results"
@@ -6649,7 +7011,13 @@ export default function App() {
                         ) : (
                           <div>
                             <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed line-clamp-3">
-                              {book.notes}
+                              {(() => {
+                                // Show most recent note content, strip timestamps
+                                const raw = book.notes || '';
+                                const parts = raw.split(/\{\d{4}-\d{2}-\d{2} \d{2}:\d{2}\}\n?/);
+                                const content = parts.filter(p => p.trim()).shift()?.trim();
+                                return content || raw.replace(/\{\d{4}-\d{2}-\d{2} \d{2}:\d{2}\}/g, '').trim();
+                              })()}
                             </p>
                           </div>
                         )}
@@ -6926,13 +7294,12 @@ export default function App() {
                         >
                           {[
                             { value: 'reading_status', label: 'Status' },
+                            { value: 'list', label: 'List' },
                             { value: 'added', label: 'Added' },
                             { value: 'rating', label: 'Rating' },
                             { value: 'title', label: 'Title' },
                             { value: 'author', label: 'Author' },
-
                             { value: 'publication_year', label: 'Year' },
-                            { value: 'list', label: 'List' },
                           ].map((option, idx) => (
                             <button
                               key={option.value}
@@ -7356,13 +7723,12 @@ export default function App() {
                         >
                           {[
                             { value: 'reading_status', label: 'Status' },
+                            { value: 'list', label: 'List' },
                             { value: 'added', label: 'Added' },
                             { value: 'rating', label: 'Rating' },
                             { value: 'title', label: 'Title' },
                             { value: 'author', label: 'Author' },
-
                             { value: 'publication_year', label: 'Year' },
-                            { value: 'list', label: 'List' },
                           ].map((option, idx) => (
                   <button
                               key={option.value}
@@ -7800,16 +8166,7 @@ export default function App() {
               }}
             >
               {/* Front side - Book cover */}
-              <AnimatePresence mode="wait">
-                {!isShowingNotes && (
-                  <motion.div
-                    key="cover"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3, ease: "easeInOut" }}
-                    className="absolute inset-0 w-full h-full"
-                  >
+              <div className="absolute inset-0 w-full h-full">
                     <AnimatePresence mode='wait'>
                       <motion.div key={activeBook.id || 'active-book'} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="relative w-full h-full rounded-lg overflow-hidden border-2 border-white/50 shadow-lg">
                         {activeBook.cover_url ? (
@@ -7844,194 +8201,9 @@ export default function App() {
                         )}
                       </motion.div>
                     </AnimatePresence>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              </div>
 
-              {/* Back side - Notes */}
-              <AnimatePresence mode="wait">
-                {isShowingNotes && (
-                  <motion.div
-                    key="notes"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3, ease: "easeInOut" }}
-                    className="absolute inset-0 w-full h-full rounded-lg p-4 flex flex-col"
-                    style={{
-                      background: 'rgba(255, 255, 255, 0.6)',
-                      backdropFilter: 'blur(9.4px)',
-                      WebkitBackdropFilter: 'blur(9.4px)',
-                      border: '1px solid rgba(255, 255, 255, 0.3)',
-                    }}
-                  >
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50">
-                      {activeBook ? `${activeBook.title} notes` : 'Notes'}
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          // Add a new note with current timestamp
-                          const newTimestamp = formatNoteTimestamp();
-                          const existingNotes = activeBook?.notes || '';
-                          const newNote = existingNotes
-                            ? `${existingNotes}\n\n{${newTimestamp}}\n`
-                            : `{${newTimestamp}}\n`;
-
-                          // Track the new note for animation and focus
-                          setNewlyAddedNoteTimestamp(newTimestamp);
-
-                          // Save immediately
-                          if (activeBook && user) {
-                            supabase
-                              .from('books')
-                              .update({ notes: newNote, updated_at: new Date().toISOString() })
-                              .eq('id', activeBook.id)
-                              .eq('user_id', user.id)
-                              .then(({ error }) => {
-                                if (!error) {
-                                  setBooks(prev => prev.map(book =>
-                                    book.id === activeBook.id ? { ...book, notes: newNote } : book
-                                  ));
-                                }
-                              });
-                          }
-                        }}
-                        className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-all"
-                        style={{ ...glassmorphicStyle, borderRadius: '50%' }}
-                      >
-                        <Plus size={16} className="text-slate-700 dark:text-slate-300" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setIsShowingNotes(false);
-                          setNewlyAddedNoteTimestamp(null);
-                        }}
-                        className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-all"
-                        style={{ ...glassmorphicStyle, borderRadius: '50%' }}
-                      >
-                        <X size={16} className="text-slate-700 dark:text-slate-300" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex-1 overflow-y-auto ios-scroll space-y-3">
-                    {(() => {
-                      const sections = parseNotes(activeBook?.notes || null);
-                      if (sections.length === 0) {
-                        return (
-                          <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                            <Pencil size={32} className="mb-2 opacity-50" />
-                            <p className="text-sm">No notes yet</p>
-                            <p className="text-xs mt-1">Tap + to add a note</p>
-                          </div>
-                        );
-                      }
-                      return sections.map((section, idx) => {
-                        const isNewNote = section.timestamp === newlyAddedNoteTimestamp;
-                        return (
-                        <motion.div
-                          key={`${section.timestamp}-${idx}`}
-                          initial={isNewNote ? { opacity: 0, y: -10 } : false}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.3 }}
-                          className="bg-slate-50 rounded-xl p-3 border border-slate-100"
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <p className="text-[10px] text-slate-400 font-medium">
-                              {section.timestamp}
-                            </p>
-                            <button
-                              onClick={() => {
-                                // Delete this note
-                                const updatedSections = sections.filter((_, i) => i !== idx);
-                                const newNotesText = updatedSections.length > 0
-                                  ? updatedSections.map(s => `{${s.timestamp}}\n${s.content}`).join('\n\n')
-                                  : null;
-
-                                if (activeBook && user) {
-                                  supabase
-                                    .from('books')
-                                    .update({ notes: newNotesText, updated_at: new Date().toISOString() })
-                                    .eq('id', activeBook.id)
-                                    .eq('user_id', user.id)
-                                    .then(({ error }) => {
-                                      if (!error) {
-                                        setBooks(prev => prev.map(book =>
-                                          book.id === activeBook.id ? { ...book, notes: newNotesText } : book
-                                        ));
-                                      }
-                                    });
-                                }
-                              }}
-                              className="p-1 text-slate-400 hover:text-red-500 active:scale-95 transition-all"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                          <textarea
-                            defaultValue={section.content}
-                            autoFocus={isNewNote}
-                            onFocus={() => {
-                              // Clear the new note flag after focus to prevent re-animation
-                              if (isNewNote) {
-                                setNewlyAddedNoteTimestamp(null);
-                              }
-                            }}
-                            onChange={(e) => {
-                              const textarea = e.target;
-                              const newContent = textarea.value;
-                              // Auto-resize height
-                              textarea.style.height = 'auto';
-                              textarea.style.height = textarea.scrollHeight + 'px';
-                              // Clear existing timeout
-                              if (noteSaveTimeoutRef.current) {
-                                clearTimeout(noteSaveTimeoutRef.current);
-                              }
-                              // Debounced auto-save
-                              noteSaveTimeoutRef.current = setTimeout(() => {
-                                // Rebuild the notes string with updated content for this section
-                                const updatedSections = [...sections];
-                                updatedSections[idx] = { ...section, content: newContent };
-                                const newNotesText = updatedSections
-                                  .map(s => `{${s.timestamp}}\n${s.content}`)
-                                  .join('\n\n');
-
-                                if (activeBook && user) {
-                                  supabase
-                                    .from('books')
-                                    .update({ notes: newNotesText, updated_at: new Date().toISOString() })
-                                    .eq('id', activeBook.id)
-                                    .eq('user_id', user.id)
-                                    .then(({ error }) => {
-                                      if (!error) {
-                                        setBooks(prev => prev.map(book =>
-                                          book.id === activeBook.id ? { ...book, notes: newNotesText } : book
-                                        ));
-                                      }
-                                    });
-                                }
-                              }, 1000);
-                            }}
-                            ref={(el) => {
-                              // Auto-resize on mount
-                              if (el) {
-                                el.style.height = 'auto';
-                                el.style.height = el.scrollHeight + 'px';
-                              }
-                            }}
-                            placeholder="Write your note..."
-                            className="w-full resize-none border-none outline-none text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 bg-transparent"
-                            style={{ minHeight: '24px', overflow: 'hidden' }}
-                          />
-                        </motion.div>
-                        );
-                      });
-                    })()}
-                  </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {/* Notes editor is now a separate modal overlay — see Notes Editor Overlay below */}
 
               <AnimatePresence>
                 {isConfirmingDelete && !isShowingNotes && (
@@ -8258,8 +8430,7 @@ export default function App() {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3, delay: 0.3 }}
-                    className="absolute right-4 z-30"
-                    style={{ bottom: 'calc(16px + var(--safe-area-bottom, 0px))' }}
+                    className="absolute right-4 bottom-3 z-30"
                   >
                     <button
                       onClick={() => setShowBookMenu(!showBookMenu)}
@@ -8284,7 +8455,7 @@ export default function App() {
                             exit={{ opacity: 0, y: 10, scale: 0.95 }}
                             transition={{ duration: 0.15 }}
                             className="absolute bottom-12 right-0 z-50 min-w-[140px] rounded-xl overflow-hidden shadow-lg"
-                            style={standardGlassmorphicStyle}
+                            style={{ ...standardGlassmorphicStyle, background: 'rgba(255, 255, 255, 0.55)' }}
                           >
                             <button
                               onClick={() => {
@@ -8344,8 +8515,7 @@ export default function App() {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3, delay: 0.3 }}
-                    className="absolute left-4 z-30 flex items-center gap-2"
-                    style={{ bottom: 'calc(16px + var(--safe-area-bottom, 0px))' }}
+                    className="absolute left-4 bottom-3 z-30 flex items-center gap-2"
                   >
                     {/* Rating button */}
                     <button
@@ -9134,64 +9304,7 @@ export default function App() {
                   );
                 })()}
 
-                {/* Related Books - Show below analysis */}
-                {(() => {
-                  const related = relatedBooks.get(activeBook.id);
-                  // Check if we have data (including empty array which means we fetched but got no results)
-                  const hasData = related !== undefined; // undefined means not fetched yet, [] means fetched but empty
-                  const hasRelated = related && related.length > 0;
-                  const isLoading = !bookPageSectionsResolved && loadingRelatedForBookId === activeBook.id && !hasData;
-
-                  // Only show the related books section if loading or has related books
-                  // Don't show if we've fetched and got empty results
-                  if (!isLoading && !hasRelated) return null;
-
-                  return (
-                    <div className="w-full space-y-2">
-                      {/* Related Books Header - hidden when featureFlags.bookPageSectionHeaders.relatedBooks is true */}
-                      {!featureFlags.bookPageSectionHeaders.relatedBooks && (
-                        <div className="flex items-center justify-center mb-2">
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">RELATED:</span>
-                            <span className="text-[10px] font-bold text-slate-400">/</span>
-                            <span className="text-[10px] font-bold text-blue-700">Grok</span>
-                          </div>
-                        </div>
-                      )}
-                      {isLoading ? (
-                        // Show loading placeholder
-                        <motion.div
-                          animate={{ opacity: [0.5, 0.8, 0.5] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="rounded-xl p-4"
-                          style={glassmorphicStyle}
-                        >
-                          <div className="flex items-start gap-3 mb-3">
-                            <div className="w-16 h-20 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse flex-shrink-0" />
-                            <div className="flex-1 space-y-2">
-                              <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                              <div className="w-1/2 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                              <div className="w-20 h-6 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse mt-2" />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                            <div className="w-4/5 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                          </div>
-                        </motion.div>
-                      ) : (
-                        <RelatedBooks
-                          books={related || []}
-                          bookId={activeBook.id}
-                          isLoading={false}
-                          onAddBook={handleAddBook}
-                        />
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {/* Related Movies & Shows - Show below Related Books */}
+                {/* Related Movies & Shows */}
                 {(() => {
                   const movies = relatedMovies.get(activeBook.id);
                   const hasData = movies !== undefined;
@@ -9242,6 +9355,69 @@ export default function App() {
                   );
                 })()}
 
+                {/* Next Reads Animation */}
+                {(relatedMovies.get(activeBook.id)?.length ?? 0) > 0 && (relatedBooks.get(activeBook.id)?.length ?? 0) > 0 && (
+                  <div className="flex justify-center -mt-4 -mb-4">
+                    <Lottie
+                      animationData={nextReadsAnimation}
+                      loop={true}
+                      style={{ width: 200, height: 88 }}
+                    />
+                  </div>
+                )}
+
+                {/* Related Books - Show below Related Movies */}
+                {(() => {
+                  const related = relatedBooks.get(activeBook.id);
+                  const hasData = related !== undefined;
+                  const hasRelated = related && related.length > 0;
+                  const isLoading = !bookPageSectionsResolved && loadingRelatedForBookId === activeBook.id && !hasData;
+
+                  if (!isLoading && !hasRelated) return null;
+
+                  return (
+                    <div className="w-full space-y-2 !mt-0">
+                      {!featureFlags.bookPageSectionHeaders.relatedBooks && (
+                        <div className="flex items-center justify-center mb-2">
+                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
+                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">RELATED:</span>
+                            <span className="text-[10px] font-bold text-slate-400">/</span>
+                            <span className="text-[10px] font-bold text-blue-700">Grok</span>
+                          </div>
+                        </div>
+                      )}
+                      {isLoading ? (
+                        <motion.div
+                          animate={{ opacity: [0.5, 0.8, 0.5] }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                          className="rounded-xl p-4"
+                          style={glassmorphicStyle}
+                        >
+                          <div className="flex items-start gap-3 mb-3">
+                            <div className="w-16 h-20 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse flex-shrink-0" />
+                            <div className="flex-1 space-y-2">
+                              <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                              <div className="w-1/2 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                              <div className="w-20 h-6 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse mt-2" />
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                            <div className="w-4/5 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
+                          </div>
+                        </motion.div>
+                      ) : (
+                        <RelatedBooks
+                          books={related || []}
+                          bookId={activeBook.id}
+                          isLoading={false}
+                          onAddBook={handleAddBook}
+                        />
+                      )}
+                    </div>
+                  );
+                })()}
+
                   </motion.div>
                 )}
               </>
@@ -9252,7 +9428,8 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Bottom Navigation Bar / Selection Mode Action Bar */}
+      {/* Bottom Navigation Bar / Selection Mode Action Bar — hidden when BookChat is open */}
+      {!(showChatPage && chatBookSelected) && (
       <div className="fixed left-0 right-0 z-[50] flex justify-center px-4 pointer-events-none" style={{ bottom: 'calc(16px + var(--safe-area-bottom, 0px))' }}>
         <AnimatePresence mode="wait">
         {isSelectMode && selectedBookIds.size > 0 ? (
@@ -9318,6 +9495,8 @@ export default function App() {
               setShowAccountPage(false);
               setShowSortingResults(false);
               setShowFeedPage(false);
+              setShowChatPage(false);
+              setChatBookSelected(false);
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
               showBookshelfCovers
@@ -9401,33 +9580,51 @@ export default function App() {
           </div>
           )}
 
-          {/* Clubs button */}
-          {!isReviewer && (
-          <div className="relative group">
-            <button
-              onClick={() => {}}
-              className="w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12"
-            >
-              {featureFlags.hand_drawn_icons ? (
-                <img src={getAssetPath("/shield.svg")} alt="Clubs" className="w-[18px] h-[18px]" />
-              ) : (
-                <ShieldUser size={18} className="text-slate-700 dark:text-slate-300" />
-              )}
-            </button>
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50"
-              style={{
-                background: '#1d1d1f',
-                color: '#fff',
-                padding: '8px 14px',
-                borderRadius: '10px',
-                fontSize: '0.75rem',
-                fontWeight: '700',
-                boxShadow: '0 10px 20px rgba(0,0,0,0.1)',
-              }}
-            >
-              Clubs coming soon
+          {/* Chat button */}
+          {!isReviewer && featureFlags.chat_enabled && (
+            <div className="relative">
+              <button
+                onClick={() => {
+                  if (isNativePlatform) {
+                    setChatComingSoon(true);
+                    setTimeout(() => setChatComingSoon(false), 2000);
+                    return;
+                  }
+                  if (showChatPage) return;
+                  setScrollY(0);
+                  setChatBookSelected(false);
+                  setShowChatPage(true);
+                  setShowFeedPage(false);
+                  setShowBookshelf(false);
+                  setShowBookshelfCovers(false);
+                  setShowNotesView(false);
+                  setShowAccountPage(false);
+                  setShowSortingResults(false);
+                }}
+                className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
+                  isNativePlatform
+                    ? 'bg-white/10 dark:bg-white/5 opacity-50'
+                    : showChatPage
+                      ? 'bg-white/40 dark:bg-white/10 hover:bg-white/50 dark:bg-white/15'
+                      : 'bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12'
+                }`}
+              >
+                <MessageCircle size={18} className="text-slate-700 dark:text-slate-300" />
+              </button>
+              <AnimatePresence>
+                {chatComingSoon && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 4, scale: 0.95 }}
+                    className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white whitespace-nowrap"
+                    style={{ background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+                  >
+                    Coming soon!
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
-          </div>
           )}
 
           {/* Feed button */}
@@ -9446,6 +9643,8 @@ export default function App() {
               setShowNotesView(false);
               setShowAccountPage(false);
               setShowSortingResults(false);
+              setShowChatPage(false);
+              setChatBookSelected(false);
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
               showFeedPage
@@ -9476,6 +9675,7 @@ export default function App() {
         )}
         </AnimatePresence>
       </div>
+      )}
 
       {/* Game Overlay */}
       <AnimatePresence>
@@ -9937,6 +10137,55 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Notes Editor Overlay */}
+      <AnimatePresence>
+        {isShowingNotes && activeBook && (
+          <NotesEditorOverlay
+            bookId={activeBook.id}
+            bookTitle={activeBook.title}
+            initialNotes={activeBook.notes || null}
+            onClose={(finalNotes) => {
+              const hadChanges = (finalNotes || null) !== (activeBook.notes || null);
+              setIsShowingNotes(false);
+              // Persist to local state + DB on close
+              setBooks(prev => prev.map(book =>
+                book.id === activeBook.id ? { ...book, notes: finalNotes } : book
+              ));
+              if (user) {
+                supabase
+                  .from('books')
+                  .update({ notes: finalNotes, updated_at: new Date().toISOString() })
+                  .eq('id', activeBook.id)
+                  .eq('user_id', user.id)
+                  .then(({ error }) => {
+                    if (error) console.error('Error saving notes:', error);
+                  });
+              }
+              if (hadChanges && finalNotes) {
+                setNoteSavedToast(true);
+                setTimeout(() => setNoteSavedToast(false), 2000);
+              }
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Note Saved Toast */}
+      <AnimatePresence>
+        {noteSavedToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.3 }}
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[101] px-4 py-2 rounded-full text-sm font-semibold text-white"
+            style={{ background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
+          >
+            Note saved
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Trivia Game Overlay */}
       <AnimatePresence>
         {isPlayingTrivia && (
@@ -9968,27 +10217,30 @@ export default function App() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              onAnimationComplete={() => { if (triviaLottieRef.current) triviaLottieRef.current.goToAndPlay(0); }}
               className="w-full max-w-md bg-white/80 dark:bg-white/15 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 dark:border-white/10 relative"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Trivia Logo - Anchored to top of trivia box, centered on box x-axis */}
               <AnimatePresence>
-                {(isTriviaReady || triviaQuestions.length > 0 || triviaGameComplete) && (
+                {(isTriviaReady && !isTriviaLoading && !triviaGameComplete && triviaQuestions.length === 0) && (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3 }}
                     className="absolute left-1/2 -translate-x-1/2 z-30 pointer-events-none"
-                    style={{ 
-                      top: 'calc(-10rem + 70px)'
+                    style={{
+                      top: 'calc(-10rem + 40px)'
                     }}
                   >
-                    <img 
-                      src={getAssetPath('/trivia.png')} 
-                      alt="Trivia" 
-                      className="h-40 w-auto object-contain block mx-auto"
-                      style={{ marginLeft: 'auto', marginRight: 'auto' }}
+                    <Lottie
+                      lottieRef={triviaLottieRef}
+                      animationData={triviaAnimation}
+                      autoplay={false}
+                      loop={false}
+                      className="h-40 w-auto block mx-auto"
+                      style={{ transform: 'scale(1.5)' }}
                     />
                   </motion.div>
                 )}
@@ -10468,6 +10720,8 @@ export default function App() {
                   setShowBookshelfCovers(false);
                   setShowNotesView(false);
                   setShowFeedPage(false);
+                  setShowChatPage(false);
+                  setChatBookSelected(false);
                 }
               }}
               onSelectUser={(userId) => {
@@ -10487,6 +10741,82 @@ export default function App() {
             />
           )}
       </AnimatePresence>
+
+        {/* Delete Account Confirmation Dialog */}
+        <AnimatePresence>
+          {showDeleteAccountConfirm && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-center justify-center px-6"
+              onClick={() => !isDeletingAccount && setShowDeleteAccountConfirm(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-sm rounded-2xl p-6"
+                style={{ background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255, 255, 255, 0.1)', boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)' }}
+              >
+                <h3 className="text-lg font-bold text-white mb-2">Delete Account?</h3>
+                <p className="text-sm text-slate-300 mb-6">
+                  This will permanently delete your account, all your books, notes, ratings, and chat history. This action cannot be undone.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowDeleteAccountConfirm(false)}
+                    disabled={isDeletingAccount}
+                    className="flex-1 py-2.5 rounded-full text-sm font-bold text-white active:scale-95 transition-all"
+                    style={{ background: 'rgba(255, 255, 255, 0.15)', border: '1px solid rgba(255, 255, 255, 0.2)' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!user) return;
+                      setIsDeletingAccount(true);
+                      try {
+                        const session = await supabase.auth.getSession();
+                        const token = session.data.session?.access_token;
+                        if (!token) throw new Error('No session');
+
+                        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+                        const res = await fetch(`${supabaseUrl}/functions/v1/delete-account`, {
+                          method: 'POST',
+                          headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                          },
+                        });
+
+                        if (!res.ok) {
+                          const body = await res.json().catch(() => ({}));
+                          throw new Error(body.error || 'Failed to delete account');
+                        }
+
+                        setShowDeleteAccountConfirm(false);
+                        setShowAccountPage(false);
+                        await signOut();
+                      } catch (err: any) {
+                        console.error('[Account] Delete error:', err);
+                        alert('Failed to delete account. Please try again.');
+                      } finally {
+                        setIsDeletingAccount(false);
+                      }
+                    }}
+                    disabled={isDeletingAccount}
+                    className="flex-1 py-2.5 rounded-full text-sm font-bold text-white active:scale-95 transition-all"
+                    style={{ background: isDeletingAccount ? '#ef444480' : '#ef4444' }}
+                  >
+                    {isDeletingAccount ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Book Discussion Modal */}
         <AnimatePresence>
@@ -11642,6 +11972,8 @@ export default function App() {
               <button
                 onClick={() => {
                   setShowAccountPage(true);
+                  setShowChatPage(false);
+                  setChatBookSelected(false);
                   setShowProfileMenu(false);
                 }}
                 className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-white/20 dark:bg-white/8 active:bg-white/30 dark:bg-white/12 transition-colors border-b border-white/20 dark:border-white/10"
@@ -11655,11 +11987,23 @@ export default function App() {
                   await signOut();
                   setShowProfileMenu(false);
                 }}
-                className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-white/20 dark:bg-white/8 active:bg-white/30 dark:bg-white/12 transition-colors"
+                className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-white/20 dark:bg-white/8 active:bg-white/30 dark:bg-white/12 transition-colors border-b border-white/20 dark:border-white/10"
               >
                 <LogOut size={16} className="text-slate-600 dark:text-slate-400" />
                 <span>Logout</span>
               </button>
+              {isReviewer && (
+                <button
+                  onClick={() => {
+                    setShowProfileMenu(false);
+                    setShowDeleteAccountConfirm(true);
+                  }}
+                  className="w-full px-4 py-3 flex items-center gap-2 text-sm font-medium text-red-500 hover:bg-white/20 dark:bg-white/8 active:bg-white/30 dark:bg-white/12 transition-colors"
+                >
+                  <Trash2 size={16} />
+                  <span>Delete Account</span>
+                </button>
+              )}
             </motion.div>
           </>
         )}
