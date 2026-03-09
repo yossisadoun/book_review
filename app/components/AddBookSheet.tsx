@@ -359,48 +359,57 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
 
   // Track keyboard height via Capacitor Keyboard plugin
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [sheetReady, setSheetReady] = useState(false);
   const isKeyboardVisible = keyboardHeight > 0;
+  const isNative = useRef(false);
 
   useEffect(() => {
-    if (!isOpen) return;
-    let willShowListener: any;
+    if (!isOpen) {
+      setSheetReady(false);
+      setKeyboardHeight(0);
+      return;
+    }
+    let didShowListener: any;
     let willHideListener: any;
+    let viewportHandler: (() => void) | null = null;
     (async () => {
       try {
         const { Keyboard } = await import('@capacitor/keyboard');
-        willShowListener = await Keyboard.addListener('keyboardWillShow', (info) => {
+        isNative.current = true;
+        didShowListener = await Keyboard.addListener('keyboardDidShow', (info) => {
           setKeyboardHeight(info.keyboardHeight);
+          setSheetReady(true);
         });
         willHideListener = await Keyboard.addListener('keyboardWillHide', () => {
           setKeyboardHeight(0);
         });
+        // Focus immediately to trigger keyboard while sheet is off-screen
+        setTimeout(() => inputRef.current?.focus(), 50);
       } catch {
         // Not on native — fall back to visualViewport
-        const handleViewportChange = () => {
+        isNative.current = false;
+        viewportHandler = () => {
           if (window.visualViewport) {
             const heightDiff = window.innerHeight - window.visualViewport.height;
             setKeyboardHeight(heightDiff > 150 ? heightDiff : 0);
           }
         };
         if (window.visualViewport) {
-          window.visualViewport.addEventListener('resize', handleViewportChange);
-          handleViewportChange();
+          window.visualViewport.addEventListener('resize', viewportHandler);
+          viewportHandler();
         }
+        // On web, show sheet immediately
+        setSheetReady(true);
+        setTimeout(() => inputRef.current?.focus(), 300);
       }
     })();
     return () => {
-      willShowListener?.remove();
+      didShowListener?.remove();
       willHideListener?.remove();
+      if (viewportHandler && window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', viewportHandler);
+      }
     };
-  }, [isOpen]);
-
-  // Focus input when sheet opens
-  useEffect(() => {
-    if (isOpen && inputRef.current) {
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 300);
-    }
   }, [isOpen]);
 
   // Scroll results to top when they appear
@@ -424,18 +433,19 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
       className="fixed inset-0 z-[100] flex flex-col items-center justify-end bg-black/40 backdrop-blur-sm px-4"
       onClick={onClose}
       style={{
-        paddingBottom: isKeyboardVisible && !isAndroid ? `${keyboardHeight}px` : '0px'
+        paddingBottom: isKeyboardVisible && !isAndroid ? `${Math.max(keyboardHeight - 20, 0)}px` : '0px',
       }}
     >
       <motion.div
-        initial={{ y: '100%' }}
-        animate={{ y: 0 }}
-        exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 25, stiffness: 300, duration: 0.4 }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: sheetReady ? 1 : 0 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.3 }}
         className="w-full max-w-md bg-white/80 dark:bg-white/15 dark:bg-slate-900/85 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 dark:border-white/10 dark:border-white/10 flex flex-col"
         onClick={e => e.stopPropagation()}
         style={{
-          maxHeight: 'calc(100% - 120px)'
+          maxHeight: 'calc(100% - 120px)',
+          paddingBottom: isKeyboardVisible ? '20px' : '0px',
         }}
       >
         {/* Handle bar */}

@@ -383,7 +383,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
 
               {/* Floating glassmorphic overlay */}
               <div
-                className="absolute inset-x-3 bottom-3 rounded-xl px-3 py-2.5 overflow-hidden"
+                className="absolute inset-x-3 bottom-3 rounded-xl px-3 py-2.5 overflow-hidden z-30"
                 style={overlayGlassStyle}
               >
                 {/* Type badge */}

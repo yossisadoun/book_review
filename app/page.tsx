@@ -100,6 +100,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Lottie from 'lottie-react';
 import spinnerAnimation from '@/public/spinner.json';
 import heartAnimation from '@/public/heart_anim.json';
+import vectorAnimation from '@/public/vector-anim-export.json';
 import bookPageOnboardingAnimation from '@/public/onboarding_anim_book_page_new.json';
 import triviaAnimation from '@/public/trivia.json';
 import nextReadsAnimation from '@/public/next_reads.json';
@@ -471,6 +472,7 @@ export default function App() {
   const [isLoadingFollowing, setIsLoadingFollowing] = useState(false);
   const [followingSortOrder, setFollowingSortOrder] = useState<'recent_desc' | 'recent_asc' | 'name_desc' | 'name_asc'>('recent_desc');
   const [editingNoteBookId, setEditingNoteBookId] = useState<string | null>(null);
+  const [notesSortOrder, setNotesSortOrder] = useState<'edited_desc' | 'edited_asc' | 'name_asc' | 'name_desc'>('edited_desc');
   const [bookshelfGrouping, setBookshelfGrouping] = useState<'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year' | 'list'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('bookshelfGrouping');
@@ -1295,7 +1297,7 @@ export default function App() {
       if (isScreenshot) {
         setScreenshotMode(true);
         // Also mark intro as seen to prevent about screen from showing
-        localStorage.setItem('hasSeenIntro', 'true');
+        if (user) localStorage.setItem(`hasSeenIntro_${user.id}`, 'true');
         if (overlayText) {
           setScreenshotOverlayText(decodeURIComponent(overlayText));
         }
@@ -1475,10 +1477,11 @@ export default function App() {
     }
   }, [isLoaded, books.length, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage]);
 
-  // Show intro screen for new users who haven't seen it (separate from page state)
+  // Show intro screen for new users who haven't seen it (per-account)
   useEffect(() => {
     if (isLoaded && user && books.length === 0) {
-      const hasSeenIntro = localStorage.getItem('hasSeenIntro');
+      const introKey = `hasSeenIntro_${user.id}`;
+      const hasSeenIntro = localStorage.getItem(introKey);
       console.log('[Intro Debug] Checking intro:', { isLoaded, userId: user.id, booksLength: books.length, hasSeenIntro });
       if (!hasSeenIntro) {
         console.log('[Intro Debug] Showing intro screen for new user');
@@ -6636,7 +6639,7 @@ export default function App() {
                       <MessageCircle size={20} className="text-blue-400 shrink-0" />
                     </button>
                   ) : chatList.length === 0 ? (
-                    <div className="flex flex-col items-center pt-8 pb-6">
+                    <div className="flex flex-col items-center pt-8 pb-6 rounded-2xl" style={glassmorphicStyle}>
                       <MessageCircle size={36} className="text-slate-300 mb-3" />
                       <p className="text-sm text-slate-400 text-center">No conversations yet</p>
                       <p className="text-xs text-slate-400 text-center mt-1">Tap a book above to start chatting</p>
@@ -6902,11 +6905,39 @@ export default function App() {
           >
             {/* Notes View */}
             <div className="w-full max-w-[600px] md:max-w-[800px] flex flex-col gap-4 px-4 py-8">
+              {/* Sort Button */}
+              <div className="flex justify-start mb-0">
+                <button
+                  onClick={() => {
+                    const order: Array<'edited_desc' | 'edited_asc' | 'name_asc' | 'name_desc'> = ['edited_desc', 'edited_asc', 'name_asc', 'name_desc'];
+                    const currentIndex = order.indexOf(notesSortOrder);
+                    const nextIndex = (currentIndex + 1) % order.length;
+                    setNotesSortOrder(order[nextIndex]);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 dark:text-slate-300 hover:opacity-80 active:scale-95"
+                  style={standardGlassmorphicStyle}
+                >
+                  <span>
+                    {notesSortOrder === 'edited_desc' ? 'Recent ↓' :
+                     notesSortOrder === 'edited_asc' ? 'Recent ↑' :
+                     notesSortOrder === 'name_asc' ? 'Name A-Z' : 'Name Z-A'}
+                  </span>
+                </button>
+              </div>
               {(() => {
-                // Filter books with notes and sort by title
                 const booksWithNotes = books
                   .filter(book => book.notes && book.notes.trim().length > 0)
-                  .sort((a, b) => a.title.localeCompare(b.title));
+                  .sort((a, b) => {
+                    if (notesSortOrder === 'edited_desc') {
+                      return new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime();
+                    } else if (notesSortOrder === 'edited_asc') {
+                      return new Date(a.updated_at || a.created_at).getTime() - new Date(b.updated_at || b.created_at).getTime();
+                    } else if (notesSortOrder === 'name_asc') {
+                      return a.title.localeCompare(b.title);
+                    } else {
+                      return b.title.localeCompare(a.title);
+                    }
+                  });
 
                 if (booksWithNotes.length === 0) {
                   return (
@@ -6968,7 +6999,12 @@ export default function App() {
                       {/* Book Info and Notes */}
                       <div className="flex-1 min-w-0">
                         <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50 mb-1 line-clamp-1">{book.title}</h2>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">{book.author}</p>
+                        <div className="flex items-center gap-2 mb-2">
+                          <p className="text-xs text-slate-600 dark:text-slate-400">{book.author}</p>
+                          <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-200/50 dark:bg-slate-700/50 rounded-full px-1.5 py-0.5">
+                            {(book.notes || '').split(/\{\d{4}-\d{2}-\d{2} \d{2}:\d{2}\}/).filter(p => p.trim()).length}
+                          </span>
+                        </div>
                         
                         {editingNoteBookId === book.id ? (
                           <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
@@ -7044,7 +7080,7 @@ export default function App() {
             }}
           >
             {/* Arrow Animation Overlay - only show on own bookshelf when grouped by status and no books in Reading */}
-            {!viewingUserId && bookshelfGrouping === 'reading_status' && books.filter(b => b.reading_status === 'reading').length === 0 && <ArrowAnimation isBookshelfEmpty={booksForBookshelf.length === 0} />}
+            {!viewingUserId && bookshelfGrouping === 'reading_status' && books.filter(b => b.reading_status === 'reading').length === 0 && <ArrowAnimation isBookshelfEmpty={booksForBookshelf.length === 0} white playOnce opaque />}
 
             {/* Bookshelf Covers View */}
             <div
@@ -7349,21 +7385,37 @@ export default function App() {
                 {/* Empty state - show when no books */}
                 {booksForBookshelf.length === 0 && !viewingUserId ? (
                   <div
-                    className="flex flex-col items-center justify-center text-center py-[30px] rounded-2xl"
-                    style={glassmorphicStyle}
+                    className="relative flex flex-col gap-4 rounded-2xl overflow-hidden"
+                    style={{ ...glassmorphicStyle, padding: '0.8rem 0' }}
                   >
-                    <img src={getAssetPath("/logo.png")} alt="Book.luv" className="object-contain mx-auto" />
+                    <h2 className="text-xl font-bold text-slate-950 dark:text-slate-50 px-[4vw] flex items-center gap-2">
+                      ADD YOUR FIRST BOOK
+                    </h2>
+                    <div className="px-[4vw] flex items-center gap-4">
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.3 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="flex flex-col items-center cursor-pointer group w-[100px] flex-shrink-0"
+                        onClick={() => openAddBookSheet()}
+                      >
+                        <div
+                          className="relative w-full aspect-[2/3] rounded-lg overflow-hidden shadow-lg mb-2 group-hover:scale-105 transition-all flex items-center justify-center"
+                          style={glassmorphicStyle}
+                        >
+                          <Plus size={32} className="text-slate-400 group-hover:text-blue-600 dark:text-blue-400 transition-colors" />
+                        </div>
+                      </motion.div>
+                      <div className="flex flex-col gap-1 self-start">
+                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">We&apos;ll pull videos, podcasts and fun facts around and generally try and make reading it richer!</p>
+                      </div>
+                    </div>
                     <button
-                      onClick={() => openAddBookSheet()}
-                      className="px-6 py-3 rounded-xl font-bold text-white active:scale-95 transition-all"
-                      style={{
-                        background: 'rgba(59, 130, 246, 0.85)',
-                        backdropFilter: 'blur(9.4px)',
-                        WebkitBackdropFilter: 'blur(9.4px)',
-                        border: '1px solid rgba(59, 130, 246, 0.3)',
-                      }}
+                      onClick={() => setShowAboutScreen(true)}
+                      className="absolute bottom-2 right-3 w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
                     >
-                      Add first book
+                      <Info size={18} className="text-slate-400" />
                     </button>
                   </div>
                 ) : booksForBookshelf.length === 0 && viewingUserId ? (
@@ -8272,12 +8324,8 @@ export default function App() {
                                 setSelectingReadingStatusInRating(false);
                                 setSelectingReadingStatusForExisting(false);
                                 setPendingBookMeta(null);
-                                // If this is a new book, proceed to rating dimensions
-                                if (selectingReadingStatusInRating && pendingBookMeta) {
-                                  setEditingDimension(null);
-                                } else {
-                                  setIsEditing(false);
-                                }
+                                // Proceed to rating dimensions (both for new books and existing books changing to "read_it")
+                                setEditingDimension(null);
                               }
                             }}
                             className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
@@ -9479,6 +9527,7 @@ export default function App() {
                 !showAccountPage &&
                 !showSortingResults &&
                 !showFollowingPage &&
+                !showChatPage &&
                 !viewingUserId
               ) {
                 return; // Already on bookshelf, do nothing
@@ -9494,6 +9543,7 @@ export default function App() {
               setShowNotesView(false);
               setShowAccountPage(false);
               setShowSortingResults(false);
+              setShowFollowingPage(false);
               setShowFeedPage(false);
               setShowChatPage(false);
               setChatBookSelected(false);
@@ -11462,14 +11512,14 @@ export default function App() {
             className="fixed inset-0 z-[100] flex items-center justify-center px-4"
             onClick={() => {
               setShowAboutScreen(false);
-              localStorage.setItem('hasSeenIntro', 'true');
+              if (user) localStorage.setItem(`hasSeenIntro_${user.id}`, 'true');
             }}
           >
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 setShowAboutScreen(false);
-                localStorage.setItem('hasSeenIntro', 'true');
+                if (user) localStorage.setItem(`hasSeenIntro_${user.id}`, 'true');
               }}
               className="absolute top-[65px] right-4 z-20 w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
               style={standardGlassmorphicStyle}
@@ -11525,7 +11575,7 @@ export default function App() {
                   const distanceY = aboutTouchStart.y - aboutTouchEnd.y;
                   const minSwipeDistance = 50;
                   if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
-                    if (distanceX > 0 && aboutPageIndex < 2) {
+                    if (distanceX > 0 && aboutPageIndex < 3) {
                       setAboutSwipeDirection('forward');
                       setAboutPageIndex(prev => prev + 1); // Swipe left = next
                     } else if (distanceX < 0 && aboutPageIndex > 0) {
@@ -11537,8 +11587,8 @@ export default function App() {
                   setAboutTouchEnd(null);
                 }}
               >
-                {/* Fixed logo_text header that stays in place on all pages */}
-                <div className="absolute top-[8vh] left-0 right-0 flex justify-center z-0 pointer-events-none">
+                {/* Fixed logo_text header - hidden on welcome page */}
+                <div className={`absolute top-[8vh] left-0 right-0 flex justify-center z-0 pointer-events-none transition-opacity duration-300 ${aboutPageIndex === 0 ? 'opacity-0' : 'opacity-100'}`}>
                   <img
                     src={getAssetPath('/logo_text.png')}
                     alt="Logo"
@@ -11546,36 +11596,42 @@ export default function App() {
                   />
                 </div>
 
-                {/* Fixed logo that stays in place on all pages */}
-                <div className="absolute bottom-[calc(7vh+15px)] left-0 right-0 flex justify-center z-0 pointer-events-none">
-                  <img
-                    src={getAssetPath('/logo_tight.png')}
-                    alt="Logo"
-                    className="w-[min(192px,23vh)] h-[min(192px,23vh)] object-contain"
-                    style={{
-                      filter: 'drop-shadow(0 20px 40px rgba(255, 255, 255, 0.8))',
-                    }}
-                  />
-                </div>
+                {/* Animated logo - transitions from center (page 0) to bottom (pages 1+) */}
+                <motion.div
+                  className="absolute left-0 right-0 flex justify-center z-[15] pointer-events-none"
+                  animate={aboutPageIndex === 0
+                    ? { top: 'calc(50% - 10px)', opacity: 1 }
+                    : aboutPageIndex === 3
+                    ? { top: 'calc(100% - 7vh - 15px - 192px + 300px)', opacity: 0 }
+                    : { top: 'calc(100% - 7vh - 15px - 192px)', opacity: 1 }
+                  }
+                  transition={{ duration: 0.5, ease: 'easeInOut' }}
+                >
+                  <div className="relative">
+                    <motion.img
+                      src={getAssetPath('/logo_tight.png')}
+                      alt="Logo"
+                      animate={aboutPageIndex === 0
+                        ? { height: 128 }
+                        : { height: 192 }
+                      }
+                      transition={{ duration: 0.5, ease: 'easeInOut' }}
+                      className="object-contain"
+                      style={aboutPageIndex > 0 ? { filter: 'drop-shadow(0 20px 40px rgba(255, 255, 255, 0.8))' } : undefined}
+                    />
+                  </div>
+                </motion.div>
 
-                {/* Full page content that swipes together */}
-                <AnimatePresence initial={false} mode="popLayout">
-                  {aboutPageIndex === 0 && (
-                    <motion.div
-                      key="page-0"
-                      initial={{ x: '-100%' }}
-                      animate={{ x: 0 }}
-                      exit={{ x: '-100%' }}
-                      transition={{ duration: 0.3, ease: 'easeInOut' }}
-                      className="absolute inset-0 flex flex-col items-center px-8"
-                    >
-                      {/* Header - anchored to top */}
-                      <motion.div
-                        className="absolute top-[14vh] left-0 right-0 flex flex-col items-center gap-[1vh] px-8"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ duration: 0.3, delay: 0.1 }}
-                      >
+                {/* Persistent header area - morphs between pages */}
+                <div className="absolute top-[12vh] left-0 right-0 flex flex-col items-center gap-[1vh] px-8 z-10">
+                  <AnimatePresence mode="wait">
+                    {aboutPageIndex === 0 && (
+                      <motion.div key="h0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="flex flex-col items-center mt-[250px]">
+                        <h1 className="text-2xl font-bold text-black tracking-wide">WELCOME TO</h1>
+                      </motion.div>
+                    )}
+                    {aboutPageIndex === 1 && (
+                      <motion.div key="h1" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="flex flex-col items-center gap-[1vh]">
                         <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 dark:text-slate-100 text-center uppercase leading-tight">
                           GET MORE FROM READING
                         </h1>
@@ -11583,165 +11639,210 @@ export default function App() {
                           Videos, podcasts, fun facts and context around your book — All in one place.
                         </p>
                       </motion.div>
-
-                      {/* Content - notifications anchored above logo - animates in after page transition */}
-                      <motion.div
-                        className="absolute bottom-[32vh] left-0 right-0 flex justify-center px-8 z-10"
-                        initial={{ opacity: 0, y: 30, scale: 0.9 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        transition={{ duration: 0.4, delay: 0.35, ease: 'easeOut' }}
-                      >
-                        <InfoPageTooltips />
-                      </motion.div>
-
-                    </motion.div>
-                  )}
-
-                  {aboutPageIndex === 1 && (
-                    <motion.div
-                      key="page-1"
-                      initial={{ x: aboutSwipeDirection === 'forward' ? '100%' : '-100%' }}
-                      animate={{ x: 0 }}
-                      exit={{ x: aboutSwipeDirection === 'forward' ? '-100%' : '100%' }}
-                      transition={{ duration: 0.3, ease: 'easeInOut' }}
-                      className="absolute inset-0 flex flex-col items-center px-8"
-                    >
-                      {/* Header - anchored to top */}
-                      <div className="absolute top-[14vh] left-0 right-0 flex flex-col items-center gap-[1vh] px-8">
+                    )}
+                    {aboutPageIndex === 2 && (
+                      <motion.div key="h2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="flex flex-col items-center gap-[1vh]">
                         <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 dark:text-slate-100 text-center uppercase leading-tight">
                           TALK ABOUT<br />YOUR BOOK
                         </h1>
                         <p className="text-[min(17px,2.2vh)] text-slate-600 dark:text-slate-400 text-center px-4">
                           Join discussions and book clubs, with real people or with your private AI bot.
                         </p>
-                      </div>
-
-                      {/* Content - anchored above pagination */}
-                      <div className="absolute bottom-[34vh] left-0 right-0 flex justify-center px-8 z-10">
-                        <div className="flex flex-col gap-[min(12px,1.5vh)] w-full max-w-[min(300px,85vw)]">
-                          {/* Message 1 - from left */}
-                          <motion.div
-                            initial={{ opacity: 0, x: -30, scale: 0.9 }}
-                            animate={{ opacity: 1, x: 0, scale: 1 }}
-                            transition={{ duration: 0.4, delay: 0.3, type: "spring", stiffness: 150 }}
-                            className="flex items-end gap-2 self-start"
-                          >
-                            <div className="w-[min(32px,4vh)] h-[min(32px,4vh)] rounded-full flex-shrink-0 flex items-center justify-center" style={{
-                              background: 'rgba(147, 51, 234, 0.75)',
-                              border: '1px solid rgba(147, 51, 234, 0.3)',
-                            }}>
-                              <User size={14} className="text-white" />
-                            </div>
-                            <div className="px-3 py-[min(8px,1vh)] rounded-2xl rounded-bl-md max-w-[min(200px,55vw)]" style={{
-                              background: 'rgba(255, 255, 255, 0.7)',
-                              backdropFilter: 'blur(10px)',
-                              border: '1px solid rgba(255, 255, 255, 0.4)',
-                            }}>
-                              <p className="text-[min(14px,1.8vh)] text-slate-700 dark:text-slate-300">What did you think of the ending?</p>
-                            </div>
-                          </motion.div>
-
-                          {/* Message 2 - from right */}
-                          <motion.div
-                            initial={{ opacity: 0, x: 30, scale: 0.9 }}
-                            animate={{ opacity: 1, x: 0, scale: 1 }}
-                            transition={{ duration: 0.4, delay: 0.6, type: "spring", stiffness: 150 }}
-                            className="flex items-end gap-2 self-end flex-row-reverse"
-                          >
-                            <div className="w-[min(32px,4vh)] h-[min(32px,4vh)] rounded-full flex-shrink-0 flex items-center justify-center" style={{
-                              background: 'rgba(59, 130, 246, 0.75)',
-                              border: '1px solid rgba(59, 130, 246, 0.3)',
-                            }}>
-                              <User size={14} className="text-white" />
-                            </div>
-                            <div className="px-3 py-[min(8px,1vh)] rounded-2xl rounded-br-md max-w-[min(200px,55vw)]" style={{
-                              background: 'rgba(59, 130, 246, 0.15)',
-                              backdropFilter: 'blur(10px)',
-                              border: '1px solid rgba(59, 130, 246, 0.3)',
-                            }}>
-                              <p className="text-[min(14px,1.8vh)] text-slate-700 dark:text-slate-300">I was shocked! Didn&apos;t see it coming</p>
-                            </div>
-                          </motion.div>
-
-                          {/* Message 3 - AI bot from left */}
-                          <motion.div
-                            initial={{ opacity: 0, x: -30, scale: 0.9 }}
-                            animate={{ opacity: 1, x: 0, scale: 1 }}
-                            transition={{ duration: 0.4, delay: 0.9, type: "spring", stiffness: 150 }}
-                            className="flex items-end gap-2 self-start"
-                          >
-                            <div className="w-[min(32px,4vh)] h-[min(32px,4vh)] rounded-full flex-shrink-0 flex items-center justify-center" style={{
-                              background: 'rgba(16, 185, 129, 0.75)',
-                              border: '1px solid rgba(16, 185, 129, 0.3)',
-                            }}>
-                              <Bot size={14} className="text-white" />
-                            </div>
-                            <div className="px-3 py-[min(8px,1vh)] rounded-2xl rounded-bl-md max-w-[min(220px,60vw)]" style={{
-                              background: 'rgba(16, 185, 129, 0.1)',
-                              backdropFilter: 'blur(10px)',
-                              border: '1px solid rgba(16, 185, 129, 0.3)',
-                            }}>
-                              <p className="text-[min(14px,1.8vh)] text-slate-700 dark:text-slate-300">The foreshadowing in chapter 3 hinted at it!</p>
-                            </div>
-                          </motion.div>
-                        </div>
-                      </div>
-
-                    </motion.div>
-                  )}
-
-                  {aboutPageIndex === 2 && (
-                    <motion.div
-                      key="page-2"
-                      initial={{ x: '100%' }}
-                      animate={{ x: 0 }}
-                      exit={{ x: '100%' }}
-                      transition={{ duration: 0.3, ease: 'easeInOut' }}
-                      className="absolute inset-0 flex flex-col items-center px-8"
-                    >
-                      {/* Header - anchored to top */}
-                      <div className="absolute top-[14vh] left-0 right-0 flex flex-col items-center gap-[1vh] px-8">
+                      </motion.div>
+                    )}
+                    {aboutPageIndex === 3 && (
+                      <motion.div key="h3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="flex flex-col items-center gap-[1vh]">
                         <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 dark:text-slate-100 text-center uppercase leading-tight">
                           START WITH<br />YOUR BOOK
                         </h1>
                         <p className="text-[min(17px,2.2vh)] text-slate-600 dark:text-slate-400 text-center">
                           Add a book you're reading to start exploring now
                         </p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* Persistent content area - crossfades between pages */}
+                <AnimatePresence mode="wait">
+                  {aboutPageIndex === 0 && (
+                    <motion.div
+                      key="c0"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="absolute inset-0 flex flex-col items-center justify-center px-8 z-[20] pointer-events-none"
+                    >
+                      {/* Vector line animation */}
+                      <div
+                        className="w-full max-w-md mb-8"
+                        style={{ transform: 'scale(0.91) translateY(60px)' }}
+                      >
+                        <Lottie
+                          animationData={vectorAnimation}
+                          loop={false}
+                          className="w-full h-auto"
+                        />
                       </div>
 
+                      {/* Tagline */}
+                      <motion.p
+                        className="absolute bottom-[16vh] left-0 right-0 text-center text-sm font-medium text-slate-500 pointer-events-none"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 3, duration: 0.5 }}
+                      >
+                        Let&apos;s add your books!
+                      </motion.p>
+
+                      {/* Swipe indicator */}
+                      <motion.div
+                        className="absolute bottom-[10vh] left-0 right-0 flex items-center justify-center gap-1 text-slate-400 pointer-events-none"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: [0, 1, 1, 0] }}
+                        transition={{ delay: 4.5, duration: 2, repeat: Infinity, repeatDelay: 1 }}
+                      >
+                        <span className="text-xs font-medium">Swipe</span>
+                        <ChevronRight size={14} />
+                      </motion.div>
+                    </motion.div>
+                  )}
+
+                  {aboutPageIndex === 1 && (
+                    <motion.div
+                      key="c1"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.35 }}
+                      className="absolute bottom-[32vh] left-0 right-0 flex justify-center px-8 z-10"
+                    >
+                      <InfoPageTooltips />
+                    </motion.div>
+                  )}
+
+                  {aboutPageIndex === 2 && (
+                    <motion.div
+                      key="c2"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="absolute bottom-[34vh] left-0 right-0 flex justify-center px-8 z-10"
+                    >
+                      <div className="flex flex-col gap-[min(12px,1.5vh)] w-full max-w-[min(300px,85vw)]">
+                        {/* Message 1 - from left */}
+                        <motion.div
+                          initial={{ opacity: 0, x: -30, scale: 0.9 }}
+                          animate={{ opacity: 1, x: 0, scale: 1 }}
+                          transition={{ duration: 0.4, delay: 0.3, type: "spring", stiffness: 150 }}
+                          className="flex items-end gap-2 self-start"
+                        >
+                          <div className="w-[min(32px,4vh)] h-[min(32px,4vh)] rounded-full flex-shrink-0 flex items-center justify-center" style={{
+                            background: 'rgba(147, 51, 234, 0.75)',
+                            border: '1px solid rgba(147, 51, 234, 0.3)',
+                          }}>
+                            <User size={14} className="text-white" />
+                          </div>
+                          <div className="px-3 py-[min(8px,1vh)] rounded-2xl rounded-bl-md max-w-[min(200px,55vw)]" style={{
+                            background: 'rgba(255, 255, 255, 0.7)',
+                            backdropFilter: 'blur(10px)',
+                            border: '1px solid rgba(255, 255, 255, 0.4)',
+                          }}>
+                            <p className="text-[min(14px,1.8vh)] text-slate-700 dark:text-slate-300">What did you think of the ending?</p>
+                          </div>
+                        </motion.div>
+
+                        {/* Message 2 - from right */}
+                        <motion.div
+                          initial={{ opacity: 0, x: 30, scale: 0.9 }}
+                          animate={{ opacity: 1, x: 0, scale: 1 }}
+                          transition={{ duration: 0.4, delay: 0.6, type: "spring", stiffness: 150 }}
+                          className="flex items-end gap-2 self-end flex-row-reverse"
+                        >
+                          <div className="w-[min(32px,4vh)] h-[min(32px,4vh)] rounded-full flex-shrink-0 flex items-center justify-center" style={{
+                            background: 'rgba(59, 130, 246, 0.75)',
+                            border: '1px solid rgba(59, 130, 246, 0.3)',
+                          }}>
+                            <User size={14} className="text-white" />
+                          </div>
+                          <div className="px-3 py-[min(8px,1vh)] rounded-2xl rounded-br-md max-w-[min(200px,55vw)]" style={{
+                            background: 'rgba(59, 130, 246, 0.15)',
+                            backdropFilter: 'blur(10px)',
+                            border: '1px solid rgba(59, 130, 246, 0.3)',
+                          }}>
+                            <p className="text-[min(14px,1.8vh)] text-slate-700 dark:text-slate-300">I was shocked! Didn&apos;t see it coming</p>
+                          </div>
+                        </motion.div>
+
+                        {/* Message 3 - AI bot from left */}
+                        <motion.div
+                          initial={{ opacity: 0, x: -30, scale: 0.9 }}
+                          animate={{ opacity: 1, x: 0, scale: 1 }}
+                          transition={{ duration: 0.4, delay: 0.9, type: "spring", stiffness: 150 }}
+                          className="flex items-end gap-2 self-start"
+                        >
+                          <div className="w-[min(32px,4vh)] h-[min(32px,4vh)] rounded-full flex-shrink-0 flex items-center justify-center" style={{
+                            background: 'rgba(16, 185, 129, 0.75)',
+                            border: '1px solid rgba(16, 185, 129, 0.3)',
+                          }}>
+                            <Bot size={14} className="text-white" />
+                          </div>
+                          <div className="px-3 py-[min(8px,1vh)] rounded-2xl rounded-bl-md max-w-[min(220px,60vw)]" style={{
+                            background: 'rgba(16, 185, 129, 0.1)',
+                            backdropFilter: 'blur(10px)',
+                            border: '1px solid rgba(16, 185, 129, 0.3)',
+                          }}>
+                            <p className="text-[min(14px,1.8vh)] text-slate-700 dark:text-slate-300">The foreshadowing in chapter 3 hinted at it!</p>
+                          </div>
+                        </motion.div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {aboutPageIndex === 3 && (
+                    <motion.div
+                      key="c3"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="absolute inset-0 flex flex-col items-center px-8 z-10"
+                    >
                       {/* Placeholder book cover */}
                       <motion.div
                         initial={{ opacity: 0, y: 30, scale: 0.9 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         transition={{ duration: 0.4, delay: 0.2, type: "spring", stiffness: 150 }}
-                        className="absolute bottom-[42vh] left-0 right-0 flex justify-center px-8"
+                        className="absolute bottom-[39vh] left-0 right-0 flex justify-center px-8"
                       >
                         <button
                           onClick={() => {
                             setShowAboutScreen(false);
                             setAboutPageIndex(0);
-                            localStorage.setItem('hasSeenIntro', 'true');
+                            if (user) localStorage.setItem(`hasSeenIntro_${user.id}`, 'true');
                             openAddBookSheet();
                           }}
-                          className="w-[min(96px,12vh)] aspect-[2/3] rounded-lg overflow-hidden shadow-lg flex items-center justify-center active:scale-95 transition-transform cursor-pointer"
+                          className="w-[min(134px,16.8vh)] aspect-[2/3] rounded-lg overflow-hidden shadow-lg flex items-center justify-center active:scale-95 transition-transform cursor-pointer"
                           style={glassmorphicStyle}
                         >
-                          <Plus size={32} className="text-slate-400" />
+                          <Plus size={45} className="text-slate-400" />
                         </button>
                       </motion.div>
 
-                      {/* CTA Button - positioned above logo_tight */}
+                      {/* CTA Button */}
                       <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.4, delay: 0.4, type: "spring", stiffness: 150 }}
-                        className="absolute bottom-[32vh] left-0 right-0 flex justify-center px-8"
+                        className="absolute bottom-[29vh] left-0 right-0 flex justify-center px-8"
                       >
                         <button
                           onClick={() => {
                             setShowAboutScreen(false);
                             setAboutPageIndex(0);
-                            localStorage.setItem('hasSeenIntro', 'true');
+                            if (user) localStorage.setItem(`hasSeenIntro_${user.id}`, 'true');
                             openAddBookSheet();
                           }}
                           className="px-8 py-3 text-white font-semibold text-base active:scale-95 transition-transform"
@@ -11750,7 +11851,6 @@ export default function App() {
                           Add a book
                         </button>
                       </motion.div>
-
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -11758,7 +11858,7 @@ export default function App() {
                 {/* Pagination dots - anchored to bottom (stays fixed) */}
                 <div className="absolute bottom-[60px] left-0 right-0 flex justify-center z-20">
                   <div className="flex items-center gap-2">
-                    {[0, 1, 2].map((index) => (
+                    {[0, 1, 2, 3].map((index) => (
                       <button
                         key={index}
                         onClick={() => {
@@ -11936,7 +12036,7 @@ export default function App() {
                   transition={{ duration: 0.4, delay: 1.3 }}
                   onClick={() => {
                     setShowAboutScreen(false);
-                    localStorage.setItem('hasSeenIntro', 'true');
+                    if (user) localStorage.setItem(`hasSeenIntro_${user.id}`, 'true');
                     openAddBookSheet();
                   }}
                   className="px-8 py-3 text-white font-semibold text-base active:scale-95 transition-transform mt-6"

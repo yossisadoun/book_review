@@ -45,12 +45,11 @@ function getAssetPath(path: string): string {
 }
 
 export function LoginScreen() {
-  const { signInWithGoogle, signInWithApple, signInAsReviewer, signInAnonymously, loading } = useAuth();
+  const { signInWithGoogle, signInWithApple, signInAnonymously, loading } = useAuth();
   const [showHearts, setShowHearts] = useState(false);
   const [showHeartInside, setShowHeartInside] = useState(false);
   const [appleLoading, setAppleLoading] = useState(false);
-  const [reviewerLoading, setReviewerLoading] = useState(false);
-  const [guestLoading, setGuestLoading] = useState(false);
+const [guestLoading, setGuestLoading] = useState(false);
   const appleInFlight = useRef(false);
   const isIOS = isNativePlatform && Capacitor.getPlatform() === 'ios';
 
@@ -91,7 +90,7 @@ export function LoginScreen() {
         className="flex flex-col items-center justify-center text-center max-w-sm w-full"
       >
         {/* Animation */}
-        <div className="w-full max-w-md mb-8" style={{ transform: 'scale(0.91) translateY(30px)' }}>
+        <div className="w-full max-w-md mb-8" style={{ transform: 'scale(0.91) translateY(30px)', filter: 'brightness(0) invert(1)' }}>
           <Lottie
             animationData={vectorAnimation}
             loop={false}
@@ -197,27 +196,6 @@ export function LoginScreen() {
             </>
           )}
         </motion.button>
-
-        {/* Review Account Button - iOS only, for App Store reviewers */}
-        {isIOS && (
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={async () => {
-              if (reviewerLoading) return;
-              setReviewerLoading(true);
-              try { await signInAsReviewer(); } finally { setReviewerLoading(false); }
-            }}
-            style={{ WebkitTapHighlightColor: 'transparent', WebkitUserSelect: 'none', WebkitTouchCallout: 'none', backgroundColor: '#ED23E3' } as any}
-            className="mt-3 w-[200px] md:w-[240px] h-[44px] rounded-lg flex items-center justify-center cursor-pointer active:scale-95 transition-transform z-50 relative"
-          >
-            {reviewerLoading ? (
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <span className="text-white font-medium text-[16px] tracking-tight">Review account</span>
-            )}
-          </div>
-        )}
 
         {/* Start as guest - text link under all buttons, mobile only */}
         {isNativePlatform && (
