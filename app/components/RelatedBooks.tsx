@@ -72,7 +72,8 @@ interface RelatedBooksProps {
 
 function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBooksProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isVisible, setIsVisible] = useState(false);
+  const isSingleItem = books.length === 1;
+  const [isVisible, setIsVisible] = useState(isSingleItem);
   const [isMinimized, setIsMinimized] = useState(true);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
@@ -100,18 +101,27 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
 
   useEffect(() => {
     setCurrentIndex(0);
-    setIsVisible(false);
     setIsMinimized(true);
     setCoverAspect(2 / 3);
 
-    if (books.length === 0) return;
+    if (books.length === 0) {
+      setIsVisible(false);
+      return;
+    }
 
+    // Single item (e.g. spotlight) — show immediately, no entrance delay
+    if (books.length === 1) {
+      setIsVisible(true);
+      return;
+    }
+
+    setIsVisible(false);
     const timeout = setTimeout(() => {
       setIsVisible(true);
     }, 1000);
 
     return () => clearTimeout(timeout);
-  }, [books, bookId]);
+  }, [bookId]);
 
   function handleNext() {
     setIsVisible(false);

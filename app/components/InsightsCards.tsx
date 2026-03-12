@@ -198,7 +198,7 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
                       }}
                     >
                       <ExternalLink size={14} />
-                      Source
+                      {(() => { try { return new URL(currentInsight.sourceUrl!).hostname.replace(/^www\./, ''); } catch { return 'Source'; } })()}
                     </button>
                   </div>
                 )}

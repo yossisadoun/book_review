@@ -86,6 +86,10 @@ export async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book,
         }
       }
 
+      // Extract Apple Books user rating
+      const appleRating = typeof item.averageUserRating === 'number' ? item.averageUserRating : undefined;
+      const appleRatingCount = typeof item.userRatingCount === 'number' ? item.userRatingCount : undefined;
+
       return {
         title: title,
         author: author,
@@ -96,6 +100,8 @@ export async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book,
         google_books_url: appleBooksUrl,
         summary: summary || null,
         isbn: isbn || undefined,
+        apple_rating: appleRating,
+        apple_rating_count: appleRatingCount,
       };
     });
 

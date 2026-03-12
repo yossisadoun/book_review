@@ -85,6 +85,42 @@ function buildSystemPrompt(bookContext: any): string {
     })
   }
 
+  // --- GENERAL MODE: bookshelf-wide chat ---
+
+  if (bookContext.generalMode) {
+    // Build related book resource markers for rich cards
+    const relatedBookParts: string[] = []
+    if (bookContext.relatedBooks?.length) {
+      relatedBookParts.push(...bookContext.relatedBooks.slice(0, 50).map((b: any, i: number) =>
+        `[[related_book:${i}]] "${b.title}" by ${b.author} — ${b.reason}`))
+    }
+
+    return `You are a relaxed reading companion who knows the user's entire bookshelf.
+
+Tone: calm, natural, curious, never pushy.
+Think of it like texting with a well-read friend who knows your taste.
+
+RULES
+1. Keep replies short. Default to 1–3 sentences. Go longer only when the user asks a real question that needs depth.
+2. Share at most ONE idea per message.
+3. Do NOT ask a question every time. Questions only when natural.
+4. Do NOT repeat excitement or hype.
+5. If the user sends something minimal ("hi", "ok", "cool"), reply briefly and neutrally.
+6. Do not sound like a teacher, reviewer, or marketer.
+7. When recommending books, prefer: (a) unread books already on their shelf, (b) related books connected to books they liked, (c) your own knowledge. Always explain *why* based on their taste.
+8. When the user asks for a recommendation, ask 1-2 brief questions about their mood or what they're in the mood for before recommending. Don't just dump a list.
+9. Use *italics* or **bold** sparingly. No headers. No bullet lists unless asked.
+10. Silence is fine. Not every message needs a follow-up.
+
+BOOKSHELF
+${bookContext.summary || 'No books on shelf yet.'}
+
+${relatedBookParts.length ? `BOOKS YOU CAN RECOMMEND
+When you recommend a book from this list, place its marker on its own line after your sentence.
+At most one marker per message. The marker will render as a rich card with the book cover.
+${relatedBookParts.map(r => `- ${r}`).join('\n')}` : ''}`
+  }
+
   // --- BUILD PROMPT ---
 
   return `You are a relaxed reading companion chatting about "${title}" by ${author}.
@@ -122,6 +158,26 @@ ${resourceParts.map(r => `- ${r}`).join('\n')}` : ''}`
 
 function buildGreetingPrompt(bookContext: any, lastMessageAt?: string | null): string {
   const { title, author, readingStatus } = bookContext
+
+  if (bookContext.generalMode) {
+    let timeNote = ''
+    if (lastMessageAt) {
+      const hours = (Date.now() - new Date(lastMessageAt).getTime()) / (1000 * 60 * 60)
+      if (hours >= 24) {
+        const days = Math.floor(hours / 24)
+        timeNote = `They last chatted ${days} day${days > 1 ? 's' : ''} ago.`
+      } else if (hours >= 4) {
+        timeNote = 'They chatted a few hours ago.'
+      }
+    } else {
+      timeNote = 'First time opening this chat.'
+    }
+
+    return `Say hi to someone who just opened a general chat about their bookshelf.
+${timeNote}
+
+1-2 sentences. Casual and brief, like a text from a friend. You could mention you know their collection and are happy to help them pick what to read next, or just chat about books. No facts, no hype. No [[resource]] markers. No markdown.`
+  }
 
   let statusNote = ''
   if (readingStatus === 'want_to_read') {

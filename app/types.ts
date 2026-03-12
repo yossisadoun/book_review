@@ -54,6 +54,8 @@ export interface RelatedBook {
   wikipedia_url?: string;
   google_books_url?: string;
   genre?: string;
+  apple_rating?: number;
+  apple_rating_count?: number;
 }
 
 export interface MusicLinks {
@@ -63,6 +65,18 @@ export interface MusicLinks {
   tidal?: string;
   deezer?: string;
   amazonMusic?: string;
+}
+
+export interface WatchLinks {
+  netflix?: string;
+  prime?: string;
+  disney?: string;
+  hulu?: string;
+  apple?: string;
+  hbo?: string;
+  paramount?: string;
+  peacock?: string;
+  tmdb_url?: string;
 }
 
 export interface RelatedMovie {
@@ -77,6 +91,7 @@ export interface RelatedMovie {
   itunes_url?: string;
   itunes_artwork?: string;
   music_links?: MusicLinks;
+  watch_links?: WatchLinks;
 }
 
 export interface ResearchContentItem {
@@ -202,6 +217,8 @@ export interface Book {
   wikipedia_url?: string | null;
   google_books_url?: string | null;
   summary?: string | null; // Book synopsis/summary from Apple Books or Wikipedia
+  apple_rating?: number | null; // Average user rating from Apple Books (0-5)
+  apple_rating_count?: number | null; // Number of ratings on Apple Books
   rating_writing?: number | null;
   rating_insights?: number | null;
   rating_flow?: number | null;

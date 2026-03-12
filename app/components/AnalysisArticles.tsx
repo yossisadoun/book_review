@@ -22,7 +22,8 @@ interface AnalysisArticlesProps {
 
 function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArticlesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isVisible, setIsVisible] = useState(false);
+  const isSingleItem = articles.length === 1;
+  const [isVisible, setIsVisible] = useState(isSingleItem);
   const [isMinimized, setIsMinimized] = useState(false);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
@@ -36,18 +37,30 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
     boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
   };
 
+  // Use a stable key based on content, not array reference, to avoid flickering
+  const articlesKey = articles.map(a => a.url).join('|');
   useEffect(() => {
     setCurrentIndex(0);
+
+    if (articles.length === 0) {
+      setIsVisible(false);
+      return;
+    }
+
+    // Single item (e.g. spotlight) — show immediately, no entrance delay
+    if (articles.length === 1) {
+      setIsVisible(true);
+      return;
+    }
+
     setIsVisible(false);
-
-    if (articles.length === 0) return;
-
     const timeout = setTimeout(() => {
       setIsVisible(true);
     }, 1000);
 
     return () => clearTimeout(timeout);
-  }, [articles, bookId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [articlesKey, bookId]);
 
   function handleNext() {
     setIsVisible(false);

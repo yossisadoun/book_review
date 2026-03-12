@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { RelatedMovie, MusicLinks } from '../types';
+import type { RelatedMovie, MusicLinks, WatchLinks } from '../types';
 import { fetchWithRetry, grokApiKey, logGrokUsage } from './api-utils';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 import { lookupMovieOnWikipedia } from './wikipedia-service';
@@ -47,7 +47,8 @@ async function enrichAlbumWithItunes(movie: RelatedMovie): Promise<RelatedMovie>
 
   // Strip parentheticals from search query
   const cleanTitle = movie.title.replace(/\s*[\(\[][^\)\]]*[\)\]]\s*/g, '').trim();
-  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(cleanTitle)}&entity=song&limit=25`;
+  const searchTerm = movie.director ? `${cleanTitle} ${movie.director}` : cleanTitle;
+  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=song&limit=25`;
   console.log(`${tag} ${url}`);
 
   try {
@@ -103,6 +104,118 @@ async function enrichAlbumWithItunes(movie: RelatedMovie): Promise<RelatedMovie>
   return movie;
 }
 
+// --- TMDB enrichment for movies/shows ---
+const tmdbAccessToken = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN || '';
+
+// Map TMDB provider IDs to our WatchLinks keys
+const PROVIDER_MAP: Record<number, keyof WatchLinks> = {
+  8: 'netflix',       // Netflix
+  9: 'prime',         // Amazon Prime Video
+  337: 'disney',      // Disney+
+  15: 'hulu',         // Hulu
+  2: 'apple',         // Apple TV+
+  350: 'apple',       // Apple TV+ (alt ID)
+  384: 'hbo',         // HBO Max
+  531: 'paramount',   // Paramount+
+  386: 'peacock',     // Peacock
+};
+
+// Build a search/deep link for each platform
+function buildPlatformLink(key: keyof WatchLinks, title: string): string {
+  const q = encodeURIComponent(title);
+  switch (key) {
+    case 'netflix': return `https://www.netflix.com/search?q=${q}`;
+    case 'prime': return `https://www.amazon.com/s?k=${q}&i=instant-video`;
+    case 'disney': return `https://www.disneyplus.com/search/${q}`;
+    case 'hulu': return `https://www.hulu.com/search?q=${q}`;
+    case 'apple': return `https://tv.apple.com/search?term=${q}`;
+    case 'hbo': return `https://play.max.com/search?q=${q}`;
+    case 'paramount': return `https://www.paramountplus.com/search/?q=${q}`;
+    case 'peacock': return `https://www.peacocktv.com/search?q=${q}`;
+    default: return '';
+  }
+}
+
+async function enrichWithTmdb(movie: RelatedMovie): Promise<RelatedMovie> {
+  if (movie.type === 'album') return movie;
+  if (!tmdbAccessToken) {
+    console.warn(`[TMDB] No access token — skipping enrichment for "${movie.title}"`);
+    return movie;
+  }
+  console.log(`[TMDB] Enriching "${movie.title}" (${movie.type}, year: ${movie.release_year || 'unknown'})`);
+
+  const mediaType = movie.type === 'show' ? 'tv' : 'movie';
+  const tag = `[TMDB:${movie.title}]`;
+
+  try {
+    // Step 1: Search for the title
+    const query = encodeURIComponent(movie.title);
+    const yearParam = movie.release_year ? `&year=${movie.release_year}` : '';
+    const searchUrl = `https://api.themoviedb.org/3/search/${mediaType}?query=${query}${yearParam}&language=en-US&page=1`;
+
+    const searchRes = await fetch(searchUrl, {
+      headers: { Authorization: `Bearer ${tmdbAccessToken}`, Accept: 'application/json' },
+    });
+    if (!searchRes.ok) {
+      console.warn(`${tag} Search HTTP ${searchRes.status}`);
+      return movie;
+    }
+    const searchData = await searchRes.json();
+    const results = searchData.results || [];
+    if (results.length === 0) {
+      console.log(`${tag} No TMDB results`);
+      return movie;
+    }
+
+    const tmdbId = results[0].id;
+    const tmdbSlug = mediaType === 'movie' ? 'movie' : 'tv';
+    console.log(`${tag} Found TMDB ID: ${tmdbId}`);
+
+    // Step 2: Get watch providers
+    const providersUrl = `https://api.themoviedb.org/3/${tmdbSlug}/${tmdbId}/watch/providers`;
+    const providersRes = await fetch(providersUrl, {
+      headers: { Authorization: `Bearer ${tmdbAccessToken}`, Accept: 'application/json' },
+    });
+    if (!providersRes.ok) {
+      console.warn(`${tag} Providers HTTP ${providersRes.status}`);
+      return movie;
+    }
+    const providersData = await providersRes.json();
+    // Use US providers (fallback to first available country)
+    const countryData = providersData.results?.US || Object.values(providersData.results || {})[0] as any;
+    if (!countryData) {
+      console.log(`${tag} No provider data`);
+      return { ...movie, watch_links: { tmdb_url: `https://www.themoviedb.org/${tmdbSlug}/${tmdbId}` } };
+    }
+
+    const watchLinks: WatchLinks = {
+      tmdb_url: countryData.link || `https://www.themoviedb.org/${tmdbSlug}/${tmdbId}`,
+    };
+
+    // Combine flatrate (subscription), rent, and buy providers
+    const allProviders = [
+      ...(countryData.flatrate || []),
+      ...(countryData.rent || []),
+      ...(countryData.buy || []),
+    ];
+
+    for (const provider of allProviders) {
+      const key = PROVIDER_MAP[provider.provider_id];
+      if (key && !watchLinks[key]) {
+        watchLinks[key] = buildPlatformLink(key, movie.title);
+      }
+    }
+
+    const platformCount = Object.keys(watchLinks).filter(k => k !== 'tmdb_url' && watchLinks[k as keyof WatchLinks]).length;
+    console.log(`${tag} Found ${platformCount} streaming platforms`);
+
+    return { ...movie, watch_links: watchLinks };
+  } catch (err) {
+    console.warn(`${tag} Error:`, err);
+    return movie;
+  }
+}
+
 // --- Related Movies/Shows (Grok API) ---
 export async function getRelatedMovies(bookTitle: string, author: string): Promise<RelatedMovie[]> {
   console.log(`[getRelatedMovies] Fetching related movies for "${bookTitle}" by ${author}`);
@@ -124,11 +237,12 @@ export async function getRelatedMovies(bookTitle: string, author: string): Promi
         console.log(`[getRelatedMovies] Found ${cachedData.related_movies.length} cached related movies in database`);
         const cached = cachedData.related_movies as RelatedMovie[];
 
-        // Auto re-enrich albums missing itunes_url or music_links
+        // Auto re-enrich albums missing itunes_url or music_links, movies/shows missing watch_links
         const needsItunes = cached.some(m => m.type === 'album' && !m.itunes_url);
         const needsMusicLinks = cached.some(m => m.type === 'album' && m.itunes_url && !m.music_links);
-        if (needsItunes || needsMusicLinks) {
-          console.log(`[getRelatedMovies] Re-enriching cached albums (needsItunes=${needsItunes}, needsMusicLinks=${needsMusicLinks})`);
+        const needsWatchLinks = cached.some(m => m.type !== 'album' && !m.watch_links);
+        if (needsItunes || needsMusicLinks || needsWatchLinks) {
+          console.log(`[getRelatedMovies] Re-enriching cached items (needsItunes=${needsItunes}, needsMusicLinks=${needsMusicLinks}, needsWatchLinks=${needsWatchLinks})`);
           const reEnriched = await Promise.all(
             cached.map(async m => {
               if (m.type === 'album' && !m.itunes_url) return enrichAlbumWithItunes(m);
@@ -136,6 +250,7 @@ export async function getRelatedMovies(bookTitle: string, author: string): Promi
                 const music_links = await fetchMusicLinks(m.itunes_url);
                 return music_links ? { ...m, music_links } : m;
               }
+              if (m.type !== 'album' && !m.watch_links) return enrichWithTmdb(m);
               return m;
             })
           );
@@ -253,10 +368,16 @@ export async function getRelatedMovies(bookTitle: string, author: string): Promi
     );
     console.log('[getRelatedMovies] iTunes enrichment complete');
 
-    // Save to database cache
-    await saveRelatedMoviesToDatabase(bookTitle, author, itunesEnrichedMovies);
+    // Enrich movies/shows with TMDB watch providers
+    const tmdbEnrichedMovies = await Promise.all(
+      itunesEnrichedMovies.map(movie => enrichWithTmdb(movie))
+    );
+    console.log('[getRelatedMovies] TMDB enrichment complete');
 
-    return itunesEnrichedMovies;
+    // Save to database cache
+    await saveRelatedMoviesToDatabase(bookTitle, author, tmdbEnrichedMovies);
+
+    return tmdbEnrichedMovies;
   } catch (err: any) {
     console.error('[getRelatedMovies] Error:', err);
     return [];

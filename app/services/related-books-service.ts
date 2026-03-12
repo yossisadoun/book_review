@@ -135,6 +135,8 @@ export async function getRelatedBooks(bookTitle: string, author: string): Promis
               publish_year: bestMatch.publish_year ?? undefined,
               google_books_url: bestMatch.google_books_url || undefined,
               genre: bestMatch.genre || undefined,
+              apple_rating: bestMatch.apple_rating ?? undefined,
+              apple_rating_count: bestMatch.apple_rating_count ?? undefined,
             };
           }
 

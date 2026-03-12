@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, BookOpen, User, Sparkles } from 'lucide-react';
+import { Search, BookOpen, User, Sparkles, Library, MessageCircle, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { featureFlags } from '@/lib/feature-flags';
@@ -78,10 +78,12 @@ interface AddBookSheetProps {
   onAdd: (book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) => void;
   books: BookWithRatings[];
   onSelectBook?: (bookId: string) => void;
+  onSelectGeneral?: () => void;
   onSelectUser?: (userId: string) => void;
   onSearchAppleBooks: (query: string) => Promise<(Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>)[]>;
   onSearchWikipedia: (query: string) => Promise<(Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>)[]>;
   onGetAISuggestions: (query: string) => Promise<string[]>;
+  mode?: 'default' | 'chat_picker';
 }
 
 interface UserSearchResult {
@@ -108,7 +110,7 @@ interface DBBookSearchResult {
   user_avatar?: string | null;
 }
 
-function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUser, onSearchAppleBooks, onSearchWikipedia, onGetAISuggestions }: AddBookSheetProps) {
+function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGeneral, onSelectUser, onSearchAppleBooks, onSearchWikipedia, onGetAISuggestions, mode = 'default' }: AddBookSheetProps) {
   const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -120,7 +122,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
   const [bookshelfResults, setBookshelfResults] = useState<BookWithRatings[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Filter bookshelf as user types
+  // Filter bookshelf as user types (in chat_picker mode, show all books when query is empty)
   useEffect(() => {
     if (query.trim()) {
       const lowerQuery = query.toLowerCase().trim();
@@ -129,10 +131,12 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
         book.author.toLowerCase().includes(lowerQuery)
       );
       setBookshelfResults(filtered);
+    } else if (mode === 'chat_picker') {
+      setBookshelfResults(books);
     } else {
       setBookshelfResults([]);
     }
-  }, [query, books]);
+  }, [query, books, mode]);
 
   // Debounced user search as user types
   useEffect(() => {
@@ -383,8 +387,13 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
         willHideListener = await Keyboard.addListener('keyboardWillHide', () => {
           setKeyboardHeight(0);
         });
-        // Focus immediately to trigger keyboard while sheet is off-screen
-        setTimeout(() => inputRef.current?.focus(), 50);
+        if (mode === 'chat_picker') {
+          // In chat_picker mode, show sheet immediately without keyboard
+          setSheetReady(true);
+        } else {
+          // Focus immediately to trigger keyboard while sheet is off-screen
+          setTimeout(() => inputRef.current?.focus(), 50);
+        }
       } catch {
         // Not on native — fall back to visualViewport
         isNative.current = false;
@@ -436,6 +445,32 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
         paddingBottom: isKeyboardVisible && !isAndroid ? `${Math.max(keyboardHeight - 20, 0)}px` : '0px',
       }}
     >
+      {/* NEW CHAT title above the sheet */}
+      {mode === 'chat_picker' && (
+        <>
+          {/* Close button fixed at header Plus button position */}
+          <motion.button
+            initial={{ opacity: 0 }}
+            animate={{ opacity: sheetReady ? 1 : 0 }}
+            transition={{ duration: 0.3 }}
+            onClick={(e) => { e.stopPropagation(); onClose(); }}
+            className="fixed z-[60] w-8 h-8 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+            style={{ top: 'calc(50px + 12px)', right: '16px', background: 'rgba(255, 255, 255, 0.2)', backdropFilter: 'blur(8px)' }}
+          >
+            <X size={16} className="text-white" />
+          </motion.button>
+          {/* Title */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: sheetReady ? 1 : 0 }}
+            transition={{ duration: 0.3 }}
+            className="w-full max-w-md text-center mb-3"
+            onClick={e => e.stopPropagation()}
+          >
+            <span className="text-sm font-bold tracking-widest text-white uppercase">Start a Chat About</span>
+          </motion.div>
+        </>
+      )}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: sheetReady ? 1 : 0 }}
@@ -472,28 +507,82 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                   exit={{ opacity: 0 }}
                   className="space-y-2 mb-4"
                 >
-                  <div className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
-                    Your bookshelf:
-            </div>
-                  {bookshelfResults.slice(0, 5).map((book, i) => (
+                  {mode !== 'chat_picker' && (
+                    <div className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      Your bookshelf:
+                    </div>
+                  )}
+                  {/* "Books in General" option - only in chat_picker mode */}
+                  {mode === 'chat_picker' && onSelectGeneral && (
                     <motion.button
-                      key={`bookshelf-${book.id || `book-${i}`}`}
+                      key="general-chat"
+                      type="button"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      onClick={() => {
+                        onSelectGeneral();
+                        onClose();
+                      }}
+                      className="w-full flex items-center gap-3 p-3 bg-purple-50/80 dark:bg-purple-900/30 backdrop-blur-md hover:bg-purple-100/85 rounded-xl border border-purple-200/30 dark:border-purple-500/20 shadow-sm transition-all text-left"
+                    >
+                      <div className="w-12 h-16 rounded flex-shrink-0 flex items-center justify-center"
+                        style={{ background: 'rgba(255, 0, 123, 0.55)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 0, 123, 0.3)', boxShadow: '0 4px 14px rgba(255, 0, 123, 0.25)' }}
+                      >
+                        <Library size={29} className="text-white/90" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50">Books in General</h3>
+                        <p className="text-xs text-slate-600 dark:text-slate-400">Chat about your whole collection</p>
+                      </div>
+                      <MessageCircle size={18} className="text-purple-400 shrink-0" />
+                    </motion.button>
+                  )}
+                  {(mode === 'chat_picker' ? (() => {
+                    const statusOrder: Record<string, number> = { reading: 0, want_to_read: 1, read_it: 2 };
+                    const statusLabels: Record<string, string> = { reading: 'Currently Reading', want_to_read: 'Want to Read', read_it: 'Read' };
+                    const sorted = [...bookshelfResults].sort((a, b) => {
+                      const aOrder = statusOrder[a.reading_status || ''] ?? 3;
+                      const bOrder = statusOrder[b.reading_status || ''] ?? 3;
+                      if (aOrder !== bOrder) return aOrder - bOrder;
+                      return a.title.localeCompare(b.title);
+                    });
+                    // Build grouped list with section headers
+                    const elements: Array<{ type: 'header'; label: string } | { type: 'book'; book: BookWithRatings; index: number }> = [];
+                    let lastStatus = '';
+                    let idx = 0;
+                    for (const book of sorted) {
+                      const status = book.reading_status || 'none';
+                      if (status !== lastStatus) {
+                        elements.push({ type: 'header', label: statusLabels[status] || 'Other' });
+                        lastStatus = status;
+                      }
+                      elements.push({ type: 'book', book, index: idx++ });
+                    }
+                    return elements;
+                  })() : bookshelfResults.slice(0, 5).map((book, i) => ({ type: 'book' as const, book, index: i }))).map((item, i) =>
+                    item.type === 'header' ? (
+                      <div key={`header-${item.label}`} className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider pt-2 pb-0.5">
+                        {item.label}
+                      </div>
+                    ) : (
+                    <motion.button
+                      key={`bookshelf-${item.book.id || `book-${item.index}`}`}
                 type="button"
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.05 }}
+                      transition={{ delay: item.index * 0.03 }}
                 onClick={() => {
                         if (onSelectBook) {
-                          onSelectBook(book.id);
+                          onSelectBook(item.book.id);
                         }
                         onClose();
                       }}
                       className="w-full flex items-center gap-3 p-3 bg-blue-50/80 backdrop-blur-md hover:bg-blue-100/85 rounded-xl border border-blue-200/30 shadow-sm transition-all text-left"
                     >
-                      {book.cover_url ? (
+                      {item.book.cover_url ? (
                         <img
-                          src={book.cover_url}
-                          alt={book.title}
+                          src={item.book.cover_url}
+                          alt={item.book.title}
                           className="w-12 h-16 object-cover rounded flex-shrink-0"
                         />
                       ) : (
@@ -502,26 +591,29 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50 truncate">{book.title}</h3>
-                        <p className="text-xs text-slate-800 dark:text-slate-200 truncate">{book.author}</p>
+                        <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50 truncate">{item.book.title}</h3>
+                        <p className="text-xs text-slate-800 dark:text-slate-200 truncate">{item.book.author}</p>
                         <div className="flex items-center gap-2 mt-1">
-                          {book.publish_year && (
-                            <p className="text-[10px] text-slate-600 dark:text-slate-400">{book.publish_year}</p>
+                          {item.book.publish_year && (
+                            <p className="text-[10px] text-slate-600 dark:text-slate-400">{item.book.publish_year}</p>
                           )}
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-blue-700 bg-blue-100">
                             Your Book
                 </span>
             </div>
               </div>
+                      {mode === 'chat_picker' && (
+                        <MessageCircle size={18} className="text-indigo-400 shrink-0" />
+                      )}
                     </motion.button>
                   ))}
                 </motion.div>
             )}
             </AnimatePresence>
 
-            {/* User Results */}
+            {/* User Results - hidden in chat_picker mode */}
             <AnimatePresence>
-              {userResults.length > 0 && (
+              {mode !== 'chat_picker' && userResults.length > 0 && (
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -570,9 +662,9 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
               )}
             </AnimatePresence>
 
-            {/* Database Book Results - Books from other users */}
+            {/* Database Book Results - hidden in chat_picker mode */}
             <AnimatePresence>
-              {dbBookResults.length > 0 && (
+              {mode !== 'chat_picker' && dbBookResults.length > 0 && (
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -654,9 +746,9 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
               )}
             </AnimatePresence>
 
-            {/* Search Results */}
+            {/* Search Results - hidden in chat_picker mode */}
             <AnimatePresence>
-              {searchResults.length > 0 && (
+              {mode !== 'chat_picker' && searchResults.length > 0 && (
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -714,9 +806,9 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
               )}
             </AnimatePresence>
 
-            {/* Suggestions - only show if no search results */}
+            {/* Suggestions - hidden in chat_picker mode */}
             <AnimatePresence>
-              {suggestions.length > 0 && searchResults.length === 0 && (
+              {mode !== 'chat_picker' && suggestions.length > 0 && searchResults.length === 0 && (
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -759,13 +851,13 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectUse
           }}
         >
           <div className="bg-white bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-10 backdrop-saturate-150 backdrop-contrast-75 rounded-full px-1.5 py-1.5 shadow-2xl border border-white/30 dark:border-white/10">
-            <form onSubmit={(e) => { e.preventDefault(); inputRef.current?.blur(); handleSearch(); }}>
+            <form onSubmit={(e) => { e.preventDefault(); inputRef.current?.blur(); if (mode !== 'chat_picker') handleSearch(); }}>
               <div className="relative flex items-center">
                 <input
                   ref={inputRef}
                   type="text"
                   inputMode="search"
-                  placeholder={isQueryHebrew ? "\u05D7\u05E4\u05E9 \u05E1\u05E4\u05E8..." : "Search for book, author, user..."}
+                  placeholder={isQueryHebrew ? "\u05D7\u05E4\u05E9 \u05E1\u05E4\u05E8..." : mode === 'chat_picker' ? "Filter books..." : "Search for book, author, user..."}
                   value={query}
                   onChange={e => setQuery(e.target.value)}
                   className={`w-full h-11 bg-white/20 dark:bg-white/8 border border-white/30 dark:border-white/10 rounded-full focus:outline-none focus:bg-white/30 text-base transition-all text-slate-950 dark:text-slate-50 placeholder:text-slate-600 dark:text-slate-400 ${isQueryHebrew ? 'text-right pr-12 pl-4' : 'pl-12 pr-4'}`}

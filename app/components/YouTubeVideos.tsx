@@ -25,7 +25,8 @@ interface YouTubeVideosProps {
 
 function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isVisible, setIsVisible] = useState(false);
+  const isSingleItem = videos.length === 1;
+  const [isVisible, setIsVisible] = useState(isSingleItem);
   const [isMinimized, setIsMinimized] = useState(true);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
@@ -51,17 +52,26 @@ function YouTubeVideos({ videos, bookId, isLoading = false }: YouTubeVideosProps
 
   useEffect(() => {
     setCurrentIndex(0);
-    setIsVisible(false);
     setIsMinimized(true);
 
-    if (videos.length === 0) return;
+    if (videos.length === 0) {
+      setIsVisible(false);
+      return;
+    }
 
+    // Single item (e.g. spotlight) — show immediately, no entrance delay
+    if (videos.length === 1) {
+      setIsVisible(true);
+      return;
+    }
+
+    setIsVisible(false);
     const timeout = setTimeout(() => {
       setIsVisible(true);
     }, 1000);
 
     return () => clearTimeout(timeout);
-  }, [videos, bookId]);
+  }, [bookId]);
 
   function handleNext() {
     setIsVisible(false);

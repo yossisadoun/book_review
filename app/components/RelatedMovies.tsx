@@ -7,7 +7,8 @@ import { decodeHtmlEntities, useImageBrightness, glassmorphicStyle } from './uti
 import { isNativePlatform } from '@/lib/capacitor';
 import { openSystemBrowser } from '@/lib/capacitor';
 import MusicModal from './MusicModal';
-import type { MusicLinks } from '../types';
+import WatchModal from './WatchModal';
+import type { MusicLinks, WatchLinks } from '../types';
 
 interface RelatedMovie {
   title: string;
@@ -21,6 +22,7 @@ interface RelatedMovie {
   itunes_url?: string;
   itunes_artwork?: string;
   music_links?: MusicLinks;
+  watch_links?: WatchLinks;
 }
 
 interface RelatedMoviesProps {
@@ -31,12 +33,14 @@ interface RelatedMoviesProps {
 
 function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isVisible, setIsVisible] = useState(false);
+  const isSingleItem = movies.length === 1;
+  const [isVisible, setIsVisible] = useState(isSingleItem);
   const [isMinimized, setIsMinimized] = useState(true);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const [albumCoverLoaded, setAlbumCoverLoaded] = useState(false);
   const [musicModalData, setMusicModalData] = useState<{ musicLinks: MusicLinks; title: string; artist: string } | null>(null);
+  const [watchModalData, setWatchModalData] = useState<{ watchLinks: WatchLinks; title: string; year?: number } | null>(null);
   const minSwipeDistance = 50;
 
   const shuffledMovies = useMemo(() => {
@@ -69,18 +73,27 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
 
   useEffect(() => {
     setCurrentIndex(0);
-    setIsVisible(false);
     setIsMinimized(true);
     setAlbumCoverLoaded(false);
 
-    if (shuffledMovies.length === 0) return;
+    if (shuffledMovies.length === 0) {
+      setIsVisible(false);
+      return;
+    }
 
+    // Single item (e.g. spotlight) — show immediately, no entrance delay
+    if (shuffledMovies.length === 1) {
+      setIsVisible(true);
+      return;
+    }
+
+    setIsVisible(false);
     const timeout = setTimeout(() => {
       setIsVisible(true);
     }, 1000);
 
     return () => clearTimeout(timeout);
-  }, [shuffledMovies, bookId]);
+  }, [bookId]);
 
 
   function handleNext() {
@@ -163,7 +176,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
 
   return (
     <div
-      onClick={() => { if (!musicModalData) handleNext(); }}
+      onClick={() => { if (!musicModalData && !watchModalData) handleNext(); }}
       onTouchStart={(e) => {
         e.stopPropagation();
         const touch = e.touches[0];
@@ -459,6 +472,23 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                         <Play size={14} fill="white" />
                         Play
                       </button>
+                    ) : currentMovie.watch_links && Object.keys(currentMovie.watch_links).some(k => k !== 'tmdb_url' && currentMovie.watch_links![k as keyof WatchLinks]) ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // On iOS native, go straight to Apple TV if available
+                          if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent) && currentMovie.watch_links!.apple) {
+                            openSystemBrowser(currentMovie.watch_links!.apple!);
+                          } else {
+                            setWatchModalData({ watchLinks: currentMovie.watch_links!, title: currentMovie.title, year: currentMovie.release_year });
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
+                        style={pillButtonStyle}
+                      >
+                        <Play size={14} fill="white" />
+                        Watch
+                      </button>
                     ) : currentMovie.wikipedia_url ? (
                       <a
                         href={currentMovie.wikipedia_url}
@@ -469,7 +499,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                         style={pillButtonStyle}
                       >
                         <ExternalLink size={14} />
-                        Source
+                        {(() => { try { return new URL(currentMovie.wikipedia_url!).hostname.replace(/^www\./, ''); } catch { return 'Source'; } })()}
                       </a>
                     ) : null}
                   </div>
@@ -496,6 +526,12 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
         albumTitle={musicModalData?.title}
         albumArtist={musicModalData?.artist}
         onClose={() => setMusicModalData(null)}
+      />
+      <WatchModal
+        watchLinks={watchModalData?.watchLinks ?? null}
+        title={watchModalData?.title}
+        year={watchModalData?.year}
+        onClose={() => setWatchModalData(null)}
       />
     </div>
   );

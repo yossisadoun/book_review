@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, BookOpen, Headphones, Play, BookMarked, FileText, ExternalLink, Bot, X, CheckCircle2, Film, Disc3 } from 'lucide-react';
+import { Send, BookOpen, Headphones, Play, BookMarked, FileText, ExternalLink, Bot, X, CheckCircle2, Film, Disc3, Library } from 'lucide-react';
 import { openSystemBrowser, isNativePlatform } from '@/lib/capacitor';
 import MusicModal from './MusicModal';
 import type { MusicLinks } from '../types';
@@ -35,6 +35,8 @@ function formatTime(dateStr?: string): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+type MessageSegment = { type: 'text'; text: string } | { type: 'card'; cardType: string; cardIndex: number };
+
 export default function BookChat({ book, bookContext, onBack, onAddBook }: BookChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -46,7 +48,19 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [musicModalData, setMusicModalData] = useState<{ musicLinks: MusicLinks; title: string; artist: string } | null>(null);
 
-  const starterPrompts = getStarterPrompts(book.reading_status || null);
+  const [streamingSegments, setStreamingSegments] = useState<MessageSegment[] | null>(null);
+  const [streamingText, setStreamingText] = useState<string | null>(null);
+  const [streamingCardLoading, setStreamingCardLoading] = useState(false);
+  const streamingRef = useRef<{ timer: ReturnType<typeof setTimeout> | null }>({ timer: null });
+
+  const starterPrompts = getStarterPrompts(book.reading_status || null, bookContext.generalMode);
+
+  // Cleanup streaming timer on unmount
+  useEffect(() => {
+    return () => {
+      if (streamingRef.current.timer) clearTimeout(streamingRef.current.timer);
+    };
+  }, []);
 
   // Load chat history on mount + auto-generate greeting if needed
   useEffect(() => {
@@ -103,7 +117,7 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
     } else {
       el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages, isLoading]);
+  }, [messages, isLoading, streamingText, streamingSegments, streamingCardLoading]);
 
   // Keep scroll at bottom when keyboard shows/hides
   useEffect(() => {
@@ -117,7 +131,7 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
 
   const handleSend = useCallback(async (text?: string) => {
     const messageText = (text || input).trim();
-    if (!messageText || isLoading) return;
+    if (!messageText || isLoading || streamingSegments !== null) return;
 
     const now = new Date().toISOString();
     const userMessage: ChatMessage = { role: 'user', content: messageText, created_at: now };
@@ -133,18 +147,83 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
     try {
       const response = await sendChatMessage(updatedMessages, bookContext);
       setLastRawResponse(response);
-      const assistantMessage: ChatMessage = { role: 'assistant', content: response, created_at: new Date().toISOString() };
-      setMessages(prev => [...prev, assistantMessage]);
-      await saveChatMessages(book.id, book.title, book.author, [userMessage, assistantMessage]);
+      setIsLoading(false);
+
+      // Fake-stream: reveal text word-by-word, pause before cards
+      const segments = splitAssistantMessage(response);
+      const revealedSegs: MessageSegment[] = [];
+      let segIdx = 0;
+
+      setStreamingSegments([]);
+      setStreamingText(null);
+      setStreamingCardLoading(false);
+
+      const processSegment = () => {
+        if (segIdx >= segments.length) {
+          // Done — commit as real message
+          setStreamingSegments(null);
+          setStreamingText(null);
+          setStreamingCardLoading(false);
+          const assistantMessage: ChatMessage = { role: 'assistant', content: response, created_at: new Date().toISOString() };
+          setMessages(prev => [...prev, assistantMessage]);
+          saveChatMessages(book.id, book.title, book.author, [userMessage, assistantMessage]);
+          return;
+        }
+
+        const seg = segments[segIdx];
+        if (seg.type === 'card') {
+          // Show typing dots for 1s, then reveal the card
+          setStreamingCardLoading(true);
+          streamingRef.current.timer = setTimeout(() => {
+            setStreamingCardLoading(false);
+            revealedSegs.push(seg);
+            setStreamingSegments([...revealedSegs]);
+            segIdx++;
+            streamingRef.current.timer = setTimeout(processSegment, 200);
+          }, 1000);
+        } else {
+          // Stream text word by word
+          const words = seg.text!.split(/(\s+)/);
+          let wordIdx = 0;
+          let revealed = '';
+          setStreamingText('');
+
+          const streamWords = () => {
+            const chunk = Math.floor(Math.random() * 3) + 1;
+            for (let c = 0; c < chunk && wordIdx < words.length; c++) {
+              revealed += words[wordIdx];
+              wordIdx++;
+            }
+            setStreamingText(revealed);
+
+            if (wordIdx < words.length) {
+              const delay = 30 + Math.random() * 50;
+              streamingRef.current.timer = setTimeout(streamWords, delay);
+            } else {
+              // Text segment done
+              revealedSegs.push({ type: 'text', text: seg.text! });
+              setStreamingSegments([...revealedSegs]);
+              setStreamingText(null);
+              segIdx++;
+              streamingRef.current.timer = setTimeout(processSegment, 50);
+            }
+          };
+          streamWords();
+        }
+      };
+      processSegment();
     } catch (err) {
       console.error('[BookChat] Error:', err);
+      setStreamingSegments(null);
+      setStreamingText(null);
+      setStreamingCardLoading(false);
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: "Sorry, I couldn't respond right now. Please try again.",
         created_at: new Date().toISOString(),
       }]);
-    } finally {
       setIsLoading(false);
+    } finally {
       // Only refocus if keyboard is still up (user hasn't tapped away)
       if (document.activeElement === inputRef.current) {
         inputRef.current?.focus();
@@ -256,6 +335,12 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
                     className="w-16 h-[88px] rounded-lg object-cover"
                     style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.15)' }}
                   />
+                ) : book.title === 'My Bookshelf' ? (
+                  <div className="w-16 h-[88px] rounded-lg flex items-center justify-center"
+                    style={{ background: 'rgba(255, 0, 123, 0.55)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 0, 123, 0.3)', boxShadow: '0 4px 14px rgba(255, 0, 123, 0.25)' }}
+                  >
+                    <Library size={34} className="text-white/90" />
+                  </div>
                 ) : (
                   <div className="w-16 h-[88px] rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
                     <BookOpen size={24} className="text-white/60" />
@@ -418,8 +503,100 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
                 )}
               </AnimatePresence>
 
+              {/* Streaming assistant response — revealed segments + current text */}
+              {streamingSegments !== null && (
+                <>
+                  {streamingSegments.map((seg, si) => {
+                    if (seg.type === 'card') {
+                      return (
+                        <motion.div
+                          key={`stream-card-${si}`}
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ duration: 0.2 }}
+                          className="flex justify-start"
+                        >
+                          <div className="w-[82%]">
+                            <InlineChatCard type={seg.cardType!} index={seg.cardIndex!} ctx={bookContext} onAddBook={onAddBook} onPlayAlbum={(ml, t, a) => setMusicModalData({ musicLinks: ml, title: t, artist: a })} />
+                          </div>
+                        </motion.div>
+                      );
+                    }
+                    const textContent = seg.text!.replace(/^\n+|\n+$/g, '');
+                    if (!textContent) return null;
+                    return (
+                      <div key={`stream-text-${si}`} className="flex justify-start" style={{ marginTop: si === 0 ? '6px' : undefined }}>
+                        <div
+                          className="relative max-w-[82%] px-[10px] py-[7px] text-[15px] leading-[20px]"
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.6)',
+                            backdropFilter: 'blur(8px)',
+                            WebkitBackdropFilter: 'blur(8px)',
+                            color: '#1e293b',
+                            borderRadius: '10px 10px 10px 4px',
+                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+                            border: '0.5px solid rgba(255, 255, 255, 0.3)',
+                          }}
+                        >
+                          <div className="whitespace-pre-wrap break-words">{formatTextWithMarkdown(textContent)}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {/* Currently streaming text */}
+                  {streamingText !== null && (
+                    <div className="flex justify-start" style={{ marginTop: streamingSegments.length === 0 ? '6px' : undefined }}>
+                      <div
+                        className="relative max-w-[82%] px-[10px] py-[7px] text-[15px] leading-[20px]"
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.6)',
+                          backdropFilter: 'blur(8px)',
+                          WebkitBackdropFilter: 'blur(8px)',
+                          color: '#1e293b',
+                          borderRadius: '10px 10px 10px 4px',
+                          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.04)',
+                          border: '0.5px solid rgba(255, 255, 255, 0.3)',
+                        }}
+                      >
+                        <div className="whitespace-pre-wrap break-words">{streamingText}<span className="inline-block w-[2px] h-[14px] bg-slate-400 ml-0.5 animate-pulse align-text-bottom" /></div>
+                      </div>
+                    </div>
+                  )}
+                  {/* Typing dots before a card */}
+                  {streamingCardLoading && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.15 }}
+                      className="flex justify-start"
+                    >
+                      <div
+                        className="px-3 py-2.5 flex gap-[5px] items-center"
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.6)',
+                          backdropFilter: 'blur(8px)',
+                          WebkitBackdropFilter: 'blur(8px)',
+                          borderRadius: '10px 10px 10px 4px',
+                          border: '0.5px solid rgba(255, 255, 255, 0.3)',
+                        }}
+                      >
+                        {[0, 1, 2].map(di => (
+                          <motion.div
+                            key={di}
+                            className="w-[7px] h-[7px] rounded-full"
+                            style={{ background: 'rgba(100, 116, 139, 0.5)' }}
+                            animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1.1, 0.85] }}
+                            transition={{ duration: 1.4, repeat: Infinity, delay: di * 0.2 }}
+                          />
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </>
+              )}
+
               {/* Quick reply chips after last assistant message */}
-              {!isLoading && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && (
+              {!isLoading && streamingSegments === null && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && (
                 <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
                   {starterPrompts.slice(0, 2).map((prompt, i) => (
                     <button
@@ -579,7 +756,7 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
           <button
             onTouchEnd={(e) => { e.preventDefault(); handleSend(); }}
             onClick={() => handleSend()}
-            disabled={isLoading || !hasText}
+            disabled={isLoading || streamingSegments !== null || !hasText}
             className="w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-all shrink-0 disabled:opacity-30"
             style={{
               background: hasText ? 'rgba(59, 130, 246, 0.9)' : 'rgba(59, 130, 246, 0.4)',
@@ -678,8 +855,6 @@ function formatTextWithMarkdown(text: string): React.ReactNode {
     return <React.Fragment key={i}>{part}</React.Fragment>;
   });
 }
-
-type MessageSegment = { type: 'text'; text: string } | { type: 'card'; cardType: string; cardIndex: number };
 
 function splitAssistantMessage(content: string): MessageSegment[] {
   const parts = content.split(/(\[\[(?:podcast|video|related_book|related_work|article):\d+\]\])/g);

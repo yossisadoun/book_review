@@ -69,6 +69,7 @@ export interface BookChatContext {
   publishYear?: number | null;
   summary?: string | null;
   readingStatus: ReadingStatus;
+  generalMode?: boolean;
   userNotes?: string | null;
   userRatings?: {
     writing: number | null;
@@ -191,7 +192,14 @@ export async function saveChatMessages(
   }
 }
 
-export function getStarterPrompts(readingStatus: ReadingStatus): string[] {
+export function getStarterPrompts(readingStatus: ReadingStatus, generalMode?: boolean): string[] {
+  if (generalMode) {
+    return [
+      'Recommend me what to read next',
+      'What patterns do you see in my taste?',
+      'Which unread book should I start?',
+    ];
+  }
   switch (readingStatus) {
     case 'reading':
       return [
