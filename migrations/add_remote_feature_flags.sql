@@ -3,6 +3,7 @@
 CREATE TABLE IF NOT EXISTS remote_feature_flags (
   id int PRIMARY KEY DEFAULT 1 CHECK (id = 1),  -- enforce single row
   chat_enabled boolean NOT NULL DEFAULT true,
+  create_post_enabled boolean NOT NULL DEFAULT false,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 

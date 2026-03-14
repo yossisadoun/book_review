@@ -741,7 +741,7 @@ export default function App() {
   const [createPostText, setCreatePostText] = useState('');
 
   // Remote feature flags
-  const [remoteFlags, setRemoteFlags] = useState<RemoteFeatureFlags>({ chat_enabled: false });
+  const [remoteFlags, setRemoteFlags] = useState<RemoteFeatureFlags>({ chat_enabled: false, create_post_enabled: false });
   useEffect(() => { getRemoteFeatureFlags().then(setRemoteFlags); }, []);
 
   // Book discussion state
@@ -10808,7 +10808,7 @@ export default function App() {
           )}
 
           {/* Create post button */}
-          <button
+          {remoteFlags.create_post_enabled && <button
             onClick={() => {
               triggerLightHaptic();
               if (showCreatePost) return;
@@ -10831,7 +10831,7 @@ export default function App() {
             }`}
           >
             <Plus size={20} className="text-slate-700 dark:text-slate-300" />
-          </button>
+          </button>}
 
           {/* Feed button */}
           <button

@@ -2,16 +2,25 @@ import { createClient } from '@supabase/supabase-js';
 
 interface RemoteFeatureFlags {
   chat_enabled: boolean;
+  create_post_enabled: boolean;
 }
 
 const DEFAULTS: RemoteFeatureFlags = {
   chat_enabled: false,
+  create_post_enabled: false,
+};
+
+// In development, enable all features locally without needing the DB
+const DEV_OVERRIDES: RemoteFeatureFlags = {
+  chat_enabled: true,
+  create_post_enabled: true,
 };
 
 let cachedFlags: RemoteFeatureFlags | null = null;
 let fetchPromise: Promise<RemoteFeatureFlags> | null = null;
 
 export async function getRemoteFeatureFlags(): Promise<RemoteFeatureFlags> {
+  if (process.env.NODE_ENV === 'development') return DEV_OVERRIDES;
   if (cachedFlags) return cachedFlags;
   if (fetchPromise) return fetchPromise;
 
@@ -23,19 +32,22 @@ export async function getRemoteFeatureFlags(): Promise<RemoteFeatureFlags> {
 
       const supabase = createClient(supabaseUrl, supabaseKey);
       const { data, error } = await supabase
-        .from('remote_feature_flags')
-        .select('chat_enabled')
-        .eq('id', 1)
-        .maybeSingle();
+        .from('feature_flags')
+        .select('key, enabled');
 
       if (error || !data) {
         console.warn('[RemoteFeatureFlags] Failed to fetch, using defaults:', error?.message);
         return DEFAULTS;
       }
 
-      cachedFlags = {
-        chat_enabled: data.chat_enabled ?? DEFAULTS.chat_enabled,
-      };
+      const flags = { ...DEFAULTS };
+      for (const row of data) {
+        if (row.key in flags) {
+          (flags as Record<string, boolean>)[row.key] = row.enabled;
+        }
+      }
+
+      cachedFlags = flags;
       return cachedFlags;
     } catch (err) {
       console.warn('[RemoteFeatureFlags] Error fetching flags:', err);
