@@ -3,12 +3,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Quote, BookOpen, Lightbulb, ListChecks, BookMarked,
+  Quote, BookHeart, BookOpen, Lightbulb, ListChecks, BookMarked,
   CheckCircle2, Circle,
   Target, Zap, ArrowRight, Globe, Sparkles, Eye, Brain, Flame,
-  Clock, Tag,
+  Tag,
 } from 'lucide-react';
-import { glassmorphicStyle } from './utils';
+const frostedGlassStyle: React.CSSProperties = {
+  background: 'rgba(255, 255, 255, 0.25)',
+  backdropFilter: 'blur(9.4px)',
+  WebkitBackdropFilter: 'blur(9.4px)',
+  border: '1px solid rgba(255, 255, 255, 0.3)',
+  borderRadius: '16px',
+};
 import type { BookSummary as BookSummaryType } from '../types';
 
 const ICON_MAP_COLORED: Record<string, (color: string) => React.ReactNode> = {
@@ -42,7 +48,7 @@ function buildCards(summary: BookSummaryType): SummaryCard[] {
       id: 'quote_and_summary',
       label: summary.title,
       subtitle: summary.author,
-      icon: <BookOpen size={20} className="text-white" />,
+      icon: <BookHeart size={20} className="text-slate-600 dark:text-slate-300" />,
       iconBg: 'rgba(99, 102, 241, 0.85)',
       iconBorder: 'rgba(99, 102, 241, 0.3)',
       accent: 'indigo',
@@ -54,7 +60,7 @@ function buildCards(summary: BookSummaryType): SummaryCard[] {
       id: 'cards',
       label: summary.cardsTitle,
       subtitle: `${summary.cards.length} concepts`,
-      icon: <Lightbulb size={20} className="text-white" />,
+      icon: <BookHeart size={20} className="text-slate-600 dark:text-slate-300" />,
       iconBg: 'rgba(245, 158, 11, 0.85)',
       iconBorder: 'rgba(245, 158, 11, 0.3)',
       accent: 'amber',
@@ -66,7 +72,7 @@ function buildCards(summary: BookSummaryType): SummaryCard[] {
       id: 'actions',
       label: summary.actionTitle,
       subtitle: `${summary.tasks.length} items`,
-      icon: <ListChecks size={20} className="text-white" />,
+      icon: <BookHeart size={20} className="text-slate-600 dark:text-slate-300" />,
       iconBg: 'rgba(16, 185, 129, 0.85)',
       iconBorder: 'rgba(16, 185, 129, 0.3)',
       accent: 'emerald',
@@ -78,7 +84,7 @@ function buildCards(summary: BookSummaryType): SummaryCard[] {
       id: 'glossary',
       label: summary.glossaryTitle,
       subtitle: `${summary.glossary.length} terms`,
-      icon: <BookMarked size={20} className="text-white" />,
+      icon: <BookHeart size={20} className="text-slate-600 dark:text-slate-300" />,
       iconBg: 'rgba(168, 85, 247, 0.85)',
       iconBorder: 'rgba(168, 85, 247, 0.3)',
       accent: 'purple',
@@ -100,6 +106,7 @@ interface BookSummaryProps {
 function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, firstIssueYear, readersSection }: BookSummaryProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [completedTasks, setCompletedTasks] = useState<Record<number, boolean>>(() => {
     try {
       const saved = localStorage.getItem(`book-summary-tasks-${bookId}`);
@@ -136,7 +143,7 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
           animate={{ opacity: [0.5, 0.8, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
           className="rounded-2xl overflow-hidden"
-          style={glassmorphicStyle}
+          style={frostedGlassStyle}
         >
           <div className="flex items-center gap-3 px-4 pt-3 pb-2">
             <div className="w-10 h-10 rounded-full bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" />
@@ -193,7 +200,7 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
   const card = isInfoCardActive ? null : summaryCards[summaryCardIndex];
 
   const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
-    ...glassmorphicStyle,
+    ...frostedGlassStyle,
     position: 'absolute' as const,
     inset: 0,
     transform: `translateY(${offset}px) scale(${scale})`,
@@ -211,9 +218,6 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
           <>
             {/* Meta pills */}
             <div className="flex items-center gap-2 px-5 pb-2">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-300" style={{ background: 'rgba(99, 102, 241, 0.12)' }}>
-                <Clock size={10} /> {summary.readTime}
-              </span>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300" style={{ background: 'rgba(100, 116, 139, 0.1)' }}>
                 <Tag size={10} /> {summary.category}{firstIssueYear ? ` · ${firstIssueYear}` : ''}
               </span>
@@ -223,33 +227,40 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
             <div
               className="relative mx-3 rounded-xl overflow-hidden px-5 py-6"
               style={{
-                background: 'rgba(99, 102, 241, 0.25)',
-                backdropFilter: 'blur(16px)',
-                WebkitBackdropFilter: 'blur(16px)',
-                border: '1px solid rgba(129, 140, 248, 0.3)',
-                boxShadow: '0 4px 20px rgba(99, 102, 241, 0.1)',
+                background: 'rgba(255, 255, 255, 0.25)',
+                backdropFilter: 'blur(9.4px)',
+                WebkitBackdropFilter: 'blur(9.4px)',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
               }}
             >
               {/* Decorative opening mark — top-left */}
-              <span className="absolute top-2 left-3 text-[72px] leading-none font-serif text-indigo-500/20 dark:text-indigo-300/20 select-none" style={{ fontFamily: 'Georgia, serif' }}>&ldquo;</span>
+              <span className="absolute top-2 left-3 text-[72px] leading-none font-serif text-slate-500/40 dark:text-slate-400/35 select-none" style={{ fontFamily: 'Georgia, serif' }}>&ldquo;</span>
 
               {/* Quote text */}
-              <p className="relative text-[15px] font-bold text-indigo-950 dark:text-indigo-50 leading-relaxed pt-4">
+              <p className="relative text-[15px] font-bold text-slate-600 dark:text-slate-300 leading-relaxed pt-4">
                 {summary.quote}
               </p>
 
               {/* Decorative closing mark — bottom-right */}
-              <span className="absolute -bottom-4 right-3 text-[72px] leading-none font-serif text-indigo-500/20 dark:text-indigo-300/20 select-none" style={{ fontFamily: 'Georgia, serif', bottom: '0px', top: '50px' }}>&rdquo;</span>
+              <span className="absolute -bottom-4 right-3 text-[72px] leading-none font-serif text-slate-500/40 dark:text-slate-400/35 select-none" style={{ fontFamily: 'Georgia, serif', bottom: '0px', top: '50px' }}>&rdquo;</span>
             </div>
 
             {/* Summary text */}
             <div className="px-5 pt-4 pb-5">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2">Summary</p>
-              {summary.summary.split('\n\n').map((paragraph, idx) => (
-                <p key={idx} className={`text-[13px] text-slate-700 dark:text-slate-300 leading-relaxed ${idx > 0 ? 'mt-3' : ''}`}>
-                  {paragraph}
-                </p>
-              ))}
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-2">Summary</p>
+              <div className={summaryExpanded ? '' : 'line-clamp-4'}>
+                {summary.summary.split('\n\n').map((paragraph, idx) => (
+                  <p key={idx} className={`text-[13px] text-slate-700 dark:text-slate-300 leading-relaxed ${idx > 0 ? 'mt-3' : ''}`}>
+                    {paragraph}
+                  </p>
+                ))}
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); setSummaryExpanded(prev => !prev); }}
+                className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-2"
+              >
+                {summaryExpanded ? 'Read less' : 'Read more'}
+              </button>
               {readersSection && (
                 <div className="mt-4 pt-3 border-t border-white/20 dark:border-white/10" onClick={(e) => e.stopPropagation()}>
                   {readersSection}
@@ -277,9 +288,9 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
                 >
                   <div
                     className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
-                    style={{ background: 'rgba(245, 158, 11, 0.15)' }}
+                    style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 255, 255, 0.3)' }}
                   >
-                    {iconFn ? iconFn('text-amber-600') : <Lightbulb size={14} className="text-amber-600" />}
+                    {iconFn ? iconFn('text-slate-600 dark:text-slate-300') : <Lightbulb size={14} className="text-slate-600 dark:text-slate-300" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-bold text-slate-900 dark:text-slate-100">{c.step}: {c.name}</p>
@@ -293,19 +304,19 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
 
       case 'actions':
         return (
-          <div className="px-3 pb-3">
+          <div className="px-3" style={{ paddingBottom: '20px' }}>
             {/* Progress indicator */}
             {summary.tasks.length > 1 && (
               <div className="px-1 mb-3">
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">{completedCount}/{summary.tasks.length} done</span>
+                  <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">{completedCount}/{summary.tasks.length} done</span>
                 </div>
-                <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(16, 185, 129, 0.12)' }}>
+                <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(100, 116, 139, 0.15)' }}>
                   <div
                     className="h-full rounded-full transition-all duration-500 ease-out"
                     style={{
                       width: `${(completedCount / summary.tasks.length) * 100}%`,
-                      background: 'linear-gradient(90deg, rgba(16, 185, 129, 0.7), rgba(16, 185, 129, 0.9))',
+                      background: 'linear-gradient(90deg, rgba(100, 116, 139, 0.5), rgba(100, 116, 139, 0.7))',
                     }}
                   />
                 </div>
@@ -317,13 +328,7 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
                 return (
                   <div
                     key={i}
-                    className="rounded-xl px-3.5 py-2.5 flex items-start gap-3 transition-all duration-200"
-                    style={{
-                      background: done ? 'rgba(16, 185, 129, 0.08)' : 'rgba(255, 255, 255, 0.45)',
-                      backdropFilter: 'blur(8px)',
-                      WebkitBackdropFilter: 'blur(8px)',
-                      border: done ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid rgba(255, 255, 255, 0.5)',
-                    }}
+                    className="px-3.5 py-1.5 flex items-start gap-3 transition-all duration-200"
                   >
                     <button
                       onClick={(e) => {
@@ -333,8 +338,8 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
                       className="flex-shrink-0 mt-0.5 active:scale-90 transition-transform"
                     >
                       {done
-                        ? <CheckCircle2 size={16} className="text-emerald-500" />
-                        : <Circle size={16} className="text-slate-300 dark:text-slate-500" />
+                        ? <CheckCircle2 size={16} className="text-slate-600 dark:text-slate-300" />
+                        : <Circle size={16} className="text-slate-600 dark:text-slate-300" />
                       }
                     </button>
                     <p className={`text-xs leading-relaxed transition-all duration-200 ${done ? 'text-slate-400 dark:text-slate-500 line-through' : 'text-slate-800 dark:text-slate-200'}`}>
@@ -361,7 +366,7 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
                   border: '1px solid rgba(255, 255, 255, 0.5)',
                 }}
               >
-                <p className="text-xs font-black text-purple-700 dark:text-purple-300 uppercase tracking-wide">{item.term}</p>
+                <p className="text-xs font-black text-slate-600 dark:text-slate-300 uppercase tracking-wide">{item.term}</p>
                 <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed mt-1">{item.def}</p>
               </div>
             ))}
@@ -405,14 +410,14 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
               className="relative rounded-2xl overflow-hidden"
-              style={glassmorphicStyle}
+              style={frostedGlassStyle}
             >
               <div className="px-4 py-3">
                 {infoCard}
               </div>
               {totalCards > 1 && (
                 <div className="absolute top-3 right-4">
-                  <span className="text-[11px] font-semibold text-slate-400">
+                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
                     {currentIndex + 1}/{totalCards}
                   </span>
                 </div>
@@ -427,13 +432,13 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
               className="relative rounded-2xl overflow-hidden"
-              style={glassmorphicStyle}
+              style={frostedGlassStyle}
             >
               {/* Header */}
               <div className="flex items-center gap-3 px-4 pt-3 pb-2">
                 <div
                   className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-                  style={{ background: card.iconBg, backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: `1px solid ${card.iconBorder}` }}
+                  style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 255, 255, 0.3)' }}
                 >
                   {card.icon}
                 </div>
@@ -442,7 +447,7 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
                   <p className="text-xs text-slate-500 dark:text-slate-400">{card.subtitle}</p>
                 </div>
                 {totalCards > 1 && (
-                  <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
+                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex-shrink-0">
                     {currentIndex + 1}/{totalCards}
                   </span>
                 )}

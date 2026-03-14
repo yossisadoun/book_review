@@ -2,9 +2,17 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookMarked, BookOpen, CheckCircle2, Minimize2, Maximize2, ExternalLink } from 'lucide-react';
-import { decodeHtmlEntities, useImageBrightness, glassmorphicStyle } from './utils';
+import { BookMarked, BookOpen, Plus, MessageCircle, Send } from 'lucide-react';
+import { decodeHtmlEntities, useImageBrightness } from './utils';
 import { openSystemBrowser } from '@/lib/capacitor';
+
+const frostedGlassStyle: React.CSSProperties = {
+  background: 'rgba(255, 255, 255, 0.25)',
+  backdropFilter: 'blur(9.4px)',
+  WebkitBackdropFilter: 'blur(9.4px)',
+  border: '1px solid rgba(255, 255, 255, 0.3)',
+  borderRadius: '16px',
+};
 
 interface PodcastEpisode {
   title: string;
@@ -69,40 +77,25 @@ interface RelatedBooksProps {
   isLoading?: boolean;
   onAddBook?: (book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) => void;
   renderAction?: (index: number) => React.ReactNode;
+  showComment?: boolean;
 }
 
-function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderAction }: RelatedBooksProps) {
+function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderAction, showComment = true }: RelatedBooksProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const isSingleItem = books.length === 1;
   const [isVisible, setIsVisible] = useState(isSingleItem);
-  const [isMinimized, setIsMinimized] = useState(true);
+  const [descExpanded, setDescExpanded] = useState(false);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
-  const [coverAspect, setCoverAspect] = useState<number>(2 / 3); // width/height ratio
+  const [coverAspect, setCoverAspect] = useState<number>(2 / 3);
   const minSwipeDistance = 50;
 
   const coverImage = books[currentIndex]?.cover_url || books[currentIndex]?.thumbnail;
   const imageBrightness = useImageBrightness(coverImage);
 
-  const overlayGlassStyle: React.CSSProperties = imageBrightness === 'light'
-    ? {
-        background: 'rgba(0, 0, 0, 0.35)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
-      }
-    : {
-        background: 'rgba(255, 255, 255, 0.25)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid rgba(255, 255, 255, 0.3)',
-        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
-      };
-
   useEffect(() => {
     setCurrentIndex(0);
-    setIsMinimized(true);
+    setDescExpanded(false);
     setCoverAspect(2 / 3);
 
     if (books.length === 0) {
@@ -110,7 +103,6 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderActio
       return;
     }
 
-    // Single item (e.g. spotlight) — show immediately, no entrance delay
     if (books.length === 1) {
       setIsVisible(true);
       return;
@@ -168,7 +160,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderActio
   if (books.length === 0 || currentIndex >= books.length) {
     return (
       <div className="w-full">
-        <div className="rounded-xl p-4" style={glassmorphicStyle}>
+        <div className="rounded-xl p-4" style={frostedGlassStyle}>
           <p className="text-xs text-slate-600 dark:text-slate-400 text-center">No related books found</p>
         </div>
       </div>
@@ -178,7 +170,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderActio
   const currentBook = books[currentIndex];
 
   const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
-    ...glassmorphicStyle,
+    ...frostedGlassStyle,
     position: 'absolute' as const,
     inset: 0,
     transform: `translateY(${offset}px) scale(${scale})`,
@@ -241,160 +233,124 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderActio
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
               className="relative rounded-2xl overflow-hidden"
-              style={glassmorphicStyle}
+              style={frostedGlassStyle}
             >
               {/* Header */}
               <div className="flex items-center gap-3 px-4 pt-3 pb-2">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(245, 158, 11, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
-                  <BookMarked size={20} className="text-white" />
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 255, 255, 0.3)' }}>
+                  <BookMarked size={20} className="text-slate-600 dark:text-slate-300" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Books</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Similar books you might enjoy</p>
                 </div>
                 {books.length > 1 && (
-                  <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
+                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex-shrink-0">
                     {currentIndex + 1}/{books.length}
                   </span>
                 )}
               </div>
+
               {/* Image area */}
-              <div className="relative flex items-start justify-center pt-3" style={{ aspectRatio: `${coverAspect} / 1` }}>
-              <div className="relative w-[70%] rounded-lg overflow-hidden border-2 border-white/50" style={{ aspectRatio: `${coverAspect} / 1`, boxShadow: '0 8px 32px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2)' }}>
-              {coverImage ? (
-                <>
-                <img
-                  src={coverImage}
-                  alt={decodeHtmlEntities(currentBook.title)}
-                  className="w-full h-full object-contain"
-                  style={{ filter: 'contrast(1.15) saturate(1.25)' }}
-                  onLoad={(e) => {
-                    const img = e.currentTarget;
-                    if (img.naturalWidth && img.naturalHeight) {
-                      setCoverAspect(img.naturalWidth / img.naturalHeight);
-                    }
-                  }}
-                />
-                {/* Skeuomorphic book spine effect */}
-                <div
-                  className="absolute inset-0 pointer-events-none rounded-lg"
-                  style={{
-                    background: `linear-gradient(to right,
-                      rgba(0,0,0,0.02) 0%,
-                      rgba(0,0,0,0.05) 0.75%,
-                      rgba(255,255,255,0.5) 1.0%,
-                      rgba(255,255,255,0.6) 1.3%,
-                      rgba(255,255,255,0.5) 1.4%,
-                      rgba(255,255,255,0.3) 1.5%,
-                      rgba(255,255,255,0.3) 2.4%,
-                      rgba(0,0,0,0.05) 2.7%,
-                      rgba(0,0,0,0.05) 3.5%,
-                      rgba(255,255,255,0.3) 4%,
-                      rgba(255,255,255,0.3) 4.5%,
-                      transparent 5.4%,
-                      transparent 99%,
-                      rgba(144,144,144,0.08) 100%)`
-                  }}
-                />
-                </>
-              ) : (
-                <div className="w-full h-full bg-gradient-to-b from-amber-800 to-amber-950 flex items-center justify-center">
-                  <BookOpen size={48} className="text-white/30" />
-                </div>
-              )}
-              </div>
-
-              <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
-
-              {/* Floating glassmorphic overlay */}
-              <div
-                className="absolute inset-x-3 bottom-3 rounded-xl px-3 py-2.5 overflow-hidden"
-                style={overlayGlassStyle}
-              >
-                {/* Title + toggle */}
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className={`text-sm font-bold text-white flex-1 min-w-0 ${isMinimized ? 'line-clamp-1' : 'line-clamp-2'}`} style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
-                    {decodeHtmlEntities(currentBook.title)}
-                  </h3>
-                  {renderAction && (
-                    <span onClick={(e) => e.stopPropagation()}>{renderAction(currentIndex)}</span>
+              <div className="relative flex items-start justify-center pt-3 pb-3">
+                <div className="relative w-[60%] rounded-lg overflow-hidden border-2 border-white/50" style={{ aspectRatio: `${coverAspect}`, boxShadow: '0 8px 32px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2)' }}>
+                  {coverImage ? (
+                    <>
+                      <img
+                        src={coverImage}
+                        alt={decodeHtmlEntities(currentBook.title)}
+                        className="w-full h-full object-contain"
+                        style={{ filter: 'contrast(1.15) saturate(1.25)' }}
+                        onLoad={(e) => {
+                          const img = e.currentTarget;
+                          if (img.naturalWidth && img.naturalHeight) {
+                            setCoverAspect(img.naturalWidth / img.naturalHeight);
+                          }
+                        }}
+                      />
+                      {/* Skeuomorphic book spine effect */}
+                      <div
+                        className="absolute inset-0 pointer-events-none rounded-lg"
+                        style={{
+                          background: `linear-gradient(to right,
+                            rgba(0,0,0,0.02) 0%,
+                            rgba(0,0,0,0.05) 0.75%,
+                            rgba(255,255,255,0.5) 1.0%,
+                            rgba(255,255,255,0.6) 1.3%,
+                            rgba(255,255,255,0.5) 1.4%,
+                            rgba(255,255,255,0.3) 1.5%,
+                            rgba(255,255,255,0.3) 2.4%,
+                            rgba(0,0,0,0.05) 2.7%,
+                            rgba(0,0,0,0.05) 3.5%,
+                            rgba(255,255,255,0.3) 4%,
+                            rgba(255,255,255,0.3) 4.5%,
+                            transparent 5.4%,
+                            transparent 99%,
+                            rgba(144,144,144,0.08) 100%)`
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-b from-amber-800 to-amber-950 flex items-center justify-center">
+                      <BookOpen size={48} className="text-white/30" />
+                    </div>
                   )}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
-                    className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"
-                    style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)' }}
-                  >
-                    {isMinimized ? <Maximize2 size={12} className="text-white/80" /> : <Minimize2 size={12} className="text-white/80" />}
-                  </button>
-                </div>
 
-                {/* Expandable content */}
-                <AnimatePresence initial={false}>
-                  {!isMinimized && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.25, ease: 'easeInOut' }}
-                      className="overflow-hidden mt-0.5"
-                    >
-                      <p className="text-xs text-white/80" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
-                        {decodeHtmlEntities(currentBook.author)}
-                      </p>
-
-                      {currentBook.reason && (
-                        <p className="text-xs text-white/70 line-clamp-6 mt-1" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
-                          {decodeHtmlEntities(currentBook.reason)}
-                        </p>
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {/* Button row — always visible */}
-                <div className="flex items-center justify-between pt-2">
-                  <div className="flex items-center gap-2">
-                    {onAddBook && (
+                  {/* + Add button on the cover */}
+                  {onAddBook && (
+                    <div className="absolute bottom-3 right-3">
                       <button
                         onClick={handleAddBook}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full whitespace-nowrap flex-shrink-0 transition-all active:scale-95"
-                        style={{
-                          background: 'rgba(59, 130, 246, 0.85)',
-                          backdropFilter: 'blur(9.4px)',
-                          WebkitBackdropFilter: 'blur(9.4px)',
-                          border: '1px solid rgba(59, 130, 246, 0.3)',
-                          color: 'white',
-                        }}
-                      >
-                        <CheckCircle2 size={14} />
-                        Add Book
-                      </button>
-                    )}
-                    {currentBook.google_books_url && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openSystemBrowser(currentBook.google_books_url!);
-                        }}
-                        className="inline-flex items-center justify-center w-[30px] h-[30px] rounded-full flex-shrink-0 transition-all active:scale-95"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-full whitespace-nowrap transition-all active:scale-95"
                         style={{
                           background: 'rgba(255, 255, 255, 0.25)',
                           backdropFilter: 'blur(9.4px)',
                           WebkitBackdropFilter: 'blur(9.4px)',
                           border: '1px solid rgba(255, 255, 255, 0.3)',
+                          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+                          color: imageBrightness === 'light' ? 'rgba(0,0,0,0.8)' : 'white',
                         }}
                       >
-                        <ExternalLink size={14} className="text-white" />
+                        <Plus size={14} />
+                        Add
                       </button>
-                    )}
-                  </div>
-                  {isMinimized && (
-                    <span className="text-xs text-white/70 font-medium truncate ml-2 min-w-0" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
-                      {decodeHtmlEntities(currentBook.author)}
-                    </span>
+                    </div>
                   )}
                 </div>
               </div>
+
+              {/* Info below image */}
+              <div className="px-4 py-3">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-2">
+                  {decodeHtmlEntities(currentBook.title)}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {decodeHtmlEntities(currentBook.author)}
+                  {currentBook.publish_year && ` · ${currentBook.publish_year}`}
+                </p>
+
+                {currentBook.reason && (
+                  <>
+                    <p className={`text-xs text-slate-600 dark:text-slate-400 mt-1.5 ${descExpanded ? '' : 'line-clamp-2'}`}>
+                      {decodeHtmlEntities(currentBook.reason)}
+                    </p>
+                    {currentBook.reason.length > 100 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDescExpanded(prev => !prev); }}
+                        className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-1"
+                      >
+                        {descExpanded ? 'Read less' : 'Read more'}
+                      </button>
+                    )}
+                  </>
+                )}
+
+                {/* Action bar */}
+                <div className="flex items-center gap-6 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
+                  {renderAction && renderAction(currentIndex)}
+                  {showComment && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
+                  <Send size={17} className="text-slate-600 dark:text-slate-400" />
+                </div>
               </div>
             </motion.div>
           )}

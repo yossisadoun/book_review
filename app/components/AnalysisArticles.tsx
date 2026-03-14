@@ -2,9 +2,17 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, ExternalLink, Minimize2, Maximize2 } from 'lucide-react';
-import { decodeHtmlEntities, glassmorphicStyle } from './utils';
+import { FileText, MessageCircle, Send } from 'lucide-react';
+import { decodeHtmlEntities } from './utils';
 import { openSystemBrowser } from '@/lib/capacitor';
+
+const frostedGlassStyle: React.CSSProperties = {
+  background: 'rgba(255, 255, 255, 0.25)',
+  backdropFilter: 'blur(9.4px)',
+  WebkitBackdropFilter: 'blur(9.4px)',
+  border: '1px solid rgba(255, 255, 255, 0.3)',
+  borderRadius: '16px',
+};
 
 interface AnalysisArticle {
   title: string;
@@ -19,29 +27,23 @@ interface AnalysisArticlesProps {
   bookId: string;
   isLoading?: boolean;
   renderAction?: (index: number) => React.ReactNode;
+  showComment?: boolean;
 }
 
-function AnalysisArticles({ articles, bookId, isLoading = false, renderAction }: AnalysisArticlesProps) {
+function AnalysisArticles({ articles, bookId, isLoading = false, renderAction, showComment = true }: AnalysisArticlesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const isSingleItem = articles.length === 1;
   const [isVisible, setIsVisible] = useState(isSingleItem);
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [descExpanded, setDescExpanded] = useState(false);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const minSwipeDistance = 50;
-
-  const overlayGlassStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.25)',
-    backdropFilter: 'blur(16px)',
-    WebkitBackdropFilter: 'blur(16px)',
-    border: '1px solid rgba(255, 255, 255, 0.3)',
-    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
-  };
 
   // Use a stable key based on content, not array reference, to avoid flickering
   const articlesKey = articles.map(a => a.url).join('|');
   useEffect(() => {
     setCurrentIndex(0);
+    setDescExpanded(false);
 
     if (articles.length === 0) {
       setIsVisible(false);
@@ -105,9 +107,12 @@ function AnalysisArticles({ articles, bookId, isLoading = false, renderAction }:
   if (articles.length === 0 || currentIndex >= articles.length) return null;
 
   const currentArticle = articles[currentIndex];
+  const articleDomain = (() => {
+    try { return new URL(currentArticle.url || '').hostname.replace('www.', ''); } catch { return ''; }
+  })();
 
   const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
-    ...glassmorphicStyle,
+    ...frostedGlassStyle,
     position: 'absolute' as const,
     inset: 0,
     transform: `translateY(${offset}px) scale(${scale})`,
@@ -147,101 +152,81 @@ function AnalysisArticles({ articles, bookId, isLoading = false, renderAction }:
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
               className="relative rounded-2xl overflow-hidden"
-              style={glassmorphicStyle}
+              style={frostedGlassStyle}
             >
               {/* Header */}
               <div className="flex items-center gap-3 px-4 pt-3 pb-2">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(59, 130, 246, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-                  <FileText size={20} className="text-white" />
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 255, 255, 0.3)' }}>
+                  <FileText size={20} className="text-slate-600 dark:text-slate-300" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Articles</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Academic article about this book</p>
                 </div>
                 {articles.length > 1 && (
-                  <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
+                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex-shrink-0">
                     {currentIndex + 1}/{articles.length}
                   </span>
                 )}
               </div>
-              {/* Image area — gradient background since articles have no photo */}
-              <div className="relative aspect-[10/9]">
-                <div className="absolute inset-0 bg-gradient-to-b from-blue-800 to-slate-900 flex items-center justify-center">
-                  <FileText size={48} className="text-white/15" />
+
+              {/* Article link preview card (feed-style) */}
+              <div className="px-4 pb-3">
+                {currentArticle.url && (
+                  <p className="text-[13px] mb-2">
+                    <a
+                      href={currentArticle.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 dark:text-blue-400 block truncate"
+                      onClick={(e) => { e.stopPropagation(); openSystemBrowser(currentArticle.url); e.preventDefault(); }}
+                    >
+                      {currentArticle.url}
+                    </a>
+                  </p>
+                )}
+                <div
+                  className="w-full rounded-xl overflow-hidden"
+                  style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 255, 255, 0.3)' }}
+                  onClick={(e) => { e.stopPropagation(); openSystemBrowser(currentArticle.url); }}
+                >
+                  <div className="px-3.5 py-3">
+                    {articleDomain && (
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <img src={`https://www.google.com/s2/favicons?domain=${articleDomain}&sz=32`} alt="" className="w-4 h-4 rounded-sm" />
+                        <span className="text-[13px] text-slate-500 dark:text-slate-400">{articleDomain}</span>
+                      </div>
+                    )}
+                    <p className="font-semibold text-slate-900 dark:text-slate-100 text-[15px] leading-snug line-clamp-2">
+                      {decodeHtmlEntities(currentArticle.title)}
+                    </p>
+                    {(currentArticle.authors || currentArticle.year) && (
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        {currentArticle.authors && decodeHtmlEntities(currentArticle.authors)}
+                        {currentArticle.year && ` · ${currentArticle.year}`}
+                      </p>
+                    )}
+                    {currentArticle.snippet && (
+                      <p className={`text-[13px] text-slate-500 dark:text-slate-400 mt-1 ${descExpanded ? '' : 'line-clamp-2'}`}>
+                        {decodeHtmlEntities(currentArticle.snippet)}
+                      </p>
+                    )}
+                    {currentArticle.snippet && currentArticle.snippet.length > 100 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setDescExpanded(prev => !prev); }}
+                        className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-1"
+                      >
+                        {descExpanded ? 'Read less' : 'Read more'}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                <div className="absolute bottom-0 inset-x-0 h-1/2 bg-gradient-to-t from-black/40 to-transparent" />
-
-                {/* Floating glassmorphic overlay */}
-                <div
-                  className="absolute inset-x-3 bottom-3 rounded-xl px-3 py-2.5 overflow-hidden"
-                  style={overlayGlassStyle}
-                >
-                  {/* Title + toggle */}
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className={`text-sm font-bold text-white flex-1 min-w-0 ${isMinimized ? 'line-clamp-1' : 'line-clamp-3'}`} style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
-                      {decodeHtmlEntities(currentArticle.title)}
-                    </h3>
-                    {renderAction && (
-                      <span onClick={(e) => e.stopPropagation()}>{renderAction(currentIndex)}</span>
-                    )}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
-                      className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"
-                      style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)' }}
-                    >
-                      {isMinimized ? <Maximize2 size={12} className="text-white/80" /> : <Minimize2 size={12} className="text-white/80" />}
-                    </button>
-                  </div>
-
-                  {/* Expandable content */}
-                  <AnimatePresence initial={false}>
-                    {!isMinimized && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.25, ease: 'easeInOut' }}
-                        className="overflow-hidden mt-0.5"
-                      >
-                        {(currentArticle.authors || currentArticle.year) && (
-                          <p className="text-xs text-white/80" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
-                            {currentArticle.authors && decodeHtmlEntities(currentArticle.authors)}
-                            {currentArticle.year && ` • ${currentArticle.year}`}
-                          </p>
-                        )}
-
-                        {currentArticle.snippet && (
-                          <p className="text-xs text-white/70 line-clamp-6 mt-1" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
-                            {decodeHtmlEntities(currentArticle.snippet)}
-                          </p>
-                        )}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  {/* Button row — always visible */}
-                  {currentArticle.url && (
-                    <div className="flex items-center gap-2 pt-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openSystemBrowser(currentArticle.url);
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
-                        style={{
-                          background: 'rgba(59, 130, 246, 0.85)',
-                          backdropFilter: 'blur(9.4px)',
-                          WebkitBackdropFilter: 'blur(9.4px)',
-                          border: '1px solid rgba(59, 130, 246, 0.3)',
-                          color: 'white',
-                        }}
-                      >
-                        <ExternalLink size={14} />
-                        Read
-                      </button>
-                    </div>
-                  )}
+                {/* Action bar */}
+                <div className="flex items-center gap-6 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
+                  {renderAction && renderAction(currentIndex)}
+                  {showComment && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
+                  <Send size={17} className="text-slate-600 dark:text-slate-400" />
                 </div>
               </div>
             </motion.div>

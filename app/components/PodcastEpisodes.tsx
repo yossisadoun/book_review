@@ -1,20 +1,16 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { Headphones, Play, Pause, Minimize2, Maximize2 } from 'lucide-react';
-import { decodeHtmlEntities, useImageBrightness, glassmorphicStyle } from './utils';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Headphones, Play, MessageCircle, Send } from 'lucide-react';
+import { decodeHtmlEntities, useImageBrightness } from './utils';
 import { openSystemBrowser } from '@/lib/capacitor';
 
-const ApplePodcastsIcon = ({ size = 14 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 100 100" fill="currentColor">
-    <path d="M50 15c-19.33 0-35 15.67-35 35 0 11.28 5.34 21.32 13.63 27.72a2.5 2.5 0 103.14-3.89C24.72 68.52 20 59.55 20 50c0-16.57 13.43-30 30-30s30 13.43 30 30c0 9.55-4.72 18.52-11.77 23.83a2.5 2.5 0 103.14 3.89C79.66 71.32 85 61.28 85 50c0-19.33-15.67-35-35-35z"/>
-    <path d="M50 28c-12.15 0-22 9.85-22 22 0 6.8 3.08 12.88 7.93 16.93a2.5 2.5 0 103.14-3.89C34.97 59.72 33 55.07 33 50c0-9.39 7.61-17 17-17s17 7.61 17 17c0 5.07-1.97 9.72-6.07 13.04a2.5 2.5 0 103.14 3.89C68.92 62.88 72 56.8 72 50c0-12.15-9.85-22-22-22z"/>
-    <circle cx="50" cy="46" r="7"/>
-    <path d="M44 62c-.5-3.5-.5-6.5 0-9.5.7-3.8 2.8-5.5 6-5.5s5.3 1.7 6 5.5c.5 3 .5 6 0 9.5l-2 13c-.3 2-1.7 3.5-4 3.5s-3.7-1.5-4-3.5l-2-13z"/>
+const ApplePodcastsIcon = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="white">
+    <path d="M5.34 0A5.328 5.328 0 000 5.34v13.32A5.328 5.328 0 005.34 24h13.32A5.328 5.328 0 0024 18.66V5.34A5.328 5.328 0 0018.66 0zm6.525 2.568c4.988 0 8.93 3.637 9.32 8.378a.19.19 0 01-.19.208h-1.758a.19.19 0 01-.187-.163 7.26 7.26 0 00-7.186-6.298 7.26 7.26 0 00-7.186 6.298.19.19 0 01-.186.163H2.733a.19.19 0 01-.19-.208c.39-4.741 4.333-8.378 9.321-8.378zm.058 3.39a5.608 5.608 0 015.265 3.87.19.19 0 01-.18.252h-1.762a.19.19 0 01-.176-.12 3.578 3.578 0 00-6.294 0 .19.19 0 01-.176.12H6.833a.19.19 0 01-.18-.253 5.608 5.608 0 015.27-3.868zm-.033 3.39a2.25 2.25 0 110 4.5 2.25 2.25 0 010-4.5zm-.024 5.719c1.024 0 1.854.83 1.854 1.854v2.688c0 1.024-.83 1.854-1.854 1.854a1.854 1.854 0 01-1.854-1.854V16.92c0-1.024.83-1.854 1.854-1.854z"/>
   </svg>
 );
-
 
 interface PodcastEpisode {
   title: string;
@@ -34,72 +30,42 @@ interface PodcastEpisodesProps {
   bookId: string;
   isLoading?: boolean;
   renderAction?: (index: number) => React.ReactNode;
+  showComment?: boolean;
 }
 
-function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction }: PodcastEpisodesProps) {
+function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, showComment = true }: PodcastEpisodesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(true);
-  const [playingAudioUrl, setPlayingAudioUrl] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [descExpanded, setDescExpanded] = useState(false);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
+  const [showTooltips, setShowTooltips] = useState(false);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const playButtonRef = useRef<HTMLButtonElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const minSwipeDistance = 50;
 
-  // Stable key for episodes to avoid re-triggering effects on identical data
   const episodesKey = useMemo(() => episodes.map(e => e.url).join('|'), [episodes]);
-
   const imageBrightness = useImageBrightness(episodes[currentIndex]?.thumbnail);
-
-  const overlayGlassStyle: React.CSSProperties = imageBrightness === 'light'
-    ? {
-        background: 'rgba(0, 0, 0, 0.35)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid rgba(255, 255, 255, 0.1)',
-        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)',
-      }
-    : {
-        background: 'rgba(255, 255, 255, 0.25)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid rgba(255, 255, 255, 0.3)',
-        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
-      };
-
-  const pillButtonStyle: React.CSSProperties = {
-    background: 'rgba(255, 255, 255, 0.6)',
-    backdropFilter: 'blur(9.4px)',
-    WebkitBackdropFilter: 'blur(9.4px)',
-    border: '1px solid rgba(255, 255, 255, 0.3)',
-    color: '#334155',
-  };
 
   useEffect(() => {
     setCurrentIndex(0);
-    if (audioRef.current) {
-      audioRef.current.pause();
-      setPlayingAudioUrl(null);
-    }
+    setDescExpanded(false);
+    setShowTooltips(false);
+    stopAudio();
   }, [episodesKey, bookId]);
 
-  useEffect(() => {
-    if (audioRef.current && playingAudioUrl) {
+  const stopAudio = useCallback(() => {
+    if (audioRef.current) {
       audioRef.current.pause();
-      setPlayingAudioUrl(null);
+      audioRef.current = null;
     }
-  }, [currentIndex]);
-
-  useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-    };
+    setAudioPlaying(false);
   }, []);
 
   function handleNext() {
+    stopAudio();
+    setShowTooltips(false);
     setIsTransitioning(true);
     setTimeout(() => {
       setCurrentIndex(prev => (prev + 1) % episodes.length);
@@ -108,6 +74,8 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction }: 
   }
 
   function handlePrev() {
+    stopAudio();
+    setShowTooltips(false);
     setIsTransitioning(true);
     setTimeout(() => {
       setCurrentIndex(prev => (prev > 0 ? prev - 1 : episodes.length - 1));
@@ -130,49 +98,28 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction }: 
     setTouchEnd(null);
   };
 
-  function handlePlay(e: React.MouseEvent, episode: PodcastEpisode) {
+  const handleTogglePreview = (e: React.MouseEvent) => {
     e.stopPropagation();
+    setShowTooltips(false);
+    const episode = episodes[currentIndex];
+    if (!episode?.audioUrl) return;
 
-    const audioUrl = episode.audioUrl || (episode.url && episode.url.match(/\.(mp3|m4a|wav|ogg|aac)(\?|$)/i) ? episode.url : null);
-
-    if (audioUrl) {
-      if (playingAudioUrl === audioUrl) {
-        if (audioRef.current) {
-          audioRef.current.pause();
-          setPlayingAudioUrl(null);
-        }
-      } else {
-        if (audioRef.current) {
-          audioRef.current.pause();
-        }
-        setPlayingAudioUrl(audioUrl);
-        audioRef.current = new Audio(audioUrl);
-        audioRef.current.addEventListener('ended', () => {
-          setPlayingAudioUrl(null);
-        });
-        audioRef.current.addEventListener('error', () => {
-          console.error('[PodcastEpisodes] Audio playback failed, opening URL:', episode.url);
-          openSystemBrowser(episode.url);
-          setPlayingAudioUrl(null);
-        });
-        audioRef.current.play();
-      }
+    if (audioPlaying) {
+      stopAudio();
     } else {
-      if (playingAudioUrl === episode.url) {
-        setPlayingAudioUrl(null);
-      } else {
-        if (audioRef.current) {
-          audioRef.current.pause();
-          setPlayingAudioUrl(null);
-        }
-        setPlayingAudioUrl(episode.url);
-        openSystemBrowser(episode.url);
-        setTimeout(() => {
-          setPlayingAudioUrl(null);
-        }, 1000);
-      }
+      const audio = new Audio(episode.audioUrl);
+      audio.onended = () => setAudioPlaying(false);
+      audio.play();
+      audioRef.current = audio;
+      setAudioPlaying(true);
     }
-  }
+  };
+
+  const handleOpenPodcast = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowTooltips(false);
+    openSystemBrowser(episodes[currentIndex].url);
+  };
 
   if (isLoading) {
     return (
@@ -185,17 +132,52 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction }: 
   if (episodes.length === 0 || currentIndex >= episodes.length) return null;
 
   const currentEpisode = episodes[currentIndex];
-  const audioUrl = currentEpisode.audioUrl || (currentEpisode.url && currentEpisode.url.match(/\.(mp3|m4a|wav|ogg|aac)(\?|$)/i) ? currentEpisode.url : null);
-  const isPlaying = playingAudioUrl === (audioUrl || currentEpisode.url);
+  const hasPreview = !!currentEpisode.audioUrl;
 
   const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
-    ...glassmorphicStyle,
+    background: 'rgba(255, 255, 255, 0.25)',
+    backdropFilter: 'blur(9.4px)',
+    WebkitBackdropFilter: 'blur(9.4px)',
+    border: '1px solid rgba(255, 255, 255, 0.3)',
     position: 'absolute' as const,
     inset: 0,
     transform: `translateY(${offset}px) scale(${scale})`,
     opacity,
     borderRadius: '16px',
   });
+
+  // Tooltip positions: fan out above play button
+  const anchorRect = playButtonRef.current?.getBoundingClientRect();
+  const tooltipItems: { key: string; icon: React.ReactNode; color: string; onClick: (e: React.MouseEvent) => void }[] = [];
+
+  if (hasPreview) {
+    tooltipItems.push({
+      key: 'preview',
+      icon: audioPlaying ? <span className="text-white text-xs font-bold">■</span> : <Headphones size={18} className="text-white" />,
+      color: '#8B5CF6',
+      onClick: handleTogglePreview,
+    });
+  }
+  tooltipItems.push({
+    key: 'apple',
+    icon: <ApplePodcastsIcon />,
+    color: '#9933CC',
+    onClick: handleOpenPodcast,
+  });
+
+  const tooltipCount = tooltipItems.length;
+  const radius = 70;
+  const startAngle = Math.PI;
+  const endAngle = 2 * Math.PI;
+  const angleStep = tooltipCount > 1 ? (endAngle - startAngle) / (tooltipCount - 1) : 0;
+
+  const getPosition = (index: number) => {
+    const angle = tooltipCount > 1 ? startAngle + angleStep * index : 1.5 * Math.PI;
+    return {
+      x: Math.cos(angle) * radius,
+      y: Math.sin(angle) * radius,
+    };
+  };
 
   return (
     <div
@@ -223,25 +205,32 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction }: 
         <div
           key={`${currentEpisode.url}-${currentIndex}`}
           className="relative rounded-2xl overflow-hidden transition-opacity duration-300"
-          style={{ ...glassmorphicStyle, opacity: isTransitioning ? 0 : 1 }}
+          style={{
+            background: 'rgba(255, 255, 255, 0.25)',
+            backdropFilter: 'blur(9.4px)',
+            WebkitBackdropFilter: 'blur(9.4px)',
+            border: '1px solid rgba(255, 255, 255, 0.3)',
+            borderRadius: '16px',
+            opacity: isTransitioning ? 0 : 1,
+          }}
         >
               {/* Header */}
               <div className="flex items-center gap-3 px-4 pt-3 pb-2">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(139, 92, 246, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
-                  <Headphones size={20} className="text-white" />
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 255, 255, 0.3)' }}>
+                  <Headphones size={20} className="text-slate-600 dark:text-slate-300" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Podcasts</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Podcast about this book</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-300">Podcast about this book</p>
                 </div>
                 {episodes.length > 1 && (
-                  <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
+                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex-shrink-0">
                     {currentIndex + 1}/{episodes.length}
                   </span>
                 )}
               </div>
               {/* Image area */}
-              <div className="relative aspect-square flex items-start justify-center pt-3">
+              <div className="relative flex items-start justify-center pt-3 pb-3">
                 <div className="relative w-[60%] aspect-square rounded-xl overflow-hidden" style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2)' }}>
                 {currentEpisode.thumbnail ? (
                   <img
@@ -255,12 +244,13 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction }: 
                   </div>
                 )}
 
-                {/* Play button — opens podcast */}
+                {/* Play button — opens tooltips */}
                 <div className="absolute inset-0 flex items-center justify-center">
                   <button
+                    ref={playButtonRef}
                     onClick={(e) => {
                       e.stopPropagation();
-                      openSystemBrowser(currentEpisode.url);
+                      setShowTooltips(prev => !prev);
                     }}
                     className="w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-95"
                     style={{
@@ -274,103 +264,92 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction }: 
                     <Play size={24} className="text-white ml-0.5" fill="white" />
                   </button>
                 </div>
+                {/* Bottom gradient */}
+                <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
+                {/* Overlay info */}
+                <div className="absolute inset-x-3 bottom-3">
+                  {currentEpisode.length && (
+                    <p className={`text-xs font-medium ${imageBrightness === 'light' ? 'text-black/80' : 'text-white/80'}`}>{currentEpisode.length}</p>
+                  )}
+                </div>
                 </div>
 
-                <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
+              </div>
 
-                {/* Floating glassmorphic overlay */}
-                <div
-                  className="absolute inset-x-3 bottom-3 rounded-xl px-3 py-2.5 overflow-hidden"
-                  style={overlayGlassStyle}
-                >
-                  {/* Title + toggle */}
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className={`text-sm font-bold text-white flex-1 min-w-0 ${isMinimized ? 'line-clamp-1' : 'line-clamp-2'}`} style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
-                      {decodeHtmlEntities(currentEpisode.title)}
-                    </h3>
-                    {renderAction && (
-                      <span onClick={(e) => e.stopPropagation()}>{renderAction(currentIndex)}</span>
-                    )}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
-                      className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"
-                      style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)' }}
-                    >
-                      {isMinimized ? <Maximize2 size={12} className="text-white/80" /> : <Minimize2 size={12} className="text-white/80" />}
-                    </button>
-                  </div>
+              {/* Info below thumbnail */}
+              <div className="px-4 py-3">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-2">
+                  {decodeHtmlEntities(currentEpisode.title)}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {decodeHtmlEntities(currentEpisode.podcast_name || 'Podcast')}
+                </p>
 
-                  {/* Expandable content */}
-                  <AnimatePresence initial={false}>
-                    {!isMinimized && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.25, ease: 'easeInOut' }}
-                        className="overflow-hidden mt-0.5"
-                      >
-                        <p className="text-xs text-white/80" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
-                          {decodeHtmlEntities(currentEpisode.podcast_name || 'Podcast')}
-                          {currentEpisode.length && ` • ${currentEpisode.length}`}
-                        </p>
-
-                        {currentEpisode.episode_summary && (
-                          <p className="text-xs text-white/70 line-clamp-6 mt-1" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
-                            {decodeHtmlEntities(currentEpisode.episode_summary)}
-                          </p>
-                        )}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  {/* Button row — always visible */}
-                  <div className="flex items-center justify-between pt-2">
-                    <div className="flex items-center gap-2">
+                {currentEpisode.episode_summary && (
+                  <>
+                    <p className={`text-xs text-slate-600 dark:text-slate-400 mt-1.5 ${descExpanded ? '' : 'line-clamp-2'}`}>
+                      {decodeHtmlEntities(currentEpisode.episode_summary)}
+                    </p>
+                    {currentEpisode.episode_summary.length > 100 && (
                       <button
-                        onClick={(e) => handlePlay(e, currentEpisode)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
-                        style={{
-                          background: 'rgba(59, 130, 246, 0.85)',
-                          backdropFilter: 'blur(9.4px)',
-                          WebkitBackdropFilter: 'blur(9.4px)',
-                          border: '1px solid rgba(59, 130, 246, 0.3)',
-                          color: 'white',
-                        }}
+                        onClick={(e) => { e.stopPropagation(); setDescExpanded(prev => !prev); }}
+                        className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-1"
                       >
-                        {isPlaying ? <Pause size={14} fill="white" /> : <Play size={14} className="ml-0.5" fill="white" />}
-                        {isPlaying ? 'Pause' : 'Preview'}
+                        {descExpanded ? 'Read less' : 'Read more'}
                       </button>
-                      {/* Apple Podcasts button */}
-                      {currentEpisode.url && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openSystemBrowser(currentEpisode.url);
-                          }}
-                          className="inline-flex items-center justify-center w-[30px] h-[30px] rounded-full transition-all active:scale-95"
-                          style={{
-                            background: 'rgba(156, 39, 176, 0.85)',
-                            backdropFilter: 'blur(9.4px)',
-                            WebkitBackdropFilter: 'blur(9.4px)',
-                            border: '1px solid rgba(156, 39, 176, 0.3)',
-                            color: 'white',
-                          }}
-                        >
-                          <ApplePodcastsIcon size={20} />
-                        </button>
-                      )}
-                    </div>
-                    {currentEpisode.length && (
-                      <span className="text-xs text-white/70 font-medium" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>
-                        {currentEpisode.length}
-                      </span>
                     )}
-                  </div>
+                  </>
+                )}
+
+                {/* Action bar */}
+                <div className="flex items-center gap-6 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
+                  {renderAction && renderAction(currentIndex)}
+                  {showComment && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
+                  <Send size={17} className="text-slate-600 dark:text-slate-400" />
                 </div>
               </div>
         </div>
       </div>
+
+      {/* Tooltip fan-out from play button */}
+      <AnimatePresence>
+        {showTooltips && anchorRect && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[9998]"
+              onClick={(e) => { e.stopPropagation(); setShowTooltips(false); }}
+            />
+            {tooltipItems.map((item, i) => {
+              const pos = getPosition(i);
+              const centerX = anchorRect.left + anchorRect.width / 2;
+              const centerY = anchorRect.top + anchorRect.height / 2;
+
+              return (
+                <motion.button
+                  key={item.key}
+                  initial={{ opacity: 0, scale: 0 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0 }}
+                  transition={{ type: 'spring', damping: 15, stiffness: 300, delay: i * 0.04 }}
+                  onClick={item.onClick}
+                  className="fixed z-[9999] w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+                  style={{
+                    left: centerX + pos.x - 22,
+                    top: centerY + pos.y - 22,
+                    background: item.color,
+                    boxShadow: '0 3px 12px rgba(0,0,0,0.3)',
+                  }}
+                >
+                  {item.icon}
+                </motion.button>
+              );
+            })}
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

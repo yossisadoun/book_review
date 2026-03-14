@@ -2,9 +2,15 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lightbulb, ExternalLink } from 'lucide-react';
+import { Lightbulb, Link, MessageCircle, Send } from 'lucide-react';
 import { openSystemBrowser } from '@/lib/capacitor';
-import { glassmorphicStyle } from './utils';
+const frostedGlassStyle: React.CSSProperties = {
+  background: 'rgba(255, 255, 255, 0.25)',
+  backdropFilter: 'blur(9.4px)',
+  WebkitBackdropFilter: 'blur(9.4px)',
+  border: '1px solid rgba(255, 255, 255, 0.3)',
+  borderRadius: '16px',
+};
 
 export interface InsightItem {
   text: string;
@@ -19,9 +25,10 @@ export interface InsightsCardsProps {
   bookId: string;
   isLoading?: boolean;
   renderAction?: (index: number) => React.ReactNode;
+  showComment?: boolean;
 }
 
-function InsightsCards({ insights, bookId, isLoading = false, renderAction }: InsightsCardsProps) {
+function InsightsCards({ insights, bookId, isLoading = false, renderAction, showComment = true }: InsightsCardsProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
@@ -89,7 +96,7 @@ function InsightsCards({ insights, bookId, isLoading = false, renderAction }: In
           animate={{ opacity: [0.5, 0.8, 0.5] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
           className="rounded-2xl overflow-hidden"
-          style={glassmorphicStyle}
+          style={frostedGlassStyle}
         >
           <div className="flex items-center gap-3 px-4 pt-3 pb-2">
             <div className="w-10 h-10 rounded-full bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" />
@@ -113,7 +120,7 @@ function InsightsCards({ insights, bookId, isLoading = false, renderAction }: In
   const currentInsight = insights[currentIndex];
 
   const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
-    ...glassmorphicStyle,
+    ...frostedGlassStyle,
     position: 'absolute' as const,
     inset: 0,
     transform: `translateY(${offset}px) scale(${scale})`,
@@ -158,22 +165,19 @@ function InsightsCards({ insights, bookId, isLoading = false, renderAction }: In
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.3, ease: "easeInOut" }}
               className="relative rounded-2xl overflow-hidden"
-              style={glassmorphicStyle}
+              style={frostedGlassStyle}
             >
               {/* Header */}
               <div className="flex items-center gap-3 px-4 pt-3 pb-2">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
-                  <Lightbulb size={20} className="text-white" />
+                <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 255, 255, 0.3)' }}>
+                  <Lightbulb size={20} className="text-slate-600 dark:text-slate-300" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">{currentInsight.label || 'Insights'}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Interesting facts about this book</p>
                 </div>
-                {renderAction && (
-                  <span onClick={(e) => e.stopPropagation()}>{renderAction(currentIndex)}</span>
-                )}
                 {insights.length > 1 && (
-                  <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
+                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex-shrink-0">
                     {currentIndex + 1}/{insights.length}
                   </span>
                 )}
@@ -186,26 +190,23 @@ function InsightsCards({ insights, bookId, isLoading = false, renderAction }: In
                   </p>
                 ))}
                 {currentInsight.sourceUrl && (
-                  <div className="flex items-center gap-2 pt-3">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openSystemBrowser(currentInsight.sourceUrl!);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition-all active:scale-95"
-                      style={{
-                        background: 'rgba(59, 130, 246, 0.85)',
-                        backdropFilter: 'blur(9.4px)',
-                        WebkitBackdropFilter: 'blur(9.4px)',
-                        border: '1px solid rgba(59, 130, 246, 0.3)',
-                        color: 'white',
-                      }}
-                    >
-                      <ExternalLink size={14} />
-                      {(() => { try { return new URL(currentInsight.sourceUrl!).hostname.replace(/^www\./, ''); } catch { return 'Source'; } })()}
-                    </button>
-                  </div>
+                  <p
+                    className="text-xs text-slate-500 dark:text-slate-400 pt-3 cursor-pointer active:opacity-70"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openSystemBrowser(currentInsight.sourceUrl!);
+                    }}
+                  >
+                    <Link size={12} className="inline mr-1" style={{ verticalAlign: 'middle' }} />Source – {(() => { try { return new URL(currentInsight.sourceUrl!).hostname.replace(/^www\./, ''); } catch { return 'link'; } })()}
+                  </p>
                 )}
+
+                {/* Action bar */}
+                <div className="flex items-center gap-6 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
+                  {renderAction && renderAction(currentIndex)}
+                  {showComment && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
+                  <Send size={17} className="text-slate-600 dark:text-slate-400" />
+                </div>
               </div>
             </motion.div>
           )}

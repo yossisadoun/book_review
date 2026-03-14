@@ -269,6 +269,11 @@ const SpotlightSection = React.memo(function SpotlightSection({
   spoilerRevealed,
   setSpoilerRevealed,
   bookId,
+  heartCounts,
+  userHearted,
+  handleToggleHeart,
+  showMoviePlayButtons,
+  showComment,
 }: {
   spotlightRecommendation: { item: { type: string; icon: any; label: string; title: string; subtitle: string; url?: string; imageUrl?: string; itemIndex: number }; next: { type: string; icon: any; label: string; title: string; subtitle: string; url?: string; imageUrl?: string; itemIndex: number } | null; total: number; bookId: string };
   didYouKnow: Map<string, any[]>;
@@ -286,6 +291,11 @@ const SpotlightSection = React.memo(function SpotlightSection({
   spoilerRevealed: Map<string, Set<string>>;
   setSpoilerRevealed: React.Dispatch<React.SetStateAction<Map<string, Set<string>>>>;
   bookId: string;
+  heartCounts: Map<string, number>;
+  userHearted: Set<string>;
+  handleToggleHeart: (contentHash: string) => void;
+  showMoviePlayButtons?: boolean;
+  showComment?: boolean;
 }) {
   const [isVisible, setIsVisible] = useState(true);
   const outerRef = useRef<HTMLDivElement>(null);
@@ -326,30 +336,45 @@ const SpotlightSection = React.memo(function SpotlightSection({
         if (!dykItems || idx >= dykItems.length) return null;
         const dyk = dykItems[idx];
         const insights = [{ text: dyk.notes.join('\n\n'), sourceUrl: dyk.source_url, label: 'Did You Know?' }];
-        return <InsightsCards insights={insights} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} />;
+        return <InsightsCards insights={insights} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} renderAction={() => {
+          const hash = getContentHash('insight', dyk.notes[0]?.substring(0, 50) || '');
+          return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
+        }} />;
       }
       case 'podcast': {
         const pods = podcastEpisodes.get(spotBookId);
         const allPods = [...(pods?.curated || []), ...(pods?.apple || [])];
         if (idx >= allPods.length) return null;
-        return <PodcastEpisodes episodes={[allPods[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} />;
+        return <PodcastEpisodes episodes={[allPods[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} renderAction={() => {
+          const hash = getContentHash('podcast', allPods[idx]?.url || '');
+          return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
+        }} />;
       }
       case 'video': {
         const vids = youtubeVideos.get(spotBookId);
         if (!vids || idx >= vids.length) return null;
-        return <YouTubeVideos videos={[vids[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} />;
+        return <YouTubeVideos videos={[vids[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} renderAction={() => {
+          const hash = getContentHash('youtube', vids[idx]?.videoId || '');
+          return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
+        }} />;
       }
       case 'article': {
         const arts = analysisArticles.get(spotBookId);
         if (!arts) return null;
         const realArts = arts.filter((a: any) => !a.url?.includes('scholar.google.com/scholar?q='));
         if (idx >= realArts.length) return null;
-        return <AnalysisArticles articles={[realArts[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} />;
+        return <AnalysisArticles articles={[realArts[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} renderAction={() => {
+          const hash = getContentHash('article', realArts[idx]?.url || '');
+          return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
+        }} />;
       }
       case 'movie': {
         const movies = relatedMovies.get(spotBookId);
         if (!movies || idx >= movies.length) return null;
-        return <RelatedMovies movies={[movies[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} />;
+        return <RelatedMovies movies={[movies[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showPlayButtons={showMoviePlayButtons} showComment={showComment} renderAction={() => {
+          const hash = getContentHash('movie', movies[idx]?.title || '');
+          return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
+        }} />;
       }
       default:
         return null;
@@ -402,7 +427,7 @@ const SpotlightSection = React.memo(function SpotlightSection({
         <div
           ref={nextMeasureRef}
           aria-hidden
-          className="absolute left-0 right-0 pointer-events-none [&_.pb-3]:!pb-0 [&_.rounded-2xl]:!border-[3px] [&_.rounded-2xl]:!border-white/85"
+          className="absolute left-0 right-0 pointer-events-none [&_.pb-3]:!pb-0 [&_.rounded-2xl]:!border-[3px] [&_.rounded-2xl]:!border-white/85 spotlight-icons"
           style={{ visibility: 'hidden', position: 'absolute', zIndex: -1 }}
         >
           {nextContent}
@@ -412,13 +437,10 @@ const SpotlightSection = React.memo(function SpotlightSection({
       {/* Spotlight content with white stroke */}
       <div ref={outerRef} className="relative pb-3" style={targetHeight !== undefined ? { height: targetHeight, overflow: 'hidden', transition: 'height 300ms ease-in-out' } : undefined}>
         <div
-          className="relative cursor-pointer [&_.pb-3]:!pb-0 [&_.rounded-2xl]:!border-[3px] [&_.rounded-2xl]:!border-white/85"
+          className="relative cursor-pointer [&_.pb-3]:!pb-0 [&_.rounded-2xl]:!border-[3px] [&_.rounded-2xl]:!border-white/85 spotlight-icons"
           style={{
             opacity: isVisible ? 1 : 0,
-            filter: isVisible
-              ? 'drop-shadow(0 2px 6px rgba(255, 250, 200, 0.7)) drop-shadow(0 1px 3px rgba(255, 255, 220, 0.5)) drop-shadow(0 0 2px rgba(255, 255, 255, 0.8))'
-              : 'drop-shadow(0 0 0 transparent)',
-            transition: 'opacity 300ms ease, filter 300ms ease',
+            transition: 'opacity 300ms ease',
           }}
           onClick={shouldBlur ? handleRevealSpoiler : handleSpotlightNext}
         >
@@ -727,7 +749,11 @@ export default function App() {
   const [feedPlayingVideoId, setFeedPlayingVideoId] = useState<string | null>(null);
   const [feedMusicModalData, setFeedMusicModalData] = useState<{ musicLinks: MusicLinks; title: string; artist: string } | null>(null);
   const [feedWatchModalData, setFeedWatchModalData] = useState<{ watchLinks: WatchLinks; title: string; year?: number } | null>(null);
+  const feedPlayButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [feedPodcastTooltip, setFeedPodcastTooltip] = useState<{ url: string; audioUrl?: string } | null>(null);
+  const [feedPodcastAudioPlaying, setFeedPodcastAudioPlaying] = useState(false);
   const [expandedFeedDescriptions, setExpandedFeedDescriptions] = useState<Set<string>>(new Set());
+  const [feedCoverBrightness, setFeedCoverBrightness] = useState<Map<string, 'light' | 'dark'>>(new Map());
   const [feedBookSummaries, setFeedBookSummaries] = useState<Map<string, string>>(new Map());
   const feedSummaryFetchedRef = useRef<Set<string>>(new Set());
   const [feedPodcastExpandedMap, setFeedPodcastExpandedMap] = useState<Map<string, boolean>>(new Map());
@@ -741,7 +767,7 @@ export default function App() {
   const [createPostText, setCreatePostText] = useState('');
 
   // Remote feature flags
-  const [remoteFlags, setRemoteFlags] = useState<RemoteFeatureFlags>({ chat_enabled: false, create_post_enabled: false });
+  const [remoteFlags, setRemoteFlags] = useState<RemoteFeatureFlags>({ chat_enabled: false, create_post_enabled: false, related_work_play_buttons: false, commenting_enabled: false });
   useEffect(() => { getRemoteFeatureFlags().then(setRemoteFlags); }, []);
 
   // Book discussion state
@@ -2180,6 +2206,13 @@ export default function App() {
     if (feedTypeFilter !== 'all') {
       items = items.filter(item => item.type === feedTypeFilter);
     }
+    // Hide albums that have no play URL (matching book page behavior)
+    items = items.filter(item => {
+      if (item.type !== 'related_work') return true;
+      const rw = item.content?.related_work;
+      if (rw?.type === 'album' && !rw.itunes_url && !rw.music_links) return false;
+      return true;
+    });
     return items;
   }, [personalizedFeedItems, feedFilter, feedTypeFilter]);
 
@@ -2852,44 +2885,30 @@ export default function App() {
 
 
   // Update background gradient when book changes
-  useEffect(() => {
-    const currentBook = books[selectedIndex];
-    
-    if (currentBook?.cover_url) {
-      // Store previous gradient BEFORE any state changes
-      const prevGradient = backgroundGradient;
-      setPreviousGradient(prevGradient);
-      setIsGradientTransitioning(true);
-      
-      // Extract new gradient asynchronously
-      extractColorsFromImage(currentBook.cover_url).then(gradient => {
-        // Set new gradient - this will trigger the fade in
-        setBackgroundGradient(gradient);
-        // After new gradient fully fades in, fade out the old one
-        setTimeout(() => {
-          setPreviousGradient(null);
-          setIsGradientTransitioning(false);
-        }, 450); // Wait for new gradient to fully fade in (400ms) + small buffer
-      }).catch(() => {
-        // Fallback if extraction fails
-        setBackgroundGradient('241,245,249,226,232,240');
-        setTimeout(() => {
-          setPreviousGradient(null);
-          setIsGradientTransitioning(false);
-        }, 450);
-      });
-    } else {
-      // No cover - use default gradient
-      const prevGradient = backgroundGradient;
-      setPreviousGradient(prevGradient);
-      setIsGradientTransitioning(true);
-      setBackgroundGradient('241,245,249,226,232,240'); // Default slate colors
-      setTimeout(() => {
-        setPreviousGradient(null);
-        setIsGradientTransitioning(false);
-      }, 450);
-    }
-  }, [selectedIndex, books]);
+  // Disabled: always use default gradient instead of extracting from cover
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _backgroundGradientEffect = null;
+  // useEffect(() => {
+  //   const currentBook = books[selectedIndex];
+  //   if (currentBook?.cover_url) {
+  //     const prevGradient = backgroundGradient;
+  //     setPreviousGradient(prevGradient);
+  //     setIsGradientTransitioning(true);
+  //     extractColorsFromImage(currentBook.cover_url).then(gradient => {
+  //       setBackgroundGradient(gradient);
+  //       setTimeout(() => { setPreviousGradient(null); setIsGradientTransitioning(false); }, 450);
+  //     }).catch(() => {
+  //       setBackgroundGradient('241,245,249,226,232,240');
+  //       setTimeout(() => { setPreviousGradient(null); setIsGradientTransitioning(false); }, 450);
+  //     });
+  //   } else {
+  //     const prevGradient = backgroundGradient;
+  //     setPreviousGradient(prevGradient);
+  //     setIsGradientTransitioning(true);
+  //     setBackgroundGradient('241,245,249,226,232,240');
+  //     setTimeout(() => { setPreviousGradient(null); setIsGradientTransitioning(false); }, 450);
+  //   }
+  // }, [selectedIndex, books]);
 
   // Track which books we're currently fetching facts for to prevent duplicate concurrent fetches
   const fetchingFactsForBooksRef = useRef<Set<string>>(new Set());
@@ -5209,8 +5228,8 @@ export default function App() {
     };
   })() : null;
   
-  // Use background image for bookshelf, notes, account, and following pages
-  const shouldUseBackgroundImage = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage || showFollowingPage || showFeedPage || showChatPage || showCreatePost;
+  // Use background image for all pages (including book details)
+  const shouldUseBackgroundImage = true;
   const backgroundImageStyle: React.CSSProperties = {
     backgroundImage: `url(${getAssetPath('/bg.webp')})`,
     backgroundSize: 'cover',
@@ -6425,7 +6444,7 @@ export default function App() {
                         {/* Action bar */}
                         <div className="flex items-center gap-6 mt-2.5 pb-1">
                           <FeedHeart />
-                          <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />
+                          {remoteFlags.commenting_enabled && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
                               <Send size={17} className="text-slate-600 dark:text-slate-400" />
                         </div>
                       </div>
@@ -6483,7 +6502,12 @@ export default function App() {
                           {/* Play button */}
                           <div className="absolute inset-0 flex items-center justify-center">
                             <button
-                              onClick={(e) => { e.stopPropagation(); if (episode?.url) window.open(episode.url, '_blank'); }}
+                              ref={(el) => { /* ref set on click */ }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                feedPlayButtonRef.current = e.currentTarget as HTMLButtonElement;
+                                setFeedPodcastTooltip({ url: episode?.url || '', audioUrl: episode?.audioUrl });
+                              }}
                               className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95"
                               style={{
                                 background: 'rgba(255, 255, 255, 0.25)',
@@ -6506,7 +6530,24 @@ export default function App() {
                         {/* Title + summary */}
                         <p className="font-semibold text-slate-900 dark:text-slate-100 text-[15px] line-clamp-2">{episode?.title || 'Podcast Episode'}</p>
                         {episode?.episode_summary && (
-                          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 line-clamp-2">{episode.episode_summary}</p>
+                          <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                            <p className={`text-sm text-slate-600 dark:text-slate-400 leading-snug ${expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-2'}`}>{episode.episode_summary}</p>
+                            {episode.episode_summary.length > 120 && (
+                              <button
+                                onClick={() => {
+                                  setExpandedFeedDescriptions(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(item.id)) next.delete(item.id);
+                                    else next.add(item.id);
+                                    return next;
+                                  });
+                                }}
+                                className="text-blue-600 dark:text-blue-400 text-sm font-semibold mt-1"
+                              >
+                                {expandedFeedDescriptions.has(item.id) ? 'Show less' : 'more'}
+                              </button>
+                            )}
+                          </div>
                         )}
                       </>
                     ));
@@ -6616,14 +6657,66 @@ export default function App() {
                             </div>
                           </div>
                           <ChevronsRight size={18} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
-                          <div className="flex-shrink-0">
+                          <div className="flex-shrink-0 relative">
                             {relatedBook?.cover_url ? (
-                              <img src={relatedBook.cover_url} alt={relatedBook.title} className="w-32 h-48 object-cover rounded-lg shadow-sm" />
+                              <img
+                                src={relatedBook.cover_url}
+                                alt={relatedBook.title}
+                                className="w-32 h-48 object-cover rounded-lg shadow-sm"
+                                crossOrigin="anonymous"
+                                onLoad={(e) => {
+                                  try {
+                                    const img = e.currentTarget;
+                                    const canvas = document.createElement('canvas');
+                                    const size = 64;
+                                    canvas.width = size;
+                                    canvas.height = size;
+                                    const ctx = canvas.getContext('2d');
+                                    if (!ctx) return;
+                                    ctx.drawImage(img, 0, 0, size, size);
+                                    const startY = Math.floor(size * 0.6);
+                                    const data = ctx.getImageData(0, startY, size, size - startY).data;
+                                    let totalLuminance = 0;
+                                    const pixelCount = data.length / 4;
+                                    for (let i = 0; i < data.length; i += 4) {
+                                      totalLuminance += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+                                    }
+                                    const avgLuminance = totalLuminance / pixelCount;
+                                    setFeedCoverBrightness(prev => new Map(prev).set(item.id, avgLuminance > 140 ? 'light' : 'dark'));
+                                  } catch {}
+                                }}
+                              />
                             ) : (
                               <div className="w-32 h-48 bg-slate-100 dark:bg-slate-800 rounded-lg flex items-center justify-center">
                                 <BookOpen size={24} className="text-slate-400" />
                               </div>
                             )}
+                            {/* + Add button */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddBook({
+                                  title: relatedBook?.title || '',
+                                  author: relatedBook?.author || '',
+                                  cover_url: relatedBook?.cover_url || null,
+                                  publish_year: null,
+                                  wikipedia_url: null,
+                                  google_books_url: null,
+                                });
+                              }}
+                              className="absolute bottom-2 right-2 inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full whitespace-nowrap transition-all active:scale-95"
+                              style={{
+                                background: 'rgba(255, 255, 255, 0.25)',
+                                backdropFilter: 'blur(9.4px)',
+                                WebkitBackdropFilter: 'blur(9.4px)',
+                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+                                color: (feedCoverBrightness.get(item.id) || 'dark') === 'light' ? 'rgba(0,0,0,0.8)' : 'white',
+                              }}
+                            >
+                              <Plus size={14} />
+                              Add
+                            </button>
                           </div>
                         </div>
                         <p className="font-bold text-slate-900 dark:text-slate-100 text-base leading-tight">{decodeHtmlEntities(relatedBook?.title || 'Related Book')}</p>
@@ -6723,15 +6816,16 @@ export default function App() {
                               </div>
 
                               {/* Play button — centered on album art */}
-                              {relatedWork?.itunes_url && (
+                              {(relatedWork?.itunes_url || relatedWork?.music_links) && (
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
-                                      openSystemBrowser(relatedWork.itunes_url!);
+                                    feedPlayButtonRef.current = e.currentTarget as HTMLButtonElement;
+                                    if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent) && relatedWork.itunes_url) {
+                                      openSystemBrowser(relatedWork.itunes_url);
                                     } else if (relatedWork.music_links) {
                                       setFeedMusicModalData({ musicLinks: relatedWork.music_links, title: relatedWork.title || '', artist: relatedWork.director || '' });
-                                    } else {
+                                    } else if (relatedWork.itunes_url) {
                                       window.open(`https://song.link/${relatedWork.itunes_url}`, '_blank');
                                     }
                                   }}
@@ -6763,7 +6857,24 @@ export default function App() {
                             {relatedWork?.release_year ? ` (${relatedWork.release_year})` : ''}
                           </p>
                           {relatedWork?.reason && (
-                            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1.5 leading-snug line-clamp-3">{decodeHtmlEntities(relatedWork.reason)}</p>
+                            <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
+                              <p className={`text-xs text-slate-600 dark:text-slate-300 leading-snug ${expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-3'}`}>{decodeHtmlEntities(relatedWork.reason)}</p>
+                              {relatedWork.reason.length > 150 && (
+                                <button
+                                  onClick={() => {
+                                    setExpandedFeedDescriptions(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(item.id)) next.delete(item.id);
+                                      else next.add(item.id);
+                                      return next;
+                                    });
+                                  }}
+                                  className="text-blue-600 dark:text-blue-400 text-xs font-semibold mt-1"
+                                >
+                                  {expandedFeedDescriptions.has(item.id) ? 'Show less' : 'more'}
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       ));
@@ -6793,31 +6904,35 @@ export default function App() {
                             {/* Vignette */}
                             <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: 'inset 0 0 50px rgba(0,0,0,0.35)' }} />
                           </div>
-                          {/* Watch button — bottom right */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const wl = relatedWork?.watch_links;
-                              if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent) && wl?.apple) {
-                                openSystemBrowser(wl.apple);
-                              } else if (wl && Object.keys(wl).some(k => k !== 'tmdb_url' && wl[k as keyof typeof wl])) {
-                                setFeedWatchModalData({ watchLinks: wl, title: relatedWork?.title || '', year: relatedWork?.release_year });
-                              } else if (relatedWork?.itunes_url) {
-                                window.open(relatedWork.itunes_url, '_blank');
-                              }
-                            }}
-                            className="absolute z-30 bottom-2 right-2 h-8 px-3 rounded-full flex items-center gap-1.5 active:scale-95 transition-transform"
-                            style={{
-                              background: 'rgba(255, 255, 255, 0.25)',
-                              backdropFilter: 'blur(9.4px)',
-                              WebkitBackdropFilter: 'blur(9.4px)',
-                              border: '1px solid rgba(255, 255, 255, 0.3)',
-                              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
-                            }}
-                          >
-                            <Play size={12} className="text-white ml-0.5" fill="white" />
-                            <span className="text-white text-xs font-semibold">Watch</span>
-                          </button>
+                          {/* Play button — centered on poster (feature-flagged for movies/shows) */}
+                          {remoteFlags.related_work_play_buttons && (
+                          <div className="absolute inset-0 flex items-center justify-center z-30">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                feedPlayButtonRef.current = e.currentTarget as HTMLButtonElement;
+                                const wl = relatedWork?.watch_links;
+                                if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent) && wl?.apple) {
+                                  openSystemBrowser(wl.apple);
+                                } else if (wl && Object.keys(wl).some(k => k !== 'tmdb_url' && wl[k as keyof typeof wl])) {
+                                  setFeedWatchModalData({ watchLinks: wl, title: relatedWork?.title || '', year: relatedWork?.release_year });
+                                } else if (relatedWork?.itunes_url) {
+                                  window.open(relatedWork.itunes_url, '_blank');
+                                }
+                              }}
+                              className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95"
+                              style={{
+                                background: 'rgba(255, 255, 255, 0.25)',
+                                backdropFilter: 'blur(9.4px)',
+                                WebkitBackdropFilter: 'blur(9.4px)',
+                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+                              }}
+                            >
+                              <Play size={18} className="text-white ml-0.5" fill="white" />
+                            </button>
+                          </div>
+                          )}
                         </div>
                         <div>
                           <span className="inline-flex items-center gap-1 py-0.5 px-1.5 text-[10px] font-bold rounded-full uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 mb-1">
@@ -6830,7 +6945,24 @@ export default function App() {
                             {relatedWork?.release_year ? ` (${relatedWork.release_year})` : ''}
                           </p>
                           {relatedWork?.reason && (
-                            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1.5 leading-snug line-clamp-3">{decodeHtmlEntities(relatedWork.reason)}</p>
+                            <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
+                              <p className={`text-xs text-slate-600 dark:text-slate-300 leading-snug ${expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-3'}`}>{decodeHtmlEntities(relatedWork.reason)}</p>
+                              {relatedWork.reason.length > 150 && (
+                                <button
+                                  onClick={() => {
+                                    setExpandedFeedDescriptions(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(item.id)) next.delete(item.id);
+                                      else next.add(item.id);
+                                      return next;
+                                    });
+                                  }}
+                                  className="text-blue-600 dark:text-blue-400 text-xs font-semibold mt-1"
+                                >
+                                  {expandedFeedDescriptions.has(item.id) ? 'Show less' : 'more'}
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -6985,7 +7117,7 @@ export default function App() {
                             {/* Action bar */}
                             <div className="flex items-center gap-6 mt-2.5 pb-1">
                               <FeedHeart />
-                              <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />
+                              {remoteFlags.commenting_enabled && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
                               <Send size={17} className="text-slate-600 dark:text-slate-400" />
                             </div>
                           </div>
@@ -7041,7 +7173,7 @@ export default function App() {
                             {/* Action bar */}
                             <div className="flex items-center gap-6 mt-2.5 pb-1">
                               <FeedHeart />
-                              <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />
+                              {remoteFlags.commenting_enabled && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
                               <Send size={17} className="text-slate-600 dark:text-slate-400" />
                             </div>
                           </div>
@@ -7695,7 +7827,17 @@ export default function App() {
                 </div>
 
                 {/* Footer */}
-                <div className="flex items-center justify-end px-4 py-3 border-t border-white/20 dark:border-white/10">
+                <div className="flex items-center justify-between px-4 py-3 border-t border-white/20 dark:border-white/10">
+                  <button
+                    onClick={() => {
+                      setCreatePostText('');
+                      setShowCreatePost(false);
+                      setShowBookshelfCovers(true);
+                    }}
+                    className="px-4 py-2 rounded-full font-bold text-[15px] text-slate-500 dark:text-slate-400 active:scale-95 transition-all"
+                  >
+                    Cancel
+                  </button>
                   <button
                     disabled={!createPostText.trim()}
                     onClick={() => {
@@ -7724,7 +7866,10 @@ export default function App() {
                       };
                       setPersonalizedFeedItems(prev => [newPost, ...prev]);
                       setCreatePostText('');
-                      // Navigate to feed
+                      // Navigate to feed and ensure post is visible
+                      setFeedTypeFilter('all');
+                      setFeedFilter('all');
+                      setFeedDisplayCount(8);
                       setShowCreatePost(false);
                       setShowFeedPage(true);
                       setShowBookshelf(false);
@@ -9931,7 +10076,6 @@ export default function App() {
                       summary={summary!}
                       bookId={activeBook.id}
                       isLoading={isLoadingSummary}
-                      infoCard={infoCardContent}
                       firstIssueYear={activeBook.first_issue_year}
                       readersSection={readersContent}
                     />
@@ -9977,6 +10121,11 @@ export default function App() {
                 spoilerRevealed={spoilerRevealed}
                 setSpoilerRevealed={setSpoilerRevealed}
                 bookId={activeBook.id}
+                heartCounts={heartCounts}
+                userHearted={userHearted}
+                handleToggleHeart={handleToggleHeart}
+                showMoviePlayButtons={remoteFlags.related_work_play_buttons}
+                showComment={remoteFlags.commenting_enabled}
               />
             )}
 
@@ -9985,7 +10134,7 @@ export default function App() {
               <div className="flex justify-center -mt-4 -mb-4">
                 <Lottie
                   animationData={bookPageOnboardingAnimation}
-                  loop={true}
+                  loop={false}
                   style={{ width: 200, height: 88 }}
                 />
               </div>
@@ -10224,9 +10373,10 @@ export default function App() {
                               insights={currentInsights}
                               bookId={`${activeBook.id}-${selectedInsightCategory}`}
                               isLoading={false}
+                              showComment={remoteFlags.commenting_enabled}
                               renderAction={(idx) => {
                                 const hash = getContentHash('insight', currentInsights[idx]?.text?.substring(0, 50) || '');
-                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={14} />;
+                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
                               }}
                             />
                           ) : null}
@@ -10285,9 +10435,10 @@ export default function App() {
                               episodes={episodes}
                               bookId={activeBook?.id || ''}
                               isLoading={false}
+                              showComment={remoteFlags.commenting_enabled}
                               renderAction={(idx) => {
                                 const hash = getContentHash('podcast', episodes[idx]?.url || '');
-                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={14} />;
+                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
                               }}
                             />
                           )}
@@ -10343,9 +10494,10 @@ export default function App() {
                               videos={videos}
                               bookId={activeBook.id}
                               isLoading={false}
+                              showComment={remoteFlags.commenting_enabled}
                               renderAction={(idx) => {
                                 const hash = getContentHash('youtube', videos[idx]?.videoId || '');
-                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={14} />;
+                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
                               }}
                             />
                           )}
@@ -10407,9 +10559,10 @@ export default function App() {
                               articles={articles}
                               bookId={activeBook.id}
                               isLoading={false}
+                              showComment={remoteFlags.commenting_enabled}
                               renderAction={(idx) => {
                                 const hash = getContentHash('article', articles[idx]?.url || '');
-                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={14} />;
+                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
                               }}
                             />
                           )}
@@ -10464,10 +10617,12 @@ export default function App() {
                           movies={movies || []}
                           bookId={activeBook.id}
                           isLoading={false}
+                          showPlayButtons={remoteFlags.related_work_play_buttons}
+                          showComment={remoteFlags.commenting_enabled}
                           renderAction={(idx) => {
                             const m = (movies || [])[idx];
                             const hash = getContentHash('related_work', m?.title || '');
-                            return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={14} />;
+                            return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
                           }}
                         />
                       )}
@@ -10553,10 +10708,11 @@ export default function App() {
                           bookId={activeBook.id}
                           isLoading={false}
                           onAddBook={handleAddBook}
+                          showComment={remoteFlags.commenting_enabled}
                           renderAction={(idx) => {
                             const b = (related || [])[idx];
                             const hash = getContentHash('related_book', b?.title || '');
-                            return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={14} />;
+                            return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
                           }}
                         />
                       )}
@@ -12525,6 +12681,7 @@ export default function App() {
             albumTitle={feedMusicModalData.title}
             albumArtist={feedMusicModalData.artist}
             onClose={() => setFeedMusicModalData(null)}
+            anchorRef={feedPlayButtonRef}
           />
         )}
 
@@ -12535,8 +12692,102 @@ export default function App() {
             title={feedWatchModalData.title}
             year={feedWatchModalData.year}
             onClose={() => setFeedWatchModalData(null)}
+            anchorRef={feedPlayButtonRef}
           />
         )}
+
+        {/* Podcast fan-out tooltip for feed */}
+        <AnimatePresence>
+          {feedPodcastTooltip && feedPlayButtonRef.current && (() => {
+            const anchorRect = feedPlayButtonRef.current!.getBoundingClientRect();
+            const hasPreview = !!feedPodcastTooltip.audioUrl;
+            const items: { key: string; icon: React.ReactNode; color: string; onClick: (e: React.MouseEvent) => void }[] = [];
+            if (hasPreview) {
+              items.push({
+                key: 'preview',
+                icon: feedPodcastAudioPlaying ? <span className="text-white text-xs font-bold">■</span> : <Headphones size={18} className="text-white" />,
+                color: '#8B5CF6',
+                onClick: (e) => {
+                  e.stopPropagation();
+                  if (feedPodcastAudioPlaying) {
+                    if (feedAudioRef.current) { feedAudioRef.current.pause(); feedAudioRef.current = null; }
+                    setFeedPodcastAudioPlaying(false);
+                  } else {
+                    const audio = new Audio(feedPodcastTooltip.audioUrl);
+                    audio.onended = () => setFeedPodcastAudioPlaying(false);
+                    audio.play();
+                    feedAudioRef.current = audio;
+                    setFeedPodcastAudioPlaying(true);
+                  }
+                },
+              });
+            }
+            items.push({
+              key: 'apple',
+              icon: (
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="white">
+                  <path d="M5.34 0A5.328 5.328 0 000 5.34v13.32A5.328 5.328 0 005.34 24h13.32A5.328 5.328 0 0024 18.66V5.34A5.328 5.328 0 0018.66 0zm6.525 2.568c4.988 0 8.93 3.637 9.32 8.378a.19.19 0 01-.19.208h-1.758a.19.19 0 01-.187-.163 7.26 7.26 0 00-7.186-6.298 7.26 7.26 0 00-7.186 6.298.19.19 0 01-.186.163H2.733a.19.19 0 01-.19-.208c.39-4.741 4.333-8.378 9.321-8.378zm.058 3.39a5.608 5.608 0 015.265 3.87.19.19 0 01-.18.252h-1.762a.19.19 0 01-.176-.12 3.578 3.578 0 00-6.294 0 .19.19 0 01-.176.12H6.833a.19.19 0 01-.18-.253 5.608 5.608 0 015.27-3.868zm-.033 3.39a2.25 2.25 0 110 4.5 2.25 2.25 0 010-4.5zm-.024 5.719c1.024 0 1.854.83 1.854 1.854v2.688c0 1.024-.83 1.854-1.854 1.854a1.854 1.854 0 01-1.854-1.854V16.92c0-1.024.83-1.854 1.854-1.854z"/>
+                </svg>
+              ),
+              color: '#9933CC',
+              onClick: (e) => {
+                e.stopPropagation();
+                if (feedAudioRef.current) { feedAudioRef.current.pause(); feedAudioRef.current = null; }
+                setFeedPodcastAudioPlaying(false);
+                setFeedPodcastTooltip(null);
+                openSystemBrowser(feedPodcastTooltip.url);
+              },
+            });
+            const count = items.length;
+            const radius = 70;
+            const startAngle = Math.PI;
+            const endAngle = 2 * Math.PI;
+            const angleStep = count > 1 ? (endAngle - startAngle) / (count - 1) : 0;
+            const getPos = (index: number) => {
+              const angle = count > 1 ? startAngle + angleStep * index : 1.5 * Math.PI;
+              return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+            };
+            const centerX = anchorRect.left + anchorRect.width / 2;
+            const centerY = anchorRect.top + anchorRect.height / 2;
+            return (
+              <>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-[9998]"
+                  onClick={() => {
+                    if (feedAudioRef.current) { feedAudioRef.current.pause(); feedAudioRef.current = null; }
+                    setFeedPodcastAudioPlaying(false);
+                    setFeedPodcastTooltip(null);
+                  }}
+                />
+                {items.map((item, i) => {
+                  const pos = getPos(i);
+                  return (
+                    <motion.button
+                      key={item.key}
+                      initial={{ opacity: 0, scale: 0 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0 }}
+                      transition={{ type: 'spring', damping: 15, stiffness: 300, delay: i * 0.04 }}
+                      onClick={item.onClick}
+                      className="fixed z-[9999] w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+                      style={{
+                        left: centerX + pos.x - 22,
+                        top: centerY + pos.y - 22,
+                        background: item.color,
+                        boxShadow: '0 3px 12px rgba(0,0,0,0.3)',
+                      }}
+                    >
+                      {item.icon}
+                    </motion.button>
+                  );
+                })}
+              </>
+            );
+          })()}
+        </AnimatePresence>
 
         {/* Create Post Sheet - now inline view */}
 

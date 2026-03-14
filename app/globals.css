@@ -4,6 +4,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Spotlight cards: icon circles match frosted glass style */
+.spotlight-icons .w-10.h-10.rounded-full {
+  background: rgba(255, 255, 255, 0.25) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Spotlight cards: whiter background + glow around the white border stroke */
+.spotlight-icons .rounded-2xl {
+  background: rgba(255, 255, 255, 0.55) !important;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.6), 0 0 4px rgba(255, 255, 255, 0.4) !important;
+}
+
 :root {
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
 
