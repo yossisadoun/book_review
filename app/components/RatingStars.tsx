@@ -137,7 +137,7 @@ function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
         onClick={handleSkip}
         className="px-3 py-0.5 text-xs font-medium text-slate-950 hover:text-slate-700 active:scale-95 transition-all"
       >
-        Skip
+        {value ? 'Clear' : 'Skip'}
       </button>
     </div>
   );

@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Headphones, Play, MessageCircle, Send } from 'lucide-react';
+import { Headphones, Play, Pause, MessageCircle, Send } from 'lucide-react';
 import { decodeHtmlEntities, useImageBrightness } from './utils';
-import { openSystemBrowser } from '@/lib/capacitor';
+import { openSystemBrowser, openDeepLink, isNativePlatform } from '@/lib/capacitor';
+import { createPortal } from 'react-dom';
 
 const ApplePodcastsIcon = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" fill="white">
@@ -31,9 +32,10 @@ interface PodcastEpisodesProps {
   isLoading?: boolean;
   renderAction?: (index: number) => React.ReactNode;
   showComment?: boolean;
+  showSend?: boolean;
 }
 
-function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, showComment = true }: PodcastEpisodesProps) {
+function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, showComment = true, showSend = true }: PodcastEpisodesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
@@ -109,7 +111,15 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
     } else {
       const audio = new Audio(episode.audioUrl);
       audio.onended = () => setAudioPlaying(false);
-      audio.play();
+      audio.onerror = () => {
+        // Fallback: open podcast URL in system browser (e.g. iOS WebView audio restrictions)
+        if (isNativePlatform) { openDeepLink(episode.url); } else { openSystemBrowser(episode.url); }
+        setAudioPlaying(false);
+      };
+      audio.play().catch(() => {
+        if (isNativePlatform) { openDeepLink(episode.url); } else { openSystemBrowser(episode.url); }
+        setAudioPlaying(false);
+      });
       audioRef.current = audio;
       setAudioPlaying(true);
     }
@@ -118,7 +128,11 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
   const handleOpenPodcast = (e: React.MouseEvent) => {
     e.stopPropagation();
     setShowTooltips(false);
-    openSystemBrowser(episodes[currentIndex].url);
+    if (isNativePlatform) {
+      openDeepLink(episodes[currentIndex].url);
+    } else {
+      openSystemBrowser(episodes[currentIndex].url);
+    }
   };
 
   if (isLoading) {
@@ -146,8 +160,8 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
     borderRadius: '16px',
   });
 
-  // Tooltip positions: fan out above play button
-  const anchorRect = playButtonRef.current?.getBoundingClientRect();
+  // Tooltip positions: fan out above play button (cached in state for portal rendering)
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const tooltipItems: { key: string; icon: React.ReactNode; color: string; onClick: (e: React.MouseEvent) => void }[] = [];
 
   if (hasPreview) {
@@ -183,6 +197,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
     <div
       onClick={handleNext}
       onTouchStart={(e) => {
+        if (showTooltips) { setShowTooltips(false); return; }
         const touch = e.touches[0];
         setTouchStart({ x: touch.clientX, y: touch.clientY });
       }}
@@ -244,13 +259,19 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
                   </div>
                 )}
 
-                {/* Play button — opens tooltips */}
-                <div className="absolute inset-0 flex items-center justify-center">
+                {/* Play button — opens tooltips or shows pause when previewing */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
                   <button
                     ref={playButtonRef}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setShowTooltips(prev => !prev);
+                      if (audioPlaying) {
+                        stopAudio();
+                      } else {
+                        const rect = playButtonRef.current?.getBoundingClientRect();
+                        if (rect) setAnchorRect(rect);
+                        setShowTooltips(prev => !prev);
+                      }
                     }}
                     className="w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-95"
                     style={{
@@ -261,8 +282,15 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
                       boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
                     }}
                   >
-                    <Play size={24} className="text-white ml-0.5" fill="white" />
+                    {audioPlaying ? (
+                      <Pause size={24} className="text-white" fill="white" />
+                    ) : (
+                      <Play size={24} className="text-white ml-0.5" fill="white" />
+                    )}
                   </button>
+                  {audioPlaying && (
+                    <span className="text-[10px] font-semibold text-white mt-1 drop-shadow-md">Preview</span>
+                  )}
                 </div>
                 {/* Bottom gradient */}
                 <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
@@ -305,51 +333,54 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
                 <div className="flex items-center gap-6 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
                   {showComment && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
-                  <Send size={17} className="text-slate-600 dark:text-slate-400" />
+                  {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>
               </div>
         </div>
       </div>
 
-      {/* Tooltip fan-out from play button */}
-      <AnimatePresence>
-        {showTooltips && anchorRect && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[9998]"
-              onClick={(e) => { e.stopPropagation(); setShowTooltips(false); }}
-            />
-            {tooltipItems.map((item, i) => {
-              const pos = getPosition(i);
-              const centerX = anchorRect.left + anchorRect.width / 2;
-              const centerY = anchorRect.top + anchorRect.height / 2;
+      {/* Tooltip fan-out from play button — portaled to body so it isn't clipped by scroll containers on iOS */}
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {showTooltips && anchorRect && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[9998]"
+                onClick={(e) => { e.stopPropagation(); setShowTooltips(false); }}
+              />
+              {tooltipItems.map((item, i) => {
+                const pos = getPosition(i);
+                const centerX = anchorRect.left + anchorRect.width / 2;
+                const centerY = anchorRect.top + anchorRect.height / 2;
 
-              return (
-                <motion.button
-                  key={item.key}
-                  initial={{ opacity: 0, scale: 0 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0 }}
-                  transition={{ type: 'spring', damping: 15, stiffness: 300, delay: i * 0.04 }}
-                  onClick={item.onClick}
-                  className="fixed z-[9999] w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
-                  style={{
-                    left: centerX + pos.x - 22,
-                    top: centerY + pos.y - 22,
-                    background: item.color,
-                    boxShadow: '0 3px 12px rgba(0,0,0,0.3)',
-                  }}
-                >
-                  {item.icon}
-                </motion.button>
-              );
-            })}
-          </>
-        )}
-      </AnimatePresence>
+                return (
+                  <motion.button
+                    key={item.key}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15, delay: i * 0.02 }}
+                    onClick={item.onClick}
+                    className="fixed z-[9999] w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+                    style={{
+                      left: centerX + pos.x - 22,
+                      top: centerY + pos.y - 22,
+                      background: item.color,
+                      boxShadow: '0 3px 12px rgba(0,0,0,0.3)',
+                    }}
+                  >
+                    {item.icon}
+                  </motion.button>
+                );
+              })}
+            </>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }

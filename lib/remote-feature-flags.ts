@@ -1,10 +1,11 @@
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
 
 interface RemoteFeatureFlags {
   chat_enabled: boolean;
   create_post_enabled: boolean;
   related_work_play_buttons: boolean;
   commenting_enabled: boolean;
+  send_enabled: boolean;
 }
 
 const DEFAULTS: RemoteFeatureFlags = {
@@ -12,6 +13,7 @@ const DEFAULTS: RemoteFeatureFlags = {
   create_post_enabled: false,
   related_work_play_buttons: false,
   commenting_enabled: false,
+  send_enabled: false,
 };
 
 // In development, enable all features locally without needing the DB
@@ -20,6 +22,7 @@ const DEV_OVERRIDES: RemoteFeatureFlags = {
   create_post_enabled: true,
   related_work_play_buttons: true,
   commenting_enabled: true,
+  send_enabled: true,
 };
 
 let cachedFlags: RemoteFeatureFlags | null = null;
@@ -32,11 +35,6 @@ export async function getRemoteFeatureFlags(): Promise<RemoteFeatureFlags> {
 
   fetchPromise = (async () => {
     try {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-      if (!supabaseUrl || !supabaseKey) return DEFAULTS;
-
-      const supabase = createClient(supabaseUrl, supabaseKey);
       const { data, error } = await supabase
         .from('feature_flags')
         .select('key, enabled');

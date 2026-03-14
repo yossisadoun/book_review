@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, BookOpen, Headphones, Play, BookMarked, FileText, ExternalLink, Bot, X, CheckCircle2, Film, Disc3, Library } from 'lucide-react';
 import { openSystemBrowser, isNativePlatform } from '@/lib/capacitor';
+import { getAssetPath } from './utils';
 import MusicModal from './MusicModal';
 import type { MusicLinks } from '../types';
 import {
@@ -1178,7 +1179,7 @@ function InlineChatCard({ type, index, ctx, onAddBook, onPlayAlbum }: { type: st
             <div
               className="absolute inset-0 pointer-events-none opacity-[0.75] mix-blend-screen"
               style={{
-                backgroundImage: `url('/paper-texture.jpg')`,
+                backgroundImage: `url('${getAssetPath('/paper-texture.jpg')}')`,
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
                 filter: 'grayscale(1) invert(1)',

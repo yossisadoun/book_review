@@ -3,7 +3,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { WatchLinks } from '../types';
-import { openSystemBrowser, isNativePlatform } from '@/lib/capacitor';
+import { openSystemBrowser, openDeepLink, isNativePlatform } from '@/lib/capacitor';
 
 interface WatchModalProps {
   watchLinks: WatchLinks | null;
@@ -74,7 +74,7 @@ const PLATFORMS: { key: keyof WatchLinks; label: string; color: string; icon: ()
 
 function openLink(url: string) {
   if (isNativePlatform) {
-    openSystemBrowser(url);
+    openDeepLink(url);
   } else {
     window.open(url, '_blank');
   }
@@ -129,10 +129,10 @@ export default function WatchModal({ watchLinks, onClose, anchorRef }: WatchModa
         return (
           <motion.button
             key={platform.key}
-            initial={{ opacity: 0, scale: 0, x: 0, y: 0 }}
-            animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
-            exit={{ opacity: 0, scale: 0 }}
-            transition={{ type: 'spring', damping: 15, stiffness: 300, delay: i * 0.04 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15, delay: i * 0.02 }}
             onClick={(e) => {
               e.stopPropagation();
               openLink(watchLinks[platform.key]!);

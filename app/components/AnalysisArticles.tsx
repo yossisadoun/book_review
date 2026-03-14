@@ -28,9 +28,10 @@ interface AnalysisArticlesProps {
   isLoading?: boolean;
   renderAction?: (index: number) => React.ReactNode;
   showComment?: boolean;
+  showSend?: boolean;
 }
 
-function AnalysisArticles({ articles, bookId, isLoading = false, renderAction, showComment = true }: AnalysisArticlesProps) {
+function AnalysisArticles({ articles, bookId, isLoading = false, renderAction, showComment = true, showSend = true }: AnalysisArticlesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const isSingleItem = articles.length === 1;
   const [isVisible, setIsVisible] = useState(isSingleItem);
@@ -226,7 +227,7 @@ function AnalysisArticles({ articles, bookId, isLoading = false, renderAction, s
                 <div className="flex items-center gap-6 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
                   {showComment && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
-                  <Send size={17} className="text-slate-600 dark:text-slate-400" />
+                  {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>
               </div>
             </motion.div>

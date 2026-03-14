@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookMarked, BookOpen, Plus, MessageCircle, Send } from 'lucide-react';
+import { BookMarked, BookOpen, Plus, MessageCircle, Send, ChevronsRight, Check } from 'lucide-react';
 import { decodeHtmlEntities, useImageBrightness } from './utils';
 import { openSystemBrowser } from '@/lib/capacitor';
 
@@ -78,9 +78,12 @@ interface RelatedBooksProps {
   onAddBook?: (book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) => void;
   renderAction?: (index: number) => React.ReactNode;
   showComment?: boolean;
+  showSend?: boolean;
+  sourceBookCoverUrl?: string | null;
+  sourceBookTitle?: string;
 }
 
-function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderAction, showComment = true }: RelatedBooksProps) {
+function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderAction, showComment = true, showSend = true, sourceBookCoverUrl, sourceBookTitle }: RelatedBooksProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const isSingleItem = books.length === 1;
   const [isVisible, setIsVisible] = useState(isSingleItem);
@@ -251,95 +254,82 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderActio
                 )}
               </div>
 
-              {/* Image area */}
-              <div className="relative flex items-start justify-center pt-3 pb-3">
-                <div className="relative w-[60%] rounded-lg overflow-hidden border-2 border-white/50" style={{ aspectRatio: `${coverAspect}`, boxShadow: '0 8px 32px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2)' }}>
-                  {coverImage ? (
-                    <>
-                      <img
-                        src={coverImage}
-                        alt={decodeHtmlEntities(currentBook.title)}
-                        className="w-full h-full object-contain"
-                        style={{ filter: 'contrast(1.15) saturate(1.25)' }}
-                        onLoad={(e) => {
-                          const img = e.currentTarget;
-                          if (img.naturalWidth && img.naturalHeight) {
-                            setCoverAspect(img.naturalWidth / img.naturalHeight);
-                          }
-                        }}
-                      />
-                      {/* Skeuomorphic book spine effect */}
-                      <div
-                        className="absolute inset-0 pointer-events-none rounded-lg"
-                        style={{
-                          background: `linear-gradient(to right,
-                            rgba(0,0,0,0.02) 0%,
-                            rgba(0,0,0,0.05) 0.75%,
-                            rgba(255,255,255,0.5) 1.0%,
-                            rgba(255,255,255,0.6) 1.3%,
-                            rgba(255,255,255,0.5) 1.4%,
-                            rgba(255,255,255,0.3) 1.5%,
-                            rgba(255,255,255,0.3) 2.4%,
-                            rgba(0,0,0,0.05) 2.7%,
-                            rgba(0,0,0,0.05) 3.5%,
-                            rgba(255,255,255,0.3) 4%,
-                            rgba(255,255,255,0.3) 4.5%,
-                            transparent 5.4%,
-                            transparent 99%,
-                            rgba(144,144,144,0.08) 100%)`
-                        }}
-                      />
-                    </>
+              {/* Two covers with chevron */}
+              <div className="flex items-center justify-center gap-3 px-4 mt-2 mb-3">
+                <div className="relative flex-shrink-0">
+                  {sourceBookCoverUrl ? (
+                    <img src={sourceBookCoverUrl} alt={sourceBookTitle || 'Source book'} className="w-[70px] h-[106px] object-cover rounded-lg shadow-sm" />
                   ) : (
-                    <div className="w-full h-full bg-gradient-to-b from-amber-800 to-amber-950 flex items-center justify-center">
-                      <BookOpen size={48} className="text-white/30" />
+                    <div className="w-[70px] h-[106px] bg-slate-100 dark:bg-slate-800 rounded-lg flex items-center justify-center">
+                      <BookOpen size={18} className="text-slate-400" />
                     </div>
                   )}
-
-                  {/* + Add button on the cover */}
-                  {onAddBook && (
-                    <div className="absolute bottom-3 right-3">
-                      <button
-                        onClick={handleAddBook}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-full whitespace-nowrap transition-all active:scale-95"
-                        style={{
-                          background: 'rgba(255, 255, 255, 0.25)',
-                          backdropFilter: 'blur(9.4px)',
-                          WebkitBackdropFilter: 'blur(9.4px)',
-                          border: '1px solid rgba(255, 255, 255, 0.3)',
-                          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
-                          color: imageBrightness === 'light' ? 'rgba(0,0,0,0.8)' : 'white',
-                        }}
-                      >
-                        <Plus size={14} />
-                        Add
-                      </button>
+                  <div className="absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full bg-green-500 flex items-center justify-center shadow-sm">
+                    <Check size={12} className="text-white" strokeWidth={3} />
+                  </div>
+                </div>
+                <ChevronsRight size={18} className="text-slate-600 dark:text-slate-500 flex-shrink-0" />
+                <div className="flex-shrink-0 relative">
+                  {coverImage ? (
+                    <img
+                      src={coverImage}
+                      alt={decodeHtmlEntities(currentBook.title)}
+                      className="w-[154px] h-[230px] object-cover rounded-lg shadow-sm"
+                      crossOrigin="anonymous"
+                      onLoad={(e) => {
+                        const img = e.currentTarget;
+                        if (img.naturalWidth && img.naturalHeight) {
+                          setCoverAspect(img.naturalWidth / img.naturalHeight);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div className="w-[154px] h-[230px] bg-slate-100 dark:bg-slate-800 rounded-lg flex items-center justify-center">
+                      <BookOpen size={24} className="text-slate-400" />
                     </div>
+                  )}
+                  {/* + Add button on recommended cover */}
+                  {onAddBook && (
+                    <button
+                      onClick={handleAddBook}
+                      className="absolute bottom-2 right-2 inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full whitespace-nowrap transition-all active:scale-95"
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.25)',
+                        backdropFilter: 'blur(9.4px)',
+                        WebkitBackdropFilter: 'blur(9.4px)',
+                        border: '1px solid rgba(255, 255, 255, 0.3)',
+                        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+                        color: imageBrightness === 'light' ? 'rgba(0,0,0,0.8)' : 'white',
+                      }}
+                    >
+                      <Plus size={14} />
+                      Add
+                    </button>
                   )}
                 </div>
               </div>
 
-              {/* Info below image */}
-              <div className="px-4 py-3">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-2">
+              {/* Info below covers */}
+              <div className="px-4 pb-3">
+                <p className="font-bold text-slate-900 dark:text-slate-100 text-base leading-tight">
                   {decodeHtmlEntities(currentBook.title)}
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                </p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
                   {decodeHtmlEntities(currentBook.author)}
                   {currentBook.publish_year && ` · ${currentBook.publish_year}`}
                 </p>
 
                 {currentBook.reason && (
                   <>
-                    <p className={`text-xs text-slate-600 dark:text-slate-400 mt-1.5 ${descExpanded ? '' : 'line-clamp-2'}`}>
+                    <p className={`text-sm text-slate-600 dark:text-slate-300 leading-snug mt-1.5 ${descExpanded ? '' : 'line-clamp-3'}`}>
                       {decodeHtmlEntities(currentBook.reason)}
                     </p>
-                    {currentBook.reason.length > 100 && (
+                    {currentBook.reason.length > 150 && (
                       <button
                         onClick={(e) => { e.stopPropagation(); setDescExpanded(prev => !prev); }}
-                        className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-1"
+                        className="text-blue-600 dark:text-blue-400 text-sm font-semibold mt-1"
                       >
-                        {descExpanded ? 'Read less' : 'Read more'}
+                        {descExpanded ? 'Show less' : 'more'}
                       </button>
                     )}
                   </>
@@ -349,7 +339,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderActio
                 <div className="flex items-center gap-6 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
                   {showComment && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
-                  <Send size={17} className="text-slate-600 dark:text-slate-400" />
+                  {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>
               </div>
             </motion.div>

@@ -242,7 +242,7 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
               </p>
 
               {/* Decorative closing mark — bottom-right */}
-              <span className="absolute -bottom-4 right-3 text-[72px] leading-none font-serif text-slate-500/40 dark:text-slate-400/35 select-none" style={{ fontFamily: 'Georgia, serif', bottom: '0px', top: '50px' }}>&rdquo;</span>
+              <span className="absolute bottom-0 right-3 text-[72px] leading-none font-serif text-slate-500/40 dark:text-slate-400/35 select-none" style={{ fontFamily: 'Georgia, serif' }}>&rdquo;</span>
             </div>
 
             {/* Summary text */}

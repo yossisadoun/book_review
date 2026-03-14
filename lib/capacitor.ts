@@ -32,6 +32,42 @@ export async function openSystemBrowser(url: string): Promise<void> {
   window.location.assign(url);
 }
 
+/**
+ * Open a URL as a deep link on native platforms.
+ * Uses a hidden iframe to trigger universal link handling on iOS,
+ * opening the target app (e.g. Apple Music, Spotify, Podcasts) directly.
+ * If the link isn't handled as a universal link, falls back to in-app browser.
+ * The iframe approach avoids navigating the WebView away from the app.
+ */
+export async function openDeepLink(url: string): Promise<void> {
+  if (isNativePlatform) {
+    let didLeaveApp = false;
+
+    // Listen for app going to background (means deep link worked)
+    const onPause = () => { didLeaveApp = true; };
+    document.addEventListener('pause', onPause, { once: true });
+
+    // Use a hidden iframe to trigger universal link without navigating the WebView
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = url;
+    document.body.appendChild(iframe);
+    setTimeout(() => {
+      document.body.removeChild(iframe);
+    }, 100);
+
+    // If we're still in the app after 800ms, the URL wasn't handled — open in browser
+    setTimeout(async () => {
+      document.removeEventListener('pause', onPause);
+      if (!didLeaveApp) {
+        await Browser.open({ url, presentationStyle: 'popover' });
+      }
+    }, 800);
+    return;
+  }
+  window.open(url, '_blank');
+}
+
 export async function closeSystemBrowser(): Promise<void> {
   if (!isNativePlatform) return;
   await Browser.close();

@@ -122,7 +122,7 @@ import { LoginScreen } from '@/components/LoginScreen';
 import { BookLoading } from '@/components/BookLoading';
 import { CachedImage } from '@/components/CachedImage';
 import { supabase } from '@/lib/supabase';
-import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerErrorHaptic, isNativePlatform, openSystemBrowser, listenForAppStateChange, listenForBackButton, exitApp, storageGet, storageSet } from '@/lib/capacitor';
+import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerErrorHaptic, isNativePlatform, openSystemBrowser, openDeepLink, listenForAppStateChange, listenForBackButton, exitApp, storageGet, storageSet } from '@/lib/capacitor';
 import { featureFlags } from '@/lib/feature-flags';
 import { getRemoteFeatureFlags, type RemoteFeatureFlags } from '@/lib/remote-feature-flags';
 import { getAssetPath, decodeHtmlEntities, glassmorphicStyle } from './components/utils';
@@ -274,6 +274,7 @@ const SpotlightSection = React.memo(function SpotlightSection({
   handleToggleHeart,
   showMoviePlayButtons,
   showComment,
+  showSend,
 }: {
   spotlightRecommendation: { item: { type: string; icon: any; label: string; title: string; subtitle: string; url?: string; imageUrl?: string; itemIndex: number }; next: { type: string; icon: any; label: string; title: string; subtitle: string; url?: string; imageUrl?: string; itemIndex: number } | null; total: number; bookId: string };
   didYouKnow: Map<string, any[]>;
@@ -296,6 +297,7 @@ const SpotlightSection = React.memo(function SpotlightSection({
   handleToggleHeart: (contentHash: string) => void;
   showMoviePlayButtons?: boolean;
   showComment?: boolean;
+  showSend?: boolean;
 }) {
   const [isVisible, setIsVisible] = useState(true);
   const outerRef = useRef<HTMLDivElement>(null);
@@ -336,7 +338,7 @@ const SpotlightSection = React.memo(function SpotlightSection({
         if (!dykItems || idx >= dykItems.length) return null;
         const dyk = dykItems[idx];
         const insights = [{ text: dyk.notes.join('\n\n'), sourceUrl: dyk.source_url, label: 'Did You Know?' }];
-        return <InsightsCards insights={insights} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} renderAction={() => {
+        return <InsightsCards insights={insights} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} showSend={showSend} renderAction={() => {
           const hash = getContentHash('insight', dyk.notes[0]?.substring(0, 50) || '');
           return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
         }} />;
@@ -345,7 +347,7 @@ const SpotlightSection = React.memo(function SpotlightSection({
         const pods = podcastEpisodes.get(spotBookId);
         const allPods = [...(pods?.curated || []), ...(pods?.apple || [])];
         if (idx >= allPods.length) return null;
-        return <PodcastEpisodes episodes={[allPods[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} renderAction={() => {
+        return <PodcastEpisodes episodes={[allPods[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} showSend={showSend} renderAction={() => {
           const hash = getContentHash('podcast', allPods[idx]?.url || '');
           return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
         }} />;
@@ -353,7 +355,7 @@ const SpotlightSection = React.memo(function SpotlightSection({
       case 'video': {
         const vids = youtubeVideos.get(spotBookId);
         if (!vids || idx >= vids.length) return null;
-        return <YouTubeVideos videos={[vids[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} renderAction={() => {
+        return <YouTubeVideos videos={[vids[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} showSend={showSend} renderAction={() => {
           const hash = getContentHash('youtube', vids[idx]?.videoId || '');
           return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
         }} />;
@@ -363,7 +365,7 @@ const SpotlightSection = React.memo(function SpotlightSection({
         if (!arts) return null;
         const realArts = arts.filter((a: any) => !a.url?.includes('scholar.google.com/scholar?q='));
         if (idx >= realArts.length) return null;
-        return <AnalysisArticles articles={[realArts[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} renderAction={() => {
+        return <AnalysisArticles articles={[realArts[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} showSend={showSend} renderAction={() => {
           const hash = getContentHash('article', realArts[idx]?.url || '');
           return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
         }} />;
@@ -371,7 +373,7 @@ const SpotlightSection = React.memo(function SpotlightSection({
       case 'movie': {
         const movies = relatedMovies.get(spotBookId);
         if (!movies || idx >= movies.length) return null;
-        return <RelatedMovies movies={[movies[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showPlayButtons={showMoviePlayButtons} showComment={showComment} renderAction={() => {
+        return <RelatedMovies movies={[movies[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showPlayButtons={showMoviePlayButtons} showComment={showComment} showSend={showSend} renderAction={() => {
           const hash = getContentHash('movie', movies[idx]?.title || '');
           return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
         }} />;
@@ -731,6 +733,7 @@ export default function App() {
   const contentPrefsRef = useRef(contentPreferences);
   contentPrefsRef.current = contentPreferences;
   const [aboutSwipeDirection, setAboutSwipeDirection] = useState<'forward' | 'backward'>('forward');
+  const [prefStepIndex, setPrefStepIndex] = useState(0);
   const [aboutTouchStart, setAboutTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [aboutTouchEnd, setAboutTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const [feedView, setFeedView] = useState<'following' | 'community'>('following');
@@ -767,7 +770,7 @@ export default function App() {
   const [createPostText, setCreatePostText] = useState('');
 
   // Remote feature flags
-  const [remoteFlags, setRemoteFlags] = useState<RemoteFeatureFlags>({ chat_enabled: false, create_post_enabled: false, related_work_play_buttons: false, commenting_enabled: false });
+  const [remoteFlags, setRemoteFlags] = useState<RemoteFeatureFlags>({ chat_enabled: false, create_post_enabled: false, related_work_play_buttons: false, commenting_enabled: false, send_enabled: false });
   useEffect(() => { getRemoteFeatureFlags().then(setRemoteFlags); }, []);
 
   // Book discussion state
@@ -5592,7 +5595,7 @@ export default function App() {
         {/* Info button when on bookshelf (not when viewing another user) */}
         {(showBookshelf || showBookshelfCovers) && !showAccountPage && !showSortingResults && !showFollowingPage && !showNotesView && !showFeedPage && !viewingUserId && (
           <button
-            onClick={() => setShowAboutScreen(true)}
+            onClick={() => { setPrefStepIndex(0); setShowAboutScreen(true); }}
             className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
           >
             <Info size={18} className="text-slate-950 dark:text-slate-50" />
@@ -5606,7 +5609,7 @@ export default function App() {
         {showAccountPage ? (
           <motion.main
             key="account"
-            ref={(el) => { scrollContainerRef.current = el; }}
+            ref={(el) => { scrollContainerRef.current = el; if (el) { el.scrollTop = 0; setScrollY(0); } }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -5909,8 +5912,8 @@ export default function App() {
                             data-pref-key={key}
                             className="flex items-center gap-3 px-3 py-2.5 rounded-xl select-none cursor-grab"
                             style={{
-                              background: enabled ? 'rgba(59, 130, 246, 0.1)' : 'rgba(255, 255, 255, 0.4)',
-                              border: enabled ? '1px solid rgba(59, 130, 246, 0.25)' : '1px solid rgba(255, 255, 255, 0.3)',
+                              background: 'rgba(255, 255, 255, 0.5)',
+                              border: '1px solid rgba(255, 255, 255, 0.4)',
                               touchAction: 'none',
                               position: 'relative',
                               zIndex: 1,
@@ -5932,11 +5935,12 @@ export default function App() {
                                   supabase.from('users').update({ content_preferences: next }).eq('id', user.id).then(() => {});
                                 }
                               }}
-                              className={`w-10 h-6 rounded-full relative transition-colors ${enabled ? 'bg-blue-500' : 'bg-slate-300'}`}
+                              className="w-12 h-7 rounded-full relative transition-colors duration-200"
+                              style={{ background: enabled ? 'rgba(59, 130, 246, 0.85)' : 'rgba(0,0,0,0.15)' }}
                             >
                               <div
-                                className="w-5 h-5 rounded-full bg-white absolute top-0.5 transition-all duration-200"
-                                style={{ left: enabled ? 18 : 2, boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}
+                                className="w-6 h-6 rounded-full bg-white absolute top-0.5 transition-transform duration-200 shadow-sm"
+                                style={{ transform: enabled ? 'translateX(22px)' : 'translateX(2px)' }}
                               />
                             </button>
                           </div>
@@ -6437,7 +6441,7 @@ export default function App() {
                           <button onClick={openSourceBookOverlay} className="active:opacity-70 min-w-0">
                             <span className="font-bold text-[15px] text-slate-900 dark:text-slate-100 line-clamp-1">{item.source_book_title}</span>
                           </button>
-                          <span className="text-[13px] text-slate-400 dark:text-slate-500 flex-shrink-0">{timeAgo(item.created_at)}</span>
+                          <span className="text-[13px] text-slate-600 dark:text-slate-500 flex-shrink-0">{timeAgo(item.created_at)}</span>
                         </div>
                         {/* Content — type woven in */}
                         {content}
@@ -6445,7 +6449,7 @@ export default function App() {
                         <div className="flex items-center gap-6 mt-2.5 pb-1">
                           <FeedHeart />
                           {remoteFlags.commenting_enabled && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
-                              <Send size={17} className="text-slate-600 dark:text-slate-400" />
+                              {remoteFlags.send_enabled && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                         </div>
                       </div>
                     </div>
@@ -6594,7 +6598,7 @@ export default function App() {
                         <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm mt-2 line-clamp-2">{decodeHtmlEntities(video?.title || 'YouTube Video')}</p>
                         {video?.description && (
                           <div className="mt-1" onClick={(e) => e.stopPropagation()}>
-                            <p className={`text-[13px] text-slate-500 dark:text-slate-400 leading-relaxed ${
+                            <p className={`text-sm text-slate-600 dark:text-slate-400 leading-snug ${
                               expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-2'
                             }`}>
                               {video.description}
@@ -6656,7 +6660,7 @@ export default function App() {
                               <Check size={12} className="text-white" strokeWidth={3} />
                             </div>
                           </div>
-                          <ChevronsRight size={18} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
+                          <ChevronsRight size={18} className="text-slate-600 dark:text-slate-500 flex-shrink-0" />
                           <div className="flex-shrink-0 relative">
                             {relatedBook?.cover_url ? (
                               <img
@@ -6822,7 +6826,7 @@ export default function App() {
                                     e.stopPropagation();
                                     feedPlayButtonRef.current = e.currentTarget as HTMLButtonElement;
                                     if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent) && relatedWork.itunes_url) {
-                                      openSystemBrowser(relatedWork.itunes_url);
+                                      openDeepLink(relatedWork.itunes_url);
                                     } else if (relatedWork.music_links) {
                                       setFeedMusicModalData({ musicLinks: relatedWork.music_links, title: relatedWork.title || '', artist: relatedWork.director || '' });
                                     } else if (relatedWork.itunes_url) {
@@ -6858,7 +6862,7 @@ export default function App() {
                           </p>
                           {relatedWork?.reason && (
                             <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
-                              <p className={`text-xs text-slate-600 dark:text-slate-300 leading-snug ${expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-3'}`}>{decodeHtmlEntities(relatedWork.reason)}</p>
+                              <p className={`text-sm text-slate-600 dark:text-slate-400 leading-snug ${expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-2'}`}>{decodeHtmlEntities(relatedWork.reason)}</p>
                               {relatedWork.reason.length > 150 && (
                                 <button
                                   onClick={() => {
@@ -6895,7 +6899,7 @@ export default function App() {
                             <div
                               className="absolute inset-0 pointer-events-none opacity-[0.75] mix-blend-screen"
                               style={{
-                                backgroundImage: `url('/paper-texture.jpg')`,
+                                backgroundImage: `url('${getAssetPath('/paper-texture.jpg')}')`,
                                 backgroundSize: 'cover',
                                 backgroundPosition: 'center',
                                 filter: 'grayscale(1) invert(1)',
@@ -6946,7 +6950,7 @@ export default function App() {
                           </p>
                           {relatedWork?.reason && (
                             <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
-                              <p className={`text-xs text-slate-600 dark:text-slate-300 leading-snug ${expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-3'}`}>{decodeHtmlEntities(relatedWork.reason)}</p>
+                              <p className={`text-sm text-slate-600 dark:text-slate-400 leading-snug ${expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-2'}`}>{decodeHtmlEntities(relatedWork.reason)}</p>
                               {relatedWork.reason.length > 150 && (
                                 <button
                                   onClick={() => {
@@ -7058,7 +7062,7 @@ export default function App() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-baseline gap-2 mb-2">
                               <span className="font-bold text-[15px] text-slate-900 dark:text-slate-100 line-clamp-1">{friendName}</span>
-                              <span className="text-[13px] text-slate-400 dark:text-slate-500 flex-shrink-0">{timeAgo(item.created_at)}</span>
+                              <span className="text-[13px] text-slate-600 dark:text-slate-500 flex-shrink-0">{timeAgo(item.created_at)}</span>
                             </div>
                             <p className="text-[15px] text-slate-800 dark:text-slate-200 mb-2">{item.content.action || 'added'} a book</p>
                             {/* Book card */}
@@ -7118,7 +7122,7 @@ export default function App() {
                             <div className="flex items-center gap-6 mt-2.5 pb-1">
                               <FeedHeart />
                               {remoteFlags.commenting_enabled && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
-                              <Send size={17} className="text-slate-600 dark:text-slate-400" />
+                              {remoteFlags.send_enabled && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                             </div>
                           </div>
                         </div>
@@ -7167,14 +7171,14 @@ export default function App() {
                           <div className="flex-1 min-w-0 break-words">
                             <div className="flex items-baseline gap-2 mb-2">
                               <span className="font-bold text-[15px] text-slate-900 dark:text-slate-100">{item.content.user_name || 'You'}</span>
-                              <span className="text-[13px] text-slate-400 dark:text-slate-500 flex-shrink-0">{timeAgo(item.created_at)}</span>
+                              <span className="text-[13px] text-slate-600 dark:text-slate-500 flex-shrink-0">{timeAgo(item.created_at)}</span>
                             </div>
                             <p className="text-[15px] text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">{item.content.text}</p>
                             {/* Action bar */}
                             <div className="flex items-center gap-6 mt-2.5 pb-1">
                               <FeedHeart />
                               {remoteFlags.commenting_enabled && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
-                              <Send size={17} className="text-slate-600 dark:text-slate-400" />
+                              {remoteFlags.send_enabled && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                             </div>
                           </div>
                         </div>
@@ -7724,7 +7728,7 @@ export default function App() {
                                     )}
                                     {/* Text content */}
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-[13px] text-slate-500">Start a chat about</p>
+                                      <p className="text-[13px] text-slate-600">Start a chat about</p>
                                       <p className="text-[14px] font-bold text-slate-700 truncate">
                                         {isGeneral ? 'Your books, recommendations, anything at all' : chat.book_title}
                                       </p>
@@ -7749,13 +7753,13 @@ export default function App() {
                             className="w-full flex items-center gap-3 px-3 py-3 text-left active:opacity-80"
                           >
                             <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
-                              style={{ background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.2)' }}
+                              style={{ background: 'rgba(59, 130, 246, 0.3)', border: '1px solid rgba(59, 130, 246, 0.4)' }}
                             >
-                              <Heart size={20} className="text-blue-500" />
+                              <Heart size={20} className="text-blue-400" />
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-[14px] font-bold text-slate-700">Give us feedback</p>
-                              <p className="text-[13px] text-slate-500">We'd love to hear from you</p>
+                              <p className="text-[13px] text-slate-600">We'd love to hear from you</p>
                             </div>
                           </button>
                         </div>
@@ -8533,7 +8537,7 @@ export default function App() {
                       </div>
                     </div>
                     <button
-                      onClick={() => setShowAboutScreen(true)}
+                      onClick={() => { setPrefStepIndex(0); setShowAboutScreen(true); }}
                       className="absolute bottom-2 right-3 w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
                     >
                       <Info size={18} className="text-slate-400" />
@@ -9449,7 +9453,7 @@ export default function App() {
                                 setEditingDimension(null);
                               }
                             }}
-                            className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
+                            className={`flex flex-col items-center gap-2 px-4 py-3 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px] ${activeBook?.reading_status === 'read_it' ? 'bg-white/50 dark:bg-white/20 ring-2 ring-white/60' : 'bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12'}`}
                           >
                             <CheckCircle2 size={28} className="text-slate-950 dark:text-slate-50" />
                             <span className="text-xs font-bold text-slate-950 dark:text-slate-50">Read it</span>
@@ -9464,7 +9468,7 @@ export default function App() {
                                 setIsEditing(false);
                               }
                             }}
-                            className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
+                            className={`flex flex-col items-center gap-2 px-4 py-3 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px] ${activeBook?.reading_status === 'reading' ? 'bg-white/50 dark:bg-white/20 ring-2 ring-white/60' : 'bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12'}`}
                           >
                             <BookOpen size={28} className="text-slate-950 dark:text-slate-50" />
                             <span className="text-xs font-bold text-slate-950 dark:text-slate-50">Reading</span>
@@ -9479,7 +9483,7 @@ export default function App() {
                                 setIsEditing(false);
                               }
                             }}
-                            className="flex flex-col items-center gap-2 px-4 py-3 bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px]"
+                            className={`flex flex-col items-center gap-2 px-4 py-3 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px] ${activeBook?.reading_status === 'want_to_read' ? 'bg-white/50 dark:bg-white/20 ring-2 ring-white/60' : 'bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12'}`}
                           >
                             <BookMarked size={28} className="text-slate-950 dark:text-slate-50" />
                             <span className="text-xs font-bold text-slate-950 dark:text-slate-50">Want to</span>
@@ -10126,6 +10130,7 @@ export default function App() {
                 handleToggleHeart={handleToggleHeart}
                 showMoviePlayButtons={remoteFlags.related_work_play_buttons}
                 showComment={remoteFlags.commenting_enabled}
+                showSend={remoteFlags.send_enabled}
               />
             )}
 
@@ -10374,6 +10379,7 @@ export default function App() {
                               bookId={`${activeBook.id}-${selectedInsightCategory}`}
                               isLoading={false}
                               showComment={remoteFlags.commenting_enabled}
+                              showSend={remoteFlags.send_enabled}
                               renderAction={(idx) => {
                                 const hash = getContentHash('insight', currentInsights[idx]?.text?.substring(0, 50) || '');
                                 return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
@@ -10436,6 +10442,7 @@ export default function App() {
                               bookId={activeBook?.id || ''}
                               isLoading={false}
                               showComment={remoteFlags.commenting_enabled}
+                              showSend={remoteFlags.send_enabled}
                               renderAction={(idx) => {
                                 const hash = getContentHash('podcast', episodes[idx]?.url || '');
                                 return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
@@ -10495,6 +10502,7 @@ export default function App() {
                               bookId={activeBook.id}
                               isLoading={false}
                               showComment={remoteFlags.commenting_enabled}
+                              showSend={remoteFlags.send_enabled}
                               renderAction={(idx) => {
                                 const hash = getContentHash('youtube', videos[idx]?.videoId || '');
                                 return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
@@ -10560,6 +10568,7 @@ export default function App() {
                               bookId={activeBook.id}
                               isLoading={false}
                               showComment={remoteFlags.commenting_enabled}
+                              showSend={remoteFlags.send_enabled}
                               renderAction={(idx) => {
                                 const hash = getContentHash('article', articles[idx]?.url || '');
                                 return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
@@ -10619,6 +10628,7 @@ export default function App() {
                           isLoading={false}
                           showPlayButtons={remoteFlags.related_work_play_buttons}
                           showComment={remoteFlags.commenting_enabled}
+                          showSend={remoteFlags.send_enabled}
                           renderAction={(idx) => {
                             const m = (movies || [])[idx];
                             const hash = getContentHash('related_work', m?.title || '');
@@ -10647,7 +10657,7 @@ export default function App() {
                           <EyeOff size={14} className="text-slate-400 flex-shrink-0" />
                           <span className="text-xs text-slate-400 truncate">{hiddenSections.map(s => s.label).join(', ')} hidden</span>
                         </div>
-                        <button onClick={() => { capturePreviousView(); setShowAccountPage(true); }} className="text-xs font-medium text-blue-500 active:opacity-70 flex-shrink-0 ml-2">Settings</button>
+                        <button onClick={() => { capturePreviousView(); setScrollY(0); setShowAccountPage(true); }} className="text-xs font-medium text-blue-500 active:opacity-70 flex-shrink-0 ml-2">Settings</button>
                       </div>
                     </div>
                   );
@@ -10709,6 +10719,9 @@ export default function App() {
                           isLoading={false}
                           onAddBook={handleAddBook}
                           showComment={remoteFlags.commenting_enabled}
+                          showSend={remoteFlags.send_enabled}
+                          sourceBookCoverUrl={activeBook.cover_url}
+                          sourceBookTitle={activeBook.title}
                           renderAction={(idx) => {
                             const b = (related || [])[idx];
                             const hash = getContentHash('related_book', b?.title || '');
@@ -12735,7 +12748,7 @@ export default function App() {
                 if (feedAudioRef.current) { feedAudioRef.current.pause(); feedAudioRef.current = null; }
                 setFeedPodcastAudioPlaying(false);
                 setFeedPodcastTooltip(null);
-                openSystemBrowser(feedPodcastTooltip.url);
+                if (isNativePlatform) { openDeepLink(feedPodcastTooltip.url); } else { openSystemBrowser(feedPodcastTooltip.url); }
               },
             });
             const count = items.length;
@@ -12767,10 +12780,10 @@ export default function App() {
                   return (
                     <motion.button
                       key={item.key}
-                      initial={{ opacity: 0, scale: 0 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0 }}
-                      transition={{ type: 'spring', damping: 15, stiffness: 300, delay: i * 0.04 }}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.15, delay: i * 0.02 }}
                       onClick={item.onClick}
                       className="fixed z-[9999] w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
                       style={{
@@ -13142,10 +13155,10 @@ export default function App() {
                     {aboutPageIndex === 3 && (
                       <motion.div key="h3" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="flex flex-col items-center gap-[1vh]">
                         <h1 className="text-[min(28px,3.5vh)] font-bold text-slate-900 dark:text-slate-100 text-center uppercase leading-tight">
-                          WHAT ARE YOU<br />INTO?
+                          TELL US WHAT<br />YOU LOVE
                         </h1>
                         <p className="text-[min(17px,2.2vh)] text-slate-600 dark:text-slate-400 text-center">
-                          Choose what content we find for your books
+                          We&apos;ll assemble these around your books
                         </p>
                       </motion.div>
                     )}
@@ -13300,54 +13313,164 @@ export default function App() {
                     </motion.div>
                   )}
 
-                  {aboutPageIndex === 3 && (
-                    <motion.div
-                      key="c3"
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.35 }}
-                      className="absolute bottom-[28vh] left-0 right-0 flex justify-center px-8 z-10"
-                    >
-                      <div className="flex flex-col gap-3 w-full max-w-[min(300px,85vw)]">
-                        {[
-                          { key: 'fun_facts', icon: Lightbulb, label: 'Fun Facts' },
-                          { key: 'podcasts', icon: Headphones, label: 'Podcasts' },
-                          { key: 'youtube', icon: Play, label: 'YouTube Videos' },
-                          { key: 'related_work', icon: Film, label: 'Related Work' },
-                          { key: 'articles', icon: ScrollText, label: 'Academic Articles' },
-                          { key: 'related_books', icon: BookMarked, label: 'Related Books' },
-                        ].map((item, i) => (
-                          <motion.button
-                            key={item.key}
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ duration: 0.3, delay: 0.1 + i * 0.08 }}
-                            onClick={() => {
-                              const next = { ...contentPreferences, [item.key]: !contentPreferences[item.key] };
-                              setContentPreferences(next);
-                              localStorage.setItem('contentPreferences', JSON.stringify(next));
-                              if (user) {
-                                supabase.from('users').update({ content_preferences: next }).eq('id', user.id).then(() => {});
-                              }
-                            }}
-                            className="flex items-center gap-3 px-4 py-3 rounded-xl active:scale-[0.98] transition-all"
-                            style={{
-                              background: contentPreferences[item.key] ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.5)',
-                              backdropFilter: 'blur(10px)',
-                              border: contentPreferences[item.key] ? '1.5px solid rgba(59, 130, 246, 0.4)' : '1px solid rgba(255, 255, 255, 0.4)',
-                            }}
-                          >
-                            <item.icon size={18} className={contentPreferences[item.key] ? 'text-blue-600' : 'text-slate-400'} />
-                            <span className={`text-[min(15px,1.9vh)] font-semibold flex-1 text-left ${contentPreferences[item.key] ? 'text-blue-700' : 'text-slate-500'}`}>{item.label}</span>
-                            <div className={`w-5 h-5 rounded-full flex items-center justify-center transition-colors ${contentPreferences[item.key] ? 'bg-blue-500' : 'bg-slate-200'}`}>
-                              {contentPreferences[item.key] && <Check size={12} className="text-white" />}
+                  {aboutPageIndex === 3 && (() => {
+                    const obImg = (name: string) => getAssetPath(`/onboarding_visuals/${name}`);
+                    const prefItems = [
+                      { key: 'fun_facts', icon: Lightbulb, label: 'Fun Facts', desc: 'Surprising trivia and "did you know?" moments about your book', visual: (
+                        <div className="rounded-xl px-4 py-3" style={{ background: 'rgba(255,255,255,0.5)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.4)' }}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.25)', border: '1px solid rgba(255,255,255,0.3)' }}>
+                              <Lightbulb size={14} className="text-amber-500" />
                             </div>
-                          </motion.button>
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
+                            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Did You Know?</span>
+                          </div>
+                          <p className="text-[13px] text-slate-700 leading-relaxed">Lewis Carroll invented the story during a boat trip with Alice Liddell on July 4, 1862 — he called it &quot;Alice&apos;s Adventures Under Ground&quot; before it became a book.</p>
+                        </div>
+                      )},
+                      { key: 'podcasts', icon: Headphones, label: 'Podcasts', desc: 'Episodes that discuss, analyze or feature your book', visual: (
+                        <div className="flex items-center gap-3">
+                          <img src={obImg('podcast.png')} alt="" className="w-16 h-16 rounded-xl flex-shrink-0 object-cover" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[13px] font-bold text-slate-800 line-clamp-1">About Lewis Carroll</p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">The life and mind behind Alice in Wonderland</p>
+                            <div className="flex items-center gap-1.5 mt-1.5">
+                              <div className="w-4 h-4 rounded-full bg-violet-500 flex items-center justify-center"><Play size={8} className="text-white ml-px" fill="white" /></div>
+                              <div className="flex-1 h-1 rounded-full bg-slate-200"><div className="w-1/3 h-full rounded-full bg-violet-500" /></div>
+                            </div>
+                          </div>
+                        </div>
+                      )},
+                      { key: 'youtube', icon: Play, label: 'YouTube Videos', desc: 'Video reviews, analyses and discussions about your book', visual: (
+                        <div className="relative w-full aspect-video rounded-xl overflow-hidden">
+                          <img src={obImg('video.png')} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                            <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.3)' }}>
+                              <Play size={20} className="text-white ml-0.5" fill="white" />
+                            </div>
+                          </div>
+                          <div className="absolute bottom-2 left-3 right-3">
+                            <p className="text-[11px] text-white/90 font-semibold line-clamp-1">The Messed Up Origins of Alice in Wonderland</p>
+                            <p className="text-[10px] text-white/50">YouTube · Essay</p>
+                          </div>
+                        </div>
+                      )},
+                      { key: 'related_work', icon: Film, label: 'Movies & Music', desc: 'Films, shows and albums inspired by or related to your book', visual: (
+                        <div className="flex items-center gap-3">
+                          <img src={obImg('movie.png')} alt="" className="w-[72px] h-[108px] rounded-lg flex-shrink-0 object-cover" style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }} />
+                          <div className="flex-1 min-w-0">
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-bold rounded-full uppercase tracking-wider text-slate-500 bg-slate-100 mb-1"><Film size={8} /> Movie</span>
+                            <p className="text-[13px] font-bold text-slate-800">Alice in Wonderland</p>
+                            <p className="text-[11px] text-slate-500">Tim Burton · 2010</p>
+                            <p className="text-[11px] text-slate-600 mt-1 line-clamp-1">A darker, gothic reimagining of Wonderland</p>
+                          </div>
+                        </div>
+                      )},
+                      { key: 'articles', icon: ScrollText, label: 'Articles', desc: 'Academic papers and literary analysis of your book', visual: (
+                        <div className="rounded-xl px-4 py-3" style={{ background: 'rgba(255,255,255,0.5)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.4)' }}>
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-5 h-5 rounded bg-slate-200 flex items-center justify-center"><ScrollText size={10} className="text-slate-500" /></div>
+                            <span className="text-[10px] text-slate-400">jstor.org</span>
+                          </div>
+                          <p className="text-[13px] font-semibold text-slate-800 line-clamp-2">Alice&apos;s Adventures in Wonderland and the Victorian Mathematics of Nonsense</p>
+                          <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">Carroll, a mathematics lecturer at Oxford, embedded mathematical puzzles and logical paradoxes throughout the text...</p>
+                        </div>
+                      )},
+                    ];
+                    const current = prefItems[prefStepIndex];
+                    if (!current) return null;
+                    const CurrentIcon = current.icon;
+                    const isEnabled = contentPreferences[current.key] !== false;
+                    return (
+                      <motion.div
+                        key="c3"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.3 }}
+                        className="absolute inset-0 flex items-center justify-center px-6 z-10"
+                      >
+                        <div className="w-full max-w-[min(340px,90vw)]">
+                          <AnimatePresence mode="popLayout">
+                            <motion.div
+                              key={current.key}
+                              initial={{ opacity: 0, x: 30 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: -30 }}
+                              transition={{ duration: 0.12 }}
+                            >
+                              {/* Visual snippet */}
+                              <div className="rounded-2xl p-4 mb-4" style={{ background: 'rgba(255,255,255,0.45)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.4)' }}>
+                                {current.visual}
+                              </div>
+
+                              {/* Toggle switcher */}
+                              <div
+                                className="flex items-center gap-3 px-4 py-3 rounded-xl mt-1"
+                                style={{ background: 'rgba(255,255,255,0.5)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.4)' }}
+                              >
+                                <CurrentIcon size={18} className="text-blue-600" />
+                                <span className="text-[15px] font-bold text-slate-900 flex-1">{current.label}</span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const wasEnabled = contentPreferences[current.key] !== false;
+                                    const next = { ...contentPreferences, [current.key]: !wasEnabled };
+                                    setContentPreferences(next);
+                                    localStorage.setItem('contentPreferences', JSON.stringify(next));
+                                    triggerLightHaptic();
+                                  }}
+                                  className="relative w-12 h-7 rounded-full transition-colors duration-200 flex-shrink-0"
+                                  style={{ background: contentPreferences[current.key] !== false ? 'rgba(59, 130, 246, 0.85)' : 'rgba(0,0,0,0.15)' }}
+                                >
+                                  <div
+                                    className="absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-sm transition-transform duration-200"
+                                    style={{ transform: contentPreferences[current.key] !== false ? 'translateX(22px)' : 'translateX(2px)' }}
+                                  />
+                                </button>
+                              </div>
+
+                              {/* Back / Next buttons */}
+                              <div className="flex items-center gap-3 mt-3">
+                                <button
+                                  onClick={() => {
+                                    triggerLightHaptic();
+                                    if (prefStepIndex > 0) {
+                                      setPrefStepIndex(prev => prev - 1);
+                                    } else {
+                                      setAboutSwipeDirection('backward');
+                                      setAboutPageIndex(2);
+                                    }
+                                  }}
+                                  className="flex-1 py-2 rounded-xl text-[13px] font-semibold text-slate-600 active:scale-[0.97] transition-all"
+                                  style={{ background: 'rgba(255, 255, 255, 0.6)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.5)' }}
+                                >
+                                  Back
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    triggerLightHaptic();
+                                    if (prefStepIndex < prefItems.length - 1) {
+                                      setPrefStepIndex(prev => prev + 1);
+                                    } else {
+                                      const prefs = { ...contentPreferences };
+                                      localStorage.setItem('contentPreferences', JSON.stringify(prefs));
+                                      if (user) supabase.from('users').update({ content_preferences: prefs }).eq('id', user.id).then(() => {});
+                                      setAboutSwipeDirection('forward');
+                                      setAboutPageIndex(4);
+                                    }
+                                  }}
+                                  className="flex-1 py-2 rounded-xl text-[13px] font-semibold text-white active:scale-[0.97] transition-all"
+                                  style={{ background: 'rgba(59, 130, 246, 0.85)', backdropFilter: 'blur(10px)', border: '1px solid rgba(59, 130, 246, 0.5)' }}
+                                >
+                                  {prefStepIndex < prefItems.length - 1 ? 'Next' : 'Done'}
+                                </button>
+                              </div>
+                            </motion.div>
+                          </AnimatePresence>
+                        </div>
+                      </motion.div>
+                    );
+                  })()}
 
                   {aboutPageIndex === 4 && (
                     <motion.div
@@ -13369,6 +13492,7 @@ export default function App() {
                           onClick={() => {
                             setShowAboutScreen(false);
                             setAboutPageIndex(0);
+                            setPrefStepIndex(0);
                             if (user) localStorage.setItem(`hasSeenIntro_${user.id}`, 'true');
                             openAddBookSheet();
                           }}
@@ -13390,13 +13514,14 @@ export default function App() {
                           onClick={() => {
                             setShowAboutScreen(false);
                             setAboutPageIndex(0);
+                            setPrefStepIndex(0);
                             if (user) localStorage.setItem(`hasSeenIntro_${user.id}`, 'true');
                             openAddBookSheet();
                           }}
                           className="px-8 py-3 text-white font-semibold text-base active:scale-95 transition-transform"
                           style={blueGlassmorphicStyle}
                         >
-                          Add a book
+                          Add first book
                         </button>
                       </motion.div>
                     </motion.div>
@@ -13620,6 +13745,7 @@ export default function App() {
               <button
                 onClick={() => {
                   capturePreviousView();
+                  setScrollY(0);
                   setShowAccountPage(true);
                   setShowChatPage(false);
                   setChatBookSelected(false);

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Film, Play, Disc3, MessageCircle, Send } from 'lucide-react';
-import { decodeHtmlEntities } from './utils';
+import { decodeHtmlEntities, getAssetPath } from './utils';
 import { isNativePlatform } from '@/lib/capacitor';
 import { openSystemBrowser } from '@/lib/capacitor';
 import MusicModal from './MusicModal';
@@ -40,9 +40,10 @@ interface RelatedMoviesProps {
   renderAction?: (index: number) => React.ReactNode;
   showPlayButtons?: boolean;
   showComment?: boolean;
+  showSend?: boolean;
 }
 
-function RelatedMovies({ movies, bookId, isLoading = false, renderAction, showPlayButtons = true, showComment = true }: RelatedMoviesProps) {
+function RelatedMovies({ movies, bookId, isLoading = false, renderAction, showPlayButtons = true, showComment = true, showSend = true }: RelatedMoviesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const isSingleItem = movies.length === 1;
   const [isVisible, setIsVisible] = useState(isSingleItem);
@@ -185,6 +186,7 @@ function RelatedMovies({ movies, bookId, isLoading = false, renderAction, showPl
     <div
       onClick={() => { if (!musicModalData && !watchModalData) handleNext(); }}
       onTouchStart={(e) => {
+        if (musicModalData || watchModalData) { setMusicModalData(null); setWatchModalData(null); return; }
         e.stopPropagation();
         const touch = e.touches[0];
         setTouchStart({ x: touch.clientX, y: touch.clientY });
@@ -327,7 +329,7 @@ function RelatedMovies({ movies, bookId, isLoading = false, renderAction, showPl
                         <div
                           className="absolute inset-0 pointer-events-none opacity-[0.75] mix-blend-screen"
                           style={{
-                            backgroundImage: `url('/paper-texture.jpg')`,
+                            backgroundImage: `url('${getAssetPath('/paper-texture.jpg')}')`,
                             backgroundSize: 'cover',
                             backgroundPosition: 'center',
                             filter: 'grayscale(1) invert(1)',
@@ -406,7 +408,7 @@ function RelatedMovies({ movies, bookId, isLoading = false, renderAction, showPl
                 <div className="flex items-center gap-6 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
                   {showComment && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
-                  <Send size={17} className="text-slate-600 dark:text-slate-400" />
+                  {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>
               </div>
             </motion.div>
