@@ -328,8 +328,21 @@ export async function getRelatedMovies(bookTitle: string, author: string): Promi
 
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\[[\s\S]*\]/);
-    const jsonStr = jsonMatch ? jsonMatch[0] : content;
-    const result = JSON.parse(jsonStr);
+    let jsonStr = jsonMatch ? jsonMatch[0] : content;
+    // Fix common JSON issues from LLM output
+    jsonStr = jsonStr
+      .replace(/,\s*([}\]])/g, '$1')        // trailing commas
+      .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":') // unquoted keys
+      .replace(/:\s*'([^']*)'/g, ': "$1"');  // single-quoted values
+    let result;
+    try {
+      result = JSON.parse(jsonStr);
+    } catch {
+      console.warn('[getRelatedMovies] JSON parse failed, attempting further cleanup');
+      // Try removing control characters
+      jsonStr = jsonStr.replace(/[\x00-\x1F\x7F]/g, ' ');
+      result = JSON.parse(jsonStr);
+    }
 
     const relatedMovies: RelatedMovie[] = Array.isArray(result) ? result : [];
     console.log('[getRelatedMovies] Received', relatedMovies.length, 'related movies from Grok');

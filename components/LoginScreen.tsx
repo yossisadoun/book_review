@@ -7,8 +7,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { isNativePlatform } from '@/lib/capacitor';
 import { Capacitor } from '@capacitor/core';
 import heartAnimation from '@/public/heart_anim.json';
-import vectorAnimation from '@/public/vector-anim-export.json';
 import heartInsideAnimation from '@/public/heart_inside.json';
+import logoAnimation from '@/public/lottie_test.json';
 
 // Heart animation with speed control via ref
 function FastHeartAnimation({ className }: { className?: string }) {
@@ -90,9 +90,9 @@ const [guestLoading, setGuestLoading] = useState(false);
         className="flex flex-col items-center justify-center text-center max-w-sm w-full"
       >
         {/* Animation */}
-        <div className="w-full max-w-md mb-8" style={{ transform: 'scale(0.91) translateY(30px)', filter: 'brightness(0) invert(1)' }}>
+        <div className="w-full max-w-md mb-8" style={{ transform: 'scale(0.91) translateY(30px)' }}>
           <Lottie
-            animationData={vectorAnimation}
+            animationData={logoAnimation}
             loop={false}
             className="w-full h-auto"
           />

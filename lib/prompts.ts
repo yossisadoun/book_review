@@ -46,6 +46,9 @@ interface PromptsConfig {
   book_infographic: {
     prompt: string;
   };
+  book_summary: {
+    prompt: string;
+  };
 }
 
 let promptsCache: PromptsConfig | null = null;
@@ -540,6 +543,11 @@ For each event, pick ONE icon from this list that best represents the event:
 - Briefcase (business, work, profession)
 - Coffee (casual meeting, pause, rest)
 - Drama (performance, acting, theater)`
+      },
+      book_summary: {
+        prompt: `You are a helpful assistant that creates concise mobile cheat sheets for books.
+Generate a JSON cheat sheet for the book "{bookTitle}" by "{author}".
+Return ONLY valid JSON with keys: title, author, readTime, category, gradient, quote, summary, cardsTitle, cards (array with step/name/iconName/desc), actionTitle, tasks (array with text), glossaryTitle, glossary (array with term/def).`
       }
     };
   }

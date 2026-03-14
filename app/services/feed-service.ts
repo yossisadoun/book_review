@@ -70,7 +70,7 @@ export async function generateFeedItemsForBook(
   readingStatus: string | null,
   bookCreatedAt: string
 ): Promise<{ created: number; errors: string[]; skipped?: boolean }> {
-  const generatedTypes: FeedItemType[] = ['fact', 'context', 'drilldown', 'influence', 'podcast', 'article', 'related_book', 'video', 'did_you_know'];
+  const generatedTypes: FeedItemType[] = ['fact', 'context', 'drilldown', 'influence', 'podcast', 'article', 'related_book', 'video', 'did_you_know', 'related_work'];
 
   // Note: We no longer skip based on existing items - the upsert with ignoreDuplicates handles deduplication.
   // This allows new content types to be added to books that already have some feed items.
@@ -80,6 +80,13 @@ export async function generateFeedItemsForBook(
 
   const normalizedTitle = bookTitle.toLowerCase().trim();
   const normalizedAuthor = (bookAuthor || '').toLowerCase().trim();
+
+  // Verify book still exists in the database before inserting feed items
+  const { data: bookExists } = await supabase.from('books').select('id').eq('id', bookId).maybeSingle();
+  if (!bookExists) {
+    console.warn(`[generateFeedItemsForBook] ⚠️ Book ${bookId} not found in database, skipping feed generation`);
+    return { created: 0, errors: [], skipped: true };
+  }
 
   // Helper to create and insert feed item
   async function insertFeedItem(type: FeedItemType, content: FeedItemContent): Promise<boolean> {
@@ -109,6 +116,10 @@ export async function generateFeedItemsForBook(
     });
 
     if (error) {
+      // Silently skip foreign key violations (book may have been deleted between check and insert)
+      if (error.code === '23503') {
+        return false;
+      }
       console.error(`[insertFeedItem] ❌ Error inserting ${type}:`, error.message, error.code, error.details);
       errors.push(`${type}: ${error.message}`);
       return false;
@@ -127,6 +138,7 @@ export async function generateFeedItemsForBook(
     relatedBooksData,
     youtubeVideosData,
     didYouKnowData,
+    relatedMoviesData,
   ] = await Promise.all([
     supabase.from('author_facts_cache').select('author_facts').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
     supabase.from('book_context_cache').select('context_insights').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
@@ -137,6 +149,7 @@ export async function generateFeedItemsForBook(
     supabase.from('related_books').select('related_books').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
     supabase.from('youtube_videos').select('videos').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
     supabase.from('did_you_know_cache').select('insights').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
+    supabase.from('related_movies').select('related_movies').eq('book_title', normalizedTitle).eq('book_author', normalizedAuthor).maybeSingle(),
   ]);
 
   // Debug: Log what we found in cache tables
@@ -237,6 +250,17 @@ export async function generateFeedItemsForBook(
     }
   }
 
+  // Process related movies/shows/albums
+  const relatedMovies = relatedMoviesData.data?.related_movies;
+  if (relatedMovies && Array.isArray(relatedMovies)) {
+    for (const movie of relatedMovies) {
+      // Only include items with a poster/artwork
+      if (movie.poster_url || movie.itunes_artwork) {
+        if (await insertFeedItem('related_work', { related_work: movie })) created++;
+      }
+    }
+  }
+
   console.log(`[generateFeedItemsForBook] ✅ Created ${created} feed items for "${bookTitle}" (${errors.length} errors)`);
   return { created, errors };
 }
@@ -256,6 +280,7 @@ export async function getPersonalizedFeed(userId: string): Promise<any[]> {
     supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'article').order('created_at', { ascending: false }).limit(POOL_SIZE),
     supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'related_book').order('created_at', { ascending: false }).limit(POOL_SIZE),
     supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'video').order('created_at', { ascending: false }).limit(POOL_SIZE),
+    supabase.from('feed_items').select('*').eq('user_id', userId).eq('type', 'related_work').order('created_at', { ascending: false }).limit(POOL_SIZE),
   ];
 
   // Also fetch friend_book items from followed users
@@ -285,6 +310,29 @@ export async function getPersonalizedFeed(userId: string): Promise<any[]> {
 
   if (allCandidates.length === 0) {
     return [];
+  }
+
+  // Enrich friend_book items with friend's avatar and name
+  const friendItems = allCandidates.filter(item => item.type === 'friend_book');
+  console.log(`[getPersonalizedFeed] Found ${friendItems.length} friend_book items to enrich`);
+  if (friendItems.length > 0) {
+    const friendIds = [...new Set(friendItems.map(item => item.user_id))];
+    console.log(`[getPersonalizedFeed] Looking up profiles for user IDs:`, friendIds);
+    const { data: friendProfiles, error: profileError } = await supabase
+      .from('users')
+      .select('id, full_name, avatar_url')
+      .in('id', friendIds);
+    console.log(`[getPersonalizedFeed] Profile lookup result:`, { count: friendProfiles?.length, error: profileError?.message, profiles: friendProfiles?.map(p => ({ id: p.id, name: p.full_name, avatar: p.avatar_url?.substring(0, 50) })) });
+    if (friendProfiles) {
+      const profileMap = new Map(friendProfiles.map(p => [p.id, p]));
+      for (const item of friendItems) {
+        const profile = profileMap.get(item.user_id);
+        if (profile) {
+          item.content = { ...item.content, friend_name: profile.full_name, friend_avatar_url: profile.avatar_url };
+          console.log(`[getPersonalizedFeed] Enriched friend_book item with avatar:`, profile.avatar_url?.substring(0, 50));
+        }
+      }
+    }
   }
 
   // Greedy selection with diversity scoring — process all candidates

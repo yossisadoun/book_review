@@ -113,6 +113,11 @@ body {
   -webkit-transform: translateZ(0);
 }
 
+@keyframes vinyl-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 @keyframes book-bounce {
   0% { transform: translateY(0); }
   40% { transform: translateY(-15px); }

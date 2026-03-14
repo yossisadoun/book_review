@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Star } from 'lucide-react';
+import { Heart } from 'lucide-react';
 
 interface RatingStarsProps {
   value: number | null;
@@ -83,21 +83,21 @@ function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
 
     return (
       <div className="relative w-8 h-8">
-        {/* Background (empty) star */}
-        <Star
+        {/* Background (empty) heart */}
+        <Heart
           size={32}
           className="absolute inset-0 text-slate-300 fill-transparent transition-all duration-200"
         />
-        {/* Filled star with clip for half-star support */}
+        {/* Filled heart with clip for half-heart support */}
         <div
           className="absolute inset-0 overflow-hidden transition-all duration-200"
           style={{
             width: isFullyFilled ? '100%' : isHalfFilled ? '50%' : '0%',
           }}
         >
-          <Star
+          <Heart
             size={32}
-            className={`fill-amber-400 text-amber-400 transition-all duration-200 ${
+            className={`fill-pink-500 text-pink-500 transition-all duration-200 ${
               fillAmount > 0 ? 'scale-110' : 'scale-100'
             }`}
             style={{ transitionDelay: fillAmount > 0 ? `${star * 30}ms` : '0ms' }}

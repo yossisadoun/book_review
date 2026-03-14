@@ -18,9 +18,10 @@ interface AnalysisArticlesProps {
   articles: AnalysisArticle[];
   bookId: string;
   isLoading?: boolean;
+  renderAction?: (index: number) => React.ReactNode;
 }
 
-function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArticlesProps) {
+function AnalysisArticles({ articles, bookId, isLoading = false, renderAction }: AnalysisArticlesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const isSingleItem = articles.length === 1;
   const [isVisible, setIsVisible] = useState(isSingleItem);
@@ -181,6 +182,9 @@ function AnalysisArticles({ articles, bookId, isLoading = false }: AnalysisArtic
                     <h3 className={`text-sm font-bold text-white flex-1 min-w-0 ${isMinimized ? 'line-clamp-1' : 'line-clamp-3'}`} style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
                       {decodeHtmlEntities(currentArticle.title)}
                     </h3>
+                    {renderAction && (
+                      <span onClick={(e) => e.stopPropagation()}>{renderAction(currentIndex)}</span>
+                    )}
                     <button
                       onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
                       className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"

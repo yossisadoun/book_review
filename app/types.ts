@@ -130,6 +130,39 @@ export interface DidYouKnowResponse {
   did_you_know_top10: DidYouKnowItem[];
 }
 
+// Book Summary (cheat sheet)
+export interface BookSummaryCard {
+  step: string;
+  name: string;
+  iconName: string;
+  desc: string;
+}
+
+export interface BookSummaryTask {
+  text: string;
+}
+
+export interface BookSummaryGlossary {
+  term: string;
+  def: string;
+}
+
+export interface BookSummary {
+  title: string;
+  author: string;
+  readTime: string;
+  category: string;
+  gradient: string;
+  quote: string;
+  summary: string;
+  cardsTitle: string;
+  cards: BookSummaryCard[];
+  actionTitle: string;
+  tasks: BookSummaryTask[];
+  glossaryTitle: string;
+  glossary: BookSummaryGlossary[];
+}
+
 // Book Infographic types (orientation guide)
 export interface InfographicCharacter {
   name: string;
@@ -187,7 +220,7 @@ export interface PersonalizedFeedItem {
   source_book_title: string;
   source_book_author: string;
   source_book_cover_url: string | null;
-  type: 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book' | 'did_you_know';
+  type: 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book' | 'did_you_know' | 'related_work' | 'user_post';
   content: Record<string, any>;
   content_hash: string | null;
   reading_status: string | null;
@@ -307,7 +340,7 @@ export interface CuratedEpisodeResult {
   relevance_score: number;
 }
 
-export type FeedItemType = 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book' | 'did_you_know';
+export type FeedItemType = 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book' | 'did_you_know' | 'related_work';
 
 export interface FeedItemContent {
   [key: string]: any;

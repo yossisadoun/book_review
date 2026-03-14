@@ -68,9 +68,10 @@ interface RelatedBooksProps {
   bookId: string;
   isLoading?: boolean;
   onAddBook?: (book: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>) => void;
+  renderAction?: (index: number) => React.ReactNode;
 }
 
-function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBooksProps) {
+function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderAction }: RelatedBooksProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const isSingleItem = books.length === 1;
   const [isVisible, setIsVisible] = useState(isSingleItem);
@@ -315,6 +316,9 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook }: RelatedBo
                   <h3 className={`text-sm font-bold text-white flex-1 min-w-0 ${isMinimized ? 'line-clamp-1' : 'line-clamp-2'}`} style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
                     {decodeHtmlEntities(currentBook.title)}
                   </h3>
+                  {renderAction && (
+                    <span onClick={(e) => e.stopPropagation()}>{renderAction(currentIndex)}</span>
+                  )}
                   <button
                     onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
                     className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"

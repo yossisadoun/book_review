@@ -356,3 +356,40 @@ trivia_questions:
 
     facts json:
     {FACTS_JSON}
+
+book_summary:
+  prompt: |
+    You are a helpful assistant that creates concise mobile cheat sheets for books.
+    Generate a JSON cheat sheet for the book "{bookTitle}" by "{author}".
+
+    The JSON MUST follow this exact structure:
+    {
+      "title": "Book Title",
+      "author": "Author Name",
+      "readTime": "e.g., 4 Min",
+      "category": "e.g., Sci-Fi Fiction",
+      "gradient": "A tailwind gradient class, e.g., from-blue-600 via-indigo-600 to-violet-800",
+      "quote": "A famous or representative quote from the book",
+      "summary": "Write an engaging, 2-paragraph introduction similar to a Blinkist 'What is it for me?' section. Start by hooking the reader with a common problem or desire the book addresses. Then, introduce the book's core premise and how it will help the reader achieve big results through specific methods. Make it sound exciting, conversational, and highly actionable.",
+      "cardsTitle": "Title for the main concepts (e.g., The 4 Laws, Core Themes)",
+      "cards": [
+        { "step": "e.g., Rule 1", "name": "Concept Name", "iconName": "Choose one: Target, Zap, ArrowRight, CheckCircle2, Globe, Sparkles, BookOpen, Lightbulb, Eye, Brain, Flame", "desc": "Brief description" }
+      ],
+      "actionTitle": "Title for action items (e.g., Action Plan, Reader's Guide)",
+      "tasks": [
+        { "text": "Actionable task 1" }
+      ],
+      "glossaryTitle": "Title for terms (e.g., Cheat Codes, Glossary)",
+      "glossary": [
+        { "term": "Term 1", "def": "Definition" }
+      ]
+    }
+
+    Requirements:
+    - Generate 3-5 cards covering the book's main concepts or themes
+    - Generate 3-5 actionable tasks
+    - Generate 3-5 glossary terms
+    - The gradient should complement the book's mood (warm colors for uplifting books, cool for serious ones)
+    - The quote must be an actual famous quote from the book
+    - Keep descriptions concise and mobile-friendly
+    - Return ONLY valid JSON, no markdown code blocks

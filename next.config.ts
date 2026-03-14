@@ -7,7 +7,12 @@ const nextConfig: NextConfig = {
   // Only use static export for production builds (GitHub Pages) or Capacitor.
   // In development, Next.js needs to run as a server.
   ...(isProduction || isCapacitor ? { output: 'export' } : {}),
+  // Use a separate build directory for Capacitor so it doesn't clobber the dev server's .next
+  ...(isCapacitor ? { distDir: '.next-capacitor' } : {}),
   basePath: isProduction && !isCapacitor ? '/book_review' : '',
+  compiler: {
+    removeConsole: isProduction ? { exclude: ['error', 'warn'] } : false,
+  },
   images: {
     unoptimized: true,
   },

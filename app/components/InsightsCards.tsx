@@ -18,9 +18,10 @@ export interface InsightsCardsProps {
   insights: InsightItem[];
   bookId: string;
   isLoading?: boolean;
+  renderAction?: (index: number) => React.ReactNode;
 }
 
-function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsProps) {
+function InsightsCards({ insights, bookId, isLoading = false, renderAction }: InsightsCardsProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
@@ -168,6 +169,9 @@ function InsightsCards({ insights, bookId, isLoading = false }: InsightsCardsPro
                   <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">{currentInsight.label || 'Insights'}</p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Interesting facts about this book</p>
                 </div>
+                {renderAction && (
+                  <span onClick={(e) => e.stopPropagation()}>{renderAction(currentIndex)}</span>
+                )}
                 {insights.length > 1 && (
                   <span className="text-[11px] font-semibold text-slate-400 flex-shrink-0">
                     {currentIndex + 1}/{insights.length}

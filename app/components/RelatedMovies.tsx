@@ -29,13 +29,14 @@ interface RelatedMoviesProps {
   movies: RelatedMovie[];
   bookId: string;
   isLoading?: boolean;
+  renderAction?: (index: number) => React.ReactNode;
 }
 
-function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps) {
+function RelatedMovies({ movies, bookId, isLoading = false, renderAction }: RelatedMoviesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const isSingleItem = movies.length === 1;
   const [isVisible, setIsVisible] = useState(isSingleItem);
-  const [isMinimized, setIsMinimized] = useState(true);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
   const [albumCoverLoaded, setAlbumCoverLoaded] = useState(false);
@@ -73,7 +74,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
 
   useEffect(() => {
     setCurrentIndex(0);
-    setIsMinimized(true);
+    setIsMinimized(false);
     setAlbumCoverLoaded(false);
 
     if (shuffledMovies.length === 0) {
@@ -138,13 +139,7 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
   }
 
   if (shuffledMovies.length === 0 || currentIndex >= shuffledMovies.length) {
-    return (
-      <div className="w-full">
-        <div className="rounded-xl p-4" style={glassmorphicStyle}>
-          <p className="text-xs text-slate-600 dark:text-slate-400 text-center">No related movies or shows found</p>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   const currentMovie = shuffledMovies[currentIndex];
@@ -413,6 +408,9 @@ function RelatedMovies({ movies, bookId, isLoading = false }: RelatedMoviesProps
                   <h3 className={`text-sm font-bold text-white flex-1 min-w-0 ${isMinimized ? 'line-clamp-1' : 'line-clamp-2'}`} style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
                     {decodeHtmlEntities(currentMovie.title)}
                   </h3>
+                  {renderAction && (
+                    <span onClick={(e) => e.stopPropagation()}>{renderAction(currentIndex)}</span>
+                  )}
                   <button
                     onClick={(e) => { e.stopPropagation(); setIsMinimized(prev => !prev); }}
                     className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 transition-all active:scale-95"

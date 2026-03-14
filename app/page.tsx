@@ -7,6 +7,7 @@ import {
   Star,
   ChevronLeft,
   ChevronRight,
+  ChevronsRight,
   BookOpen,
   Trash2,
   CheckCircle2,
@@ -37,6 +38,7 @@ import {
   Birdhouse,
   X,
   MessageCircle,
+  MessageSquareHeart,
   Lightbulb,
   Cloud,
   Share,
@@ -59,6 +61,7 @@ import {
   Shield,
   Heart,
   Eye,
+  EyeOff,
   AlertTriangle,
   Home,
   Building,
@@ -94,11 +97,15 @@ import {
   Coffee,
   Drama,
   Check,
+  Send,
   Minus,
   Film,
   Tv,
   Music,
+  Disc3,
   Settings2,
+  Image as ImageIcon,
+  Quote,
   type LucideIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -115,8 +122,9 @@ import { LoginScreen } from '@/components/LoginScreen';
 import { BookLoading } from '@/components/BookLoading';
 import { CachedImage } from '@/components/CachedImage';
 import { supabase } from '@/lib/supabase';
-import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerErrorHaptic, isNativePlatform, listenForAppStateChange, listenForBackButton, exitApp, storageGet, storageSet } from '@/lib/capacitor';
+import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerErrorHaptic, isNativePlatform, openSystemBrowser, listenForAppStateChange, listenForBackButton, exitApp, storageGet, storageSet } from '@/lib/capacitor';
 import { featureFlags } from '@/lib/feature-flags';
+import { getRemoteFeatureFlags, type RemoteFeatureFlags } from '@/lib/remote-feature-flags';
 import { getAssetPath, decodeHtmlEntities, glassmorphicStyle } from './components/utils';
 import InsightsCards from './components/InsightsCards';
 import AuthorFactsTooltips from './components/AuthorFactsTooltips';
@@ -125,6 +133,8 @@ import YouTubeVideos from './components/YouTubeVideos';
 import AnalysisArticles from './components/AnalysisArticles';
 import RelatedBooks from './components/RelatedBooks';
 import RelatedMovies from './components/RelatedMovies';
+import MusicModal from './components/MusicModal';
+import WatchModal from './components/WatchModal';
 import ResearchSection from './components/ResearchSection';
 import ArrowAnimation from './components/ArrowAnimation';
 import LightbulbAnimation from './components/LightbulbAnimation';
@@ -135,6 +145,10 @@ import ConnectAccountModal from './components/ConnectAccountModal';
 import BookChat from './components/BookChat';
 import NotesEditorOverlay from './components/NotesEditorOverlay';
 import { getChatList, deleteChatForBook, type ChatListItem, type BookChatContext } from './services/chat-service';
+import HeartButton from './components/HeartButton';
+import { getContentHash, toggleHeart, loadHearts } from './services/heart-service';
+import BookSummaryComponent from './components/BookSummary';
+import { getBookSummary } from './services/book-summary-service';
 
 // Helper function to get the correct path for static assets (handles basePath)
 // getAssetPath imported from ./components/utils
@@ -170,6 +184,7 @@ import {
   type FeedItem, type PersonalizedFeedItem,
   type ReadingStatus, type Book, type BookWithRatings,
   type DiscussionQuestion, type GrokUsageLog,
+  type MusicLinks, type WatchLinks,
 } from './types';
 import { getGrokUsageLogs } from './services/api-utils';
 import { extractColorsFromImage } from './services/color-utils';
@@ -535,6 +550,9 @@ export default function App() {
   const [researchData, setResearchData] = useState<Map<string, BookResearch>>(new Map());
   const [selectedInsightCategory, setSelectedInsightCategory] = useState<string>('trivia'); // 'trivia' or pillar names from research
   const [isInsightCategoryDropdownOpen, setIsInsightCategoryDropdownOpen] = useState(false);
+  // Book summary state
+  const [bookSummaries, setBookSummaries] = useState<Map<string, import('./types').BookSummary>>(new Map());
+  const [loadingSummaryForBookId, setLoadingSummaryForBookId] = useState<string | null>(null);
   // Book infographic state
   const [bookInfographics, setBookInfographics] = useState<Map<string, BookInfographic>>(new Map());
   const [loadingInfographicForBookId, setLoadingInfographicForBookId] = useState<string | null>(null);
@@ -585,6 +603,40 @@ export default function App() {
     } catch (err) {
       console.error('[savePageState] Error saving to localStorage:', err);
     }
+  };
+
+  // Track where user came from for sub-page back navigation
+  type ViewOrigin = 'book-detail' | 'bookshelf-covers' | 'bookshelf-spines' | 'feed' | 'chat' | 'notes';
+  const previousViewRef = useRef<ViewOrigin>('bookshelf-covers');
+  const capturePreviousView = (): void => {
+    if (showFeedPage) previousViewRef.current = 'feed';
+    else if (showChatPage) previousViewRef.current = 'chat';
+    else if (showNotesView) previousViewRef.current = 'notes';
+    else if (showBookshelfCovers) previousViewRef.current = 'bookshelf-covers';
+    else if (showBookshelf) previousViewRef.current = 'bookshelf-spines';
+    else previousViewRef.current = 'book-detail';
+  };
+  const restorePreviousView = (): void => {
+    setShowAccountPage(false);
+    setShowFollowingPage(false);
+    setShowNotesView(false);
+    setShowCreatePost(false);
+    const target = previousViewRef.current;
+    if (target === 'book-detail') {
+      setShowBookshelf(false);
+      setShowBookshelfCovers(false);
+    } else if (target === 'feed') {
+      setShowFeedPage(true);
+    } else if (target === 'chat') {
+      setShowChatPage(true);
+    } else if (target === 'notes') {
+      setShowNotesView(true);
+    } else if (target === 'bookshelf-spines') {
+      setShowBookshelf(true);
+    } else {
+      setShowBookshelfCovers(true);
+    }
+    previousViewRef.current = 'bookshelf-covers';
   };
 
   // Initialize page states from localStorage
@@ -639,13 +691,15 @@ export default function App() {
   }, [showBookshelfCovers, showBookshelf, books.length]);
   const moreBelowAnimRef = useRef<HTMLDivElement>(null);
   const [aboutPageIndex, setAboutPageIndex] = useState(0);
-  const defaultContentPrefs = { fun_facts: true, podcasts: true, youtube: true, related_work: true, articles: true, _order: ['fun_facts', 'podcasts', 'youtube', 'related_work', 'articles'] };
+  const defaultContentPrefs = { fun_facts: true, podcasts: true, youtube: true, related_work: true, articles: true, related_books: true, _order: ['fun_facts', 'podcasts', 'youtube', 'related_work', 'articles', 'related_books'] };
   const [contentPreferences, setContentPreferences] = useState<Record<string, any>>(() => {
     if (typeof window === 'undefined') return defaultContentPrefs;
     const saved = localStorage.getItem('contentPreferences');
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (!parsed._order) parsed._order = ['fun_facts', 'podcasts', 'youtube', 'related_work', 'articles'];
+      if (!parsed._order) parsed._order = ['fun_facts', 'podcasts', 'youtube', 'related_work', 'articles', 'related_books'];
+      if (parsed.related_books === undefined) parsed.related_books = true;
+      if (!parsed._order.includes('related_books')) parsed._order.push('related_books');
       return parsed;
     }
     return defaultContentPrefs;
@@ -664,17 +718,31 @@ export default function App() {
   const [isLoadingPersonalizedFeed, setIsLoadingPersonalizedFeed] = useState(false);
   const [feedDisplayCount, setFeedDisplayCount] = useState(8);
   const [feedFilter, setFeedFilter] = useState<'all' | 'unread'>('all');
-  const [feedTypeFilter, setFeedTypeFilter] = useState<'all' | 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book' | 'did_you_know'>('all');
+  const [feedTypeFilter, setFeedTypeFilter] = useState<'all' | 'fact' | 'context' | 'drilldown' | 'influence' | 'podcast' | 'article' | 'related_book' | 'video' | 'friend_book' | 'did_you_know' | 'related_work'>('all');
   const [isFeedTypeDropdownOpen, setIsFeedTypeDropdownOpen] = useState(false);
   const feedTypeDropdownRef = useRef<HTMLDivElement>(null);
   const [isLoadingMoreFeed, setIsLoadingMoreFeed] = useState(false);
   const [feedPlayingAudioUrl, setFeedPlayingAudioUrl] = useState<string | null>(null);
   const feedAudioRef = useRef<HTMLAudioElement | null>(null);
   const [feedPlayingVideoId, setFeedPlayingVideoId] = useState<string | null>(null);
+  const [feedMusicModalData, setFeedMusicModalData] = useState<{ musicLinks: MusicLinks; title: string; artist: string } | null>(null);
+  const [feedWatchModalData, setFeedWatchModalData] = useState<{ watchLinks: WatchLinks; title: string; year?: number } | null>(null);
   const [expandedFeedDescriptions, setExpandedFeedDescriptions] = useState<Set<string>>(new Set());
+  const [feedBookSummaries, setFeedBookSummaries] = useState<Map<string, string>>(new Map());
+  const feedSummaryFetchedRef = useRef<Set<string>>(new Set());
   const [feedPodcastExpandedMap, setFeedPodcastExpandedMap] = useState<Map<string, boolean>>(new Map());
   const [didYouKnowNoteIndex, setDidYouKnowNoteIndex] = useState<Map<string, number>>(new Map());
+  const [heartCounts, setHeartCounts] = useState<Map<string, number>>(new Map());
+  const [userHearted, setUserHearted] = useState<Set<string>>(new Set());
   const [followingUsers, setFollowingUsers] = useState<Array<{ id: string; full_name: string | null; avatar_url: string | null; email: string; followed_at: string }>>([]);
+
+  // Create post
+  const [showCreatePost, setShowCreatePost] = useState(false);
+  const [createPostText, setCreatePostText] = useState('');
+
+  // Remote feature flags
+  const [remoteFlags, setRemoteFlags] = useState<RemoteFeatureFlags>({ chat_enabled: false });
+  useEffect(() => { getRemoteFeatureFlags().then(setRemoteFlags); }, []);
 
   // Book discussion state
   const [showBookDiscussion, setShowBookDiscussion] = useState(false);
@@ -1772,14 +1840,14 @@ export default function App() {
   const backButtonStateRef = useRef({
     isPlayingTrivia, showAboutScreen, isAdding, showShareDialog, showBookMenu,
     isEditing, isShowingNotes, isConfirmingDelete,
-    showAccountPage, showFollowingPage, showFeedPage, showChatPage, chatBookSelected, showSortingResults, showNotesView,
+    showAccountPage, showFollowingPage, showFeedPage, showChatPage, chatBookSelected, showCreatePost, showSortingResults, showNotesView,
     showBookshelf, showBookshelfCovers,
   });
   useEffect(() => {
     backButtonStateRef.current = {
       isPlayingTrivia, showAboutScreen, isAdding, showShareDialog, showBookMenu,
       isEditing, isShowingNotes, isConfirmingDelete,
-      showAccountPage, showFollowingPage, showFeedPage, showChatPage, chatBookSelected, showSortingResults, showNotesView,
+      showAccountPage, showFollowingPage, showFeedPage, showChatPage, chatBookSelected, showCreatePost, showSortingResults, showNotesView,
       showBookshelf, showBookshelfCovers,
     };
   });
@@ -1796,12 +1864,13 @@ export default function App() {
       // 2. Close inline overlays on book detail
       if (s.isEditing) { setIsEditing(false); return; }
       if (s.isShowingNotes) { setIsShowingNotes(false); return; }
-      // 3. Sub-pages → back to bookshelf covers
-      if (s.showAccountPage) { setShowAccountPage(false); setShowBookshelfCovers(true); return; }
+      // 3. Sub-pages → back to previous view
+      if (s.showAccountPage) { restorePreviousView(); return; }
       if (s.showFollowingPage) { setShowFollowingPage(false); setShowBookshelfCovers(true); return; }
       if (s.showFeedPage) { setShowFeedPage(false); setShowBookshelfCovers(true); return; }
       if (s.showChatPage && s.chatBookSelected) { setChatBookSelected(false); setChatGeneralMode(false); return; }
       if (s.showChatPage) { setShowChatPage(false); return; }
+      if (s.showCreatePost) { setShowCreatePost(false); setShowBookshelfCovers(true); return; }
       if (s.showSortingResults) { setShowSortingResults(false); setShowBookshelfCovers(true); return; }
       if (s.showNotesView) { setShowNotesView(false); setShowBookshelfCovers(true); return; }
       // 4. Book detail → bookshelf covers
@@ -2252,11 +2321,12 @@ export default function App() {
       }
     }
 
-    // Related movies/shows/music
+    // Related movies/shows/music — only include items with artwork
     if (contentPreferences.related_work !== false) {
       const movies = relatedMovies.get(activeBook.id);
       if (movies) {
         movies.forEach((movie, i) => {
+          if (!movie.poster_url && !movie.itunes_artwork) return;
           const icon = movie.type === 'album' ? Music : movie.type === 'show' ? Tv : Film;
           const label = movie.type === 'album' ? 'Music' : movie.type === 'show' ? 'TV Show' : 'Movie';
           candidates.push({ type: 'movie', icon, label, title: movie.title, subtitle: `${movie.director} — ${movie.reason}`, imageUrl: movie.itunes_artwork || movie.poster_url, url: movie.itunes_url || movie.wikipedia_url, itemIndex: i });
@@ -2421,11 +2491,11 @@ export default function App() {
     } else if (bookshelfGrouping === 'rating') {
       // Group by rating score ranges
       const groups: { label: string; books: BookWithRatings[] }[] = [
-        { label: '5 stars', books: [] },
-        { label: '4 stars', books: [] },
-        { label: '3 stars', books: [] },
-        { label: '2 stars', books: [] },
-        { label: '1 star', books: [] },
+        { label: '5 hearts', books: [] },
+        { label: '4 hearts', books: [] },
+        { label: '3 hearts', books: [] },
+        { label: '2 hearts', books: [] },
+        { label: '1 heart', books: [] },
         { label: 'Unrated', books: [] },
       ];
       
@@ -2435,15 +2505,15 @@ export default function App() {
         if (score === 0) {
           groups[5].books.push(book); // Unrated
         } else if (score >= 4.5) {
-          groups[0].books.push(book); // 5 stars
+          groups[0].books.push(book); // 5 hearts
         } else if (score >= 3.5) {
-          groups[1].books.push(book); // 4 stars
+          groups[1].books.push(book); // 4 hearts
         } else if (score >= 2.5) {
-          groups[2].books.push(book); // 3 stars
+          groups[2].books.push(book); // 3 hearts
         } else if (score >= 1.5) {
-          groups[3].books.push(book); // 2 stars
+          groups[3].books.push(book); // 2 hearts
         } else {
-          groups[4].books.push(book); // 1 star
+          groups[4].books.push(book); // 1 heart
         }
       });
       
@@ -3857,6 +3927,58 @@ export default function App() {
     };
   }, [activeBook?.id]);
 
+  // Fetch book summary when activeBook changes
+  const fetchingSummaryRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const currentBook = books[selectedIndex];
+    if (!currentBook?.title || !currentBook?.author) {
+      setLoadingSummaryForBookId(null);
+      return;
+    }
+
+    const bookId = currentBook.id;
+    if (bookSummaries.has(bookId)) {
+      setLoadingSummaryForBookId(null);
+      return;
+    }
+    if (fetchingSummaryRef.current.has(bookId)) {
+      setLoadingSummaryForBookId(bookId);
+      return;
+    }
+
+    let cancelled = false;
+    fetchingSummaryRef.current.add(bookId);
+    setLoadingSummaryForBookId(bookId);
+
+    const fetchTimer = setTimeout(() => {
+      if (cancelled) return;
+      getBookSummary(currentBook.title, currentBook.author).then((summary) => {
+        if (cancelled) return;
+        setLoadingSummaryForBookId(null);
+        fetchingSummaryRef.current.delete(bookId);
+        if (summary) {
+          setBookSummaries(prev => {
+            const next = new Map(prev);
+            next.set(bookId, summary);
+            return next;
+          });
+        }
+      }).catch((err) => {
+        if (cancelled) return;
+        setLoadingSummaryForBookId(null);
+        fetchingSummaryRef.current.delete(bookId);
+        console.error('[BookSummary] Error:', err);
+      });
+    }, 500);
+
+    return () => {
+      cancelled = true;
+      setLoadingSummaryForBookId(null);
+      fetchingSummaryRef.current.delete(bookId);
+      clearTimeout(fetchTimer);
+    };
+  }, [activeBook?.id]);
+
   // Fetch research when activeBook changes
   // DISABLED: getBookResearch call is temporarily disabled
   useEffect(() => {
@@ -4198,6 +4320,64 @@ export default function App() {
 
     loadPersonalizedFeed();
   }, [showFeedPage, user]);
+
+  // Load heart counts for feed items
+  useEffect(() => {
+    if (personalizedFeedItems.length === 0) return;
+    const hashes = personalizedFeedItems
+      .map(item => item.content_hash)
+      .filter((h): h is string => !!h);
+    if (hashes.length === 0) return;
+    loadHearts(user?.id || null, hashes).then(({ counts, userHearted: uh }) => {
+      setHeartCounts(prev => {
+        const next = new Map(prev);
+        counts.forEach((v, k) => next.set(k, v));
+        return next;
+      });
+      setUserHearted(prev => {
+        const next = new Set(prev);
+        uh.forEach(h => next.add(h));
+        return next;
+      });
+    });
+  }, [personalizedFeedItems, user?.id]);
+
+  // Handle toggling a heart
+  const handleToggleHeart = async (contentHash: string) => {
+    if (!user?.id) return;
+    // Optimistic update
+    const wasHearted = userHearted.has(contentHash);
+    setUserHearted(prev => {
+      const next = new Set(prev);
+      if (wasHearted) next.delete(contentHash);
+      else next.add(contentHash);
+      return next;
+    });
+    setHeartCounts(prev => {
+      const next = new Map(prev);
+      const current = next.get(contentHash) || 0;
+      next.set(contentHash, wasHearted ? Math.max(0, current - 1) : current + 1);
+      return next;
+    });
+    // Persist
+    try {
+      await toggleHeart(user.id, contentHash);
+    } catch {
+      // Revert on error
+      setUserHearted(prev => {
+        const next = new Set(prev);
+        if (wasHearted) next.add(contentHash);
+        else next.delete(contentHash);
+        return next;
+      });
+      setHeartCounts(prev => {
+        const next = new Map(prev);
+        const current = next.get(contentHash) || 0;
+        next.set(contentHash, wasHearted ? current + 1 : Math.max(0, current - 1));
+        return next;
+      });
+    }
+  };
 
   // Cleanup feed audio when leaving feed page
   useEffect(() => {
@@ -4711,7 +4891,7 @@ export default function App() {
           setTimeout(() => {
             setIsEditing(false);
             setEditingDimension(null);
-            // Show share dialog for high ratings (4 or 5 stars), but not during onboarding
+            // Show share dialog for high ratings (4 or 5 hearts), but not during onboarding
             if (value >= 4 && !showBookPageOnboarding) {
               setTimeout(() => setShowShareDialog(true), 50);
             }
@@ -5030,7 +5210,7 @@ export default function App() {
   })() : null;
   
   // Use background image for bookshelf, notes, account, and following pages
-  const shouldUseBackgroundImage = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage || showFollowingPage || showFeedPage || showChatPage;
+  const shouldUseBackgroundImage = showBookshelf || showBookshelfCovers || showNotesView || showAccountPage || showFollowingPage || showFeedPage || showChatPage || showCreatePost;
   const backgroundImageStyle: React.CSSProperties = {
     backgroundImage: `url(${getAssetPath('/bg.webp')})`,
     backgroundSize: 'cover',
@@ -5212,7 +5392,7 @@ export default function App() {
       )}
 
       {/* Simple header - fades on scroll and during transitions (hidden on book pages) */}
-      {!(!showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults && !showFollowingPage && !showFeedPage && (!showChatPage || chatBookSelected)) && (
+      {!(!showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults && !showFollowingPage && !showFeedPage && (!showChatPage || chatBookSelected) && !showCreatePost) && (
       <AnimatePresence mode="wait">
         <motion.div
           key={showSortingResults ? 'sorting-results-header' : showNotesView ? 'notes-header' : showBookshelf ? 'bookshelf-header' : 'books-header'}
@@ -5254,10 +5434,13 @@ export default function App() {
               <button
                 onClick={() => {
                   setScrollY(0);
-                  setShowBookshelfCovers(true);
-                  setShowNotesView(false);
-                  setShowFollowingPage(false);
-                  setShowAccountPage(false);
+                  if (showAccountPage) {
+                    restorePreviousView();
+                  } else {
+                    setShowBookshelfCovers(true);
+                    setShowNotesView(false);
+                    setShowFollowingPage(false);
+                  }
                 }}
                 className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
                 style={{ ...standardGlassmorphicStyle, borderRadius: '50%' }}
@@ -5300,6 +5483,8 @@ export default function App() {
                   )
                 ) : showChatPage ? (
                   <MessageCircle size={24} className="text-slate-950 dark:text-slate-50" />
+                ) : showCreatePost ? (
+                  <Plus size={24} className="text-slate-950 dark:text-slate-50" />
                 ) : showSortingResults ? (
                   <Star size={24} className="text-slate-950 dark:text-slate-50" />
                 ) : showNotesView ? (
@@ -5330,6 +5515,8 @@ export default function App() {
                           ? 'FEED'
                           : showChatPage
                             ? 'CHATS'
+                            : showCreatePost
+                              ? 'NEW POST'
                             : showSortingResults
                             ? 'SORTED RESULTS'
                             : showNotesView
@@ -5599,6 +5786,7 @@ export default function App() {
                     { key: 'youtube', icon: Play, label: 'YouTube Videos' },
                     { key: 'related_work', icon: Film, label: 'Related Work' },
                     { key: 'articles', icon: ScrollText, label: 'Academic Articles' },
+                    { key: 'related_books', icon: BookMarked, label: 'Related Books' },
                   ];
                   const order: string[] = contentPreferences._order || contentItems.map(i => i.key);
                   const ITEM_H = 48;
@@ -5971,17 +6159,18 @@ export default function App() {
             }}
           >
             {/* Feed Page */}
-            <div className="w-full max-w-[700px] md:mx-auto flex flex-col gap-4 px-3 pt-8">
+            <div className="w-full max-w-[700px] md:mx-auto flex flex-col gap-0 px-0 pt-8">
               {/* Anonymous user feed empty state */}
               {isAnonymous ? (
                 <div
-                  className="w-full rounded-2xl overflow-hidden p-8 text-center"
+                  className="w-full rounded-2xl overflow-hidden p-8 text-center mx-3"
                   style={{
                     background: 'rgba(255, 255, 255, 0.45)',
                     boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
                     backdropFilter: 'blur(9.4px)',
                     WebkitBackdropFilter: 'blur(9.4px)',
                     border: '1px solid rgba(255, 255, 255, 0.2)',
+                    maxWidth: 'calc(100% - 24px)',
                   }}
                 >
                   <Birdhouse size={32} className="mx-auto mb-3 text-slate-400" />
@@ -6005,55 +6194,8 @@ export default function App() {
                 </div>
               ) : (<>
               {/* Feed filter pills */}
-              <div key={`filters-${feedFilter}`} className="flex items-center gap-2 mb-1">
-                {/* Read status filter */}
-                {/* All button */}
-                <button
-                  onClick={() => setFeedFilter('all')}
-                  className="px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5"
-                  style={feedFilter === 'all' ? {
-                    background: '#0f172a',
-                    color: 'white',
-                  } : {
-                    background: 'rgba(255, 255, 255, 0.45)',
-                    boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                    backdropFilter: 'blur(9.4px)',
-                    WebkitBackdropFilter: 'blur(9.4px)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    color: '#475569',
-                  }}
-                >
-                  All
-                </button>
-                {/* Unread button */}
-                {(() => {
-                  const unreadCount = personalizedFeedItems.filter(item => !item.read).length;
-                  return (
-                    <button
-                      onClick={() => setFeedFilter('unread')}
-                      className="px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-1.5"
-                      style={feedFilter === 'unread' ? {
-                        background: '#0f172a',
-                        color: 'white',
-                      } : {
-                        background: 'rgba(255, 255, 255, 0.45)',
-                        boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                        backdropFilter: 'blur(9.4px)',
-                        WebkitBackdropFilter: 'blur(9.4px)',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        color: '#475569',
-                      }}
-                    >
-                      {unreadCount > 0 && (
-                        <span
-                          className="w-2 h-2 rounded-full"
-                          style={{ background: feedFilter === 'unread' ? 'white' : '#3b82f6' }}
-                        />
-                      )}
-                      Unread{unreadCount > 0 ? ` (${unreadCount})` : ''}
-                    </button>
-                  );
-                })()}
+              <div key={`filters-${feedFilter}`} className="flex items-center gap-2 mb-3 px-4">
+                {/* Read status filter — hidden for now */}
                 {/* Type filter dropdown */}
                 <div className="relative" ref={feedTypeDropdownRef}>
                   <button
@@ -6061,11 +6203,12 @@ export default function App() {
                       e.stopPropagation();
                       setIsFeedTypeDropdownOpen(!isFeedTypeDropdownOpen);
                     }}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all text-slate-700 dark:text-slate-300"
-                    style={feedCardStyle}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 dark:text-slate-300 hover:opacity-80"
+                    style={glassmorphicStyle}
                   >
+                    <span className="text-slate-400 font-normal">Show</span>
                     <span>
-                      {feedTypeFilter === 'all' ? 'All Types' :
+                      {feedTypeFilter === 'all' ? 'All posts' :
                        feedTypeFilter === 'fact' ? 'Facts' :
                        feedTypeFilter === 'context' ? 'Context' :
                        feedTypeFilter === 'drilldown' ? 'Insights' :
@@ -6074,10 +6217,10 @@ export default function App() {
                        feedTypeFilter === 'article' ? 'Articles' :
                        feedTypeFilter === 'related_book' ? 'Books' :
                        feedTypeFilter === 'video' ? 'Videos' :
-                       feedTypeFilter === 'friend_book' ? 'Friends' : 'All Types'}
+                       feedTypeFilter === 'friend_book' ? 'Friends' : 'All posts'}
                     </span>
                     <ChevronDown
-                      size={14}
+                      size={16}
                       className={`transition-transform ${isFeedTypeDropdownOpen ? 'rotate-180' : ''}`}
                     />
                   </button>
@@ -6098,7 +6241,7 @@ export default function App() {
                         style={feedCardStyle}
                       >
                         {[
-                          { value: 'all', label: 'All Types', enabled: true },
+                          { value: 'all', label: 'All posts', enabled: true },
                           { value: 'fact', label: 'Facts', enabled: featureFlags.insights.author_facts },
                           { value: 'context', label: 'Context', enabled: featureFlags.insights.book_context },
                           { value: 'drilldown', label: 'Insights', enabled: featureFlags.insights.book_domain },
@@ -6108,6 +6251,7 @@ export default function App() {
                           { value: 'article', label: 'Articles', enabled: true },
                           { value: 'related_book', label: 'Books', enabled: true },
                           { value: 'video', label: 'Videos', enabled: true },
+                          { value: 'related_work', label: 'Movies & Music', enabled: true },
                           { value: 'friend_book', label: 'Friends', enabled: true },
                         ].filter(option => option.enabled).map((option, idx, filteredArray) => (
                           <button
@@ -6141,34 +6285,21 @@ export default function App() {
                       key={`skeleton-${i}`}
                       animate={{ opacity: [0.5, 0.8, 0.5] }}
                       transition={{ duration: 2, repeat: Infinity, ease: "easeInOut", delay: i * 0.2 }}
-                      className="w-full rounded-2xl overflow-hidden"
-                      style={feedCardStyle}
+                      className="w-full"
                     >
-                      {/* Header skeleton */}
-                      <div className="flex items-center gap-3 px-4 py-3">
-                        <div className="w-10 h-10 rounded-full bg-slate-300/50 dark:bg-slate-600/50" />
+                      <div className="flex gap-3 px-4 pt-3 pb-2">
+                        <div className="w-11 h-11 rounded-full bg-slate-300/50 dark:bg-slate-600/50 flex-shrink-0 mt-1" />
                         <div className="flex-1">
-                          <div className="w-24 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-1" />
-                          <div className="w-32 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
-                        </div>
-                        <div className="w-12 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
-                      </div>
-                      {/* Content skeleton */}
-                      <div className="px-4 pb-4">
-                        <div className="bg-white/40 dark:bg-white/10 rounded-xl p-3 mb-3">
-                          <div className="w-full h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-2" />
-                          <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
-                        </div>
-                        {/* Source book skeleton */}
-                        <div className="flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2">
-                          <div className="w-10 h-14 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg" />
-                          <div className="flex-1">
-                            <div className="w-12 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-1" />
-                            <div className="w-24 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-1" />
-                            <div className="w-20 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-28 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
+                            <div className="w-8 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
                           </div>
+                          <div className="w-full h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-2" />
+                          <div className="w-4/5 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded mb-2" />
+                          <div className="w-2/3 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
                         </div>
                       </div>
+                      <div className="h-px bg-slate-200/50 dark:bg-slate-700/40" />
                     </motion.div>
                   ))}
                 </>
@@ -6177,7 +6308,7 @@ export default function App() {
               {/* Empty state - no feed items at all */}
               {!isLoadingPersonalizedFeed && personalizedFeedItems.length === 0 && (
                 <div
-                  className="w-full rounded-2xl overflow-hidden p-8 text-center"
+                  className="rounded-2xl overflow-hidden p-8 text-center mx-4"
                   style={{
                     background: 'rgba(255, 255, 255, 0.45)',
                     boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
@@ -6195,7 +6326,7 @@ export default function App() {
               {/* Empty state - filters resulted in no items */}
               {!isLoadingPersonalizedFeed && personalizedFeedItems.length > 0 && filteredFeedItems.length === 0 && (
                 <div
-                  className="w-full rounded-2xl overflow-hidden p-8 text-center"
+                  className="rounded-2xl overflow-hidden p-8 text-center mx-4"
                   style={{
                     background: 'rgba(255, 255, 255, 0.45)',
                     boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
@@ -6235,7 +6366,17 @@ export default function App() {
                     )}
                   </button>
                 );
-                const cardOpacity = item.read ? 'opacity-60' : '';
+                const feedContentHash = item.content_hash || item.id;
+                const FeedHeart = () => (
+                  <HeartButton
+                    contentHash={feedContentHash}
+                    count={heartCounts.get(feedContentHash) || 0}
+                    isHearted={userHearted.has(feedContentHash)}
+                    onToggle={handleToggleHeart}
+                    size={17}
+                  />
+                );
+                const cardOpacity = '';
                 const openSourceBookOverlay = () => {
                   const bookForModal: BookWithRatings = {
                     id: `feed-source-${item.id}`,
@@ -6256,354 +6397,191 @@ export default function App() {
                   setViewingBookFromOtherUser(bookForModal);
                 };
 
+                // Threads-style card wrapper
+                const renderThreadCard = (_typeLabel: string, content: React.ReactNode) => (
+                  <motion.div key={item.id} initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }} className={`w-full ${cardOpacity}`}>
+                    <div className="flex gap-3 px-4 pt-3 pb-2">
+                      {/* Avatar */}
+                      <button onClick={openSourceBookOverlay} className="flex-shrink-0 active:scale-95 transition-transform self-start mt-1">
+                        {item.source_book_cover_url ? (
+                          <img src={item.source_book_cover_url} alt="" className="w-11 h-11 rounded-full object-cover" />
+                        ) : (
+                          <div className="w-11 h-11 rounded-full bg-slate-200/60 dark:bg-slate-800 flex items-center justify-center">
+                            <BookOpen size={18} className="text-slate-400" />
+                          </div>
+                        )}
+                      </button>
+                      {/* Content column */}
+                      <div className="flex-1 min-w-0 break-words">
+                        {/* Header: book title + time */}
+                        <div className="flex items-baseline gap-2 mb-2">
+                          <button onClick={openSourceBookOverlay} className="active:opacity-70 min-w-0">
+                            <span className="font-bold text-[15px] text-slate-900 dark:text-slate-100 line-clamp-1">{item.source_book_title}</span>
+                          </button>
+                          <span className="text-[13px] text-slate-400 dark:text-slate-500 flex-shrink-0">{timeAgo(item.created_at)}</span>
+                        </div>
+                        {/* Content — type woven in */}
+                        {content}
+                        {/* Action bar */}
+                        <div className="flex items-center gap-6 mt-2.5 pb-1">
+                          <FeedHeart />
+                          <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />
+                              <Send size={17} className="text-slate-600 dark:text-slate-400" />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="h-px bg-slate-200/50 dark:bg-slate-700/40" />
+                  </motion.div>
+                );
+
                 // Render based on type
                 switch (item.type) {
                   case 'fact':
-                    return (
-                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
-                        <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
-                            <Lightbulb size={20} className="text-white" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Insights</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">Interesting facts about this book</p>
-                          </div>
-                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
-                          <ReadToggle />
-                        </div>
-                        <div className="px-4 pb-4">
-                          <div className="bg-white/40 dark:bg-white/10 rounded-xl px-3 py-2 mb-3">
-                            <p className="text-sm text-slate-700 dark:text-slate-300">{item.content.fact}</p>
-                          </div>
-                          <button
-                            onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
-                          >
-                            {item.source_book_cover_url ? (
-                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
-                            ) : (
-                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500 dark:text-slate-400">About</p>
-                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
-                            </div>
-                          </button>
-                        </div>
-                      </motion.div>
-                    );
+                    return renderThreadCard('fact', (
+                      <p className="text-[15px] text-slate-800 dark:text-slate-200 leading-relaxed">{item.content.fact}</p>
+                    ));
 
                   case 'context':
                     const contextData = item.content.insight;
-                    return (
-                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
-                        <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(20, 184, 166, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(20, 184, 166, 0.3)' }}>
-                            <Info size={20} className="text-white" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Context</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">The world behind your book</p>
-                          </div>
-                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
-                          <ReadToggle />
-                        </div>
-                        <div className="px-4 pb-4">
-                          <div className="bg-white/40 dark:bg-white/10 rounded-xl p-3 mb-3">
-                            <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                              {typeof contextData === 'string' ? contextData : contextData?.text || JSON.stringify(contextData)}
-                            </p>
-                          </div>
-                          <button
-                            onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
-                          >
-                            {item.source_book_cover_url ? (
-                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
-                            ) : (
-                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500 dark:text-slate-400">Context for</p>
-                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
-                            </div>
-                          </button>
-                        </div>
-                      </motion.div>
-                    );
+                    return renderThreadCard('context', (
+                      <p className="text-[15px] text-slate-800 dark:text-slate-200 leading-relaxed">
+                        {typeof contextData === 'string' ? contextData : contextData?.text || JSON.stringify(contextData)}
+                      </p>
+                    ));
 
                   case 'drilldown':
                     const drilldownData = item.content.insight;
-                    const domainLabel = item.content.domain_label || 'Domain';
-                    return (
-                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
-                        <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(244, 63, 94, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(244, 63, 94, 0.3)' }}>
-                            {featureFlags.hand_drawn_icons ? (
-                              <img src={getAssetPath("/search.svg")} alt="Search" className="w-[20px] h-[20px] invert" />
-                            ) : (
-                              <Search size={20} className="text-white" />
-                            )}
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Deep Dive</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">{domainLabel}</p>
-                          </div>
-                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
-                          <ReadToggle />
-                        </div>
-                        <div className="px-4 pb-4">
-                          <div className="bg-gradient-to-br from-rose-50 to-pink-50 rounded-xl p-3 mb-3 border border-rose-100">
-                            <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                              {typeof drilldownData === 'string' ? drilldownData : drilldownData?.text || JSON.stringify(drilldownData)}
-                            </p>
-                          </div>
-                          <button
-                            onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
-                          >
-                            {item.source_book_cover_url ? (
-                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
-                            ) : (
-                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500 dark:text-slate-400">From</p>
-                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
-                            </div>
-                          </button>
-                        </div>
-                      </motion.div>
-                    );
+                    return renderThreadCard('drilldown', (
+                      <p className="text-[15px] text-slate-800 dark:text-slate-200 leading-relaxed">
+                        {typeof drilldownData === 'string' ? drilldownData : drilldownData?.text || JSON.stringify(drilldownData)}
+                      </p>
+                    ));
 
                   case 'influence':
                     const influenceData = item.content.influence;
-                    return (
-                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
-                        <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(99, 102, 241, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
-                            <BookMarked size={20} className="text-white" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Influences</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">Books that shaped your read</p>
-                          </div>
-                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
-                          <ReadToggle />
-                        </div>
-                        <div className="px-4 pb-4">
-                          <div className="bg-white/40 dark:bg-white/10 rounded-xl px-3 py-2 mb-3">
-                            <p className="text-sm text-slate-700 dark:text-slate-300">
-                              {typeof influenceData === 'string' ? influenceData : influenceData?.title || JSON.stringify(influenceData)}
-                            </p>
-                          </div>
-                          <button
-                            onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
-                          >
-                            {item.source_book_cover_url ? (
-                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
-                            ) : (
-                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500 dark:text-slate-400">Influenced</p>
-                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
-                            </div>
-                          </button>
-                        </div>
-                      </motion.div>
-                    );
+                    return renderThreadCard('influence', (
+                      <p className="text-[15px] text-slate-800 dark:text-slate-200 leading-relaxed">
+                        {typeof influenceData === 'string' ? influenceData : influenceData?.title || JSON.stringify(influenceData)}
+                      </p>
+                    ));
 
                   case 'podcast':
                     const episode = item.content.episode;
                     const podcastAudioUrl = episode?.audioUrl || (episode?.url && episode.url.match(/\.(mp3|m4a|wav|ogg|aac)(\?|$)/i) ? episode.url : null);
                     const isPodcastPlaying = feedPlayingAudioUrl === (podcastAudioUrl || episode?.url);
-                    return (
-                      <motion.div key={item.id} initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
-                        <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(139, 92, 246, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(139, 92, 246, 0.3)' }}>
-                            <Headphones size={20} className="text-white" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Podcasts</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">Podcast about this book</p>
-                          </div>
-                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
-                          <ReadToggle />
-                        </div>
-                        <div className="px-4 pb-4">
-                          <div className="flex gap-3 mb-3">
-                            {/* Podcast thumbnail */}
-                            <div className="relative w-20 h-20 flex-shrink-0">
-                              {episode?.thumbnail ? (
-                                <img src={episode.thumbnail} alt={episode.title} className="w-full h-full rounded-xl object-cover" />
-                              ) : (
-                                <div className="w-full h-full rounded-xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 flex items-center justify-center">
-                                  <Headphones size={28} className="text-white" />
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="font-bold text-slate-900 dark:text-slate-100 text-sm line-clamp-2">{episode?.title || 'Podcast Episode'}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{episode?.podcast_name || 'Podcast'}</p>
-                              <div className="flex items-center gap-3 mt-2">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleFeedPodcastPlay(episode);
-                                  }}
-                                  className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 font-medium active:scale-95 transition-transform"
-                                >
-                                  {isPodcastPlaying ? (
-                                    <>
-                                      <VolumeX size={12} />
-                                      Stop
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Play size={12} />
-                                      Preview
-                                    </>
-                                  )}
-                                </button>
-                                {episode?.url && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      window.open(episode.url, '_blank');
-                                    }}
-                                    className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 font-medium active:scale-95 transition-transform"
-                                  >
-                                    <ExternalLink size={12} />
-                                    Link
-                                  </button>
-                                )}
-                                {episode?.length && (
-                                  <span className="text-xs text-slate-400">{episode.length}</span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          {/* Episode description preview */}
-                          {episode?.episode_summary && (
-                            <div className="mb-3">
-                              <p className={`text-sm text-slate-700 dark:text-slate-300 leading-relaxed ${!feedPodcastExpandedMap.get(item.id) ? 'line-clamp-2' : ''}`}>
-                                {episode.episode_summary}
-                              </p>
-                              {episode.episode_summary.length > 100 && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setFeedPodcastExpandedMap(prev => {
-                                      const newMap = new Map(prev);
-                                      newMap.set(item.id, !prev.get(item.id));
-                                      return newMap;
-                                    });
-                                  }}
-                                  className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 font-medium mt-1"
-                                >
-                                  {feedPodcastExpandedMap.get(item.id) ? 'Show less' : 'Read more'}
-                                </button>
-                              )}
+                    return renderThreadCard('podcast', (
+                      <>
+                        {/* Thumbnail with play button overlay */}
+                        <div className="relative w-1/2 aspect-square rounded-xl overflow-hidden mb-2">
+                          {episode?.thumbnail ? (
+                            <img src={episode.thumbnail} alt={episode.title} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-b from-violet-700 to-violet-950 flex items-center justify-center">
+                              <Headphones size={32} className="text-white/30" />
                             </div>
                           )}
-                          <button
-                            onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
-                          >
-                            {item.source_book_cover_url ? (
-                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
-                            ) : (
-                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500 dark:text-slate-400">About</p>
-                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
-                            </div>
-                          </button>
+                          {/* Play button */}
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); if (episode?.url) window.open(episode.url, '_blank'); }}
+                              className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95"
+                              style={{
+                                background: 'rgba(255, 255, 255, 0.25)',
+                                backdropFilter: 'blur(9.4px)',
+                                WebkitBackdropFilter: 'blur(9.4px)',
+                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+                              }}
+                            >
+                              <Play size={18} className="text-white ml-0.5" fill="white" />
+                            </button>
+                          </div>
+                          {/* Bottom gradient */}
+                          <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
+                          {/* Overlay info */}
+                          <div className="absolute inset-x-3 bottom-3">
+                            <p className="text-xs text-white/80 font-medium">{episode?.podcast_name || 'Podcast'}{episode?.length ? ` · ${episode.length}` : ''}</p>
+                          </div>
                         </div>
-                      </motion.div>
-                    );
+                        {/* Title + summary */}
+                        <p className="font-semibold text-slate-900 dark:text-slate-100 text-[15px] line-clamp-2">{episode?.title || 'Podcast Episode'}</p>
+                        {episode?.episode_summary && (
+                          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 line-clamp-2">{episode.episode_summary}</p>
+                        )}
+                      </>
+                    ));
 
                   case 'video':
                     const video = item.content.video;
                     const videoId = video?.videoId || video?.id;
                     const isVideoPlaying = feedPlayingVideoId === videoId;
-                    return (
-                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
-                        <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(239, 68, 68, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                            <Play size={20} className="text-white ml-0.5" fill="white" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Videos</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">Videos about the book and its author</p>
-                          </div>
-                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
-                          <ReadToggle />
-                        </div>
+                    return renderThreadCard('video', (
+                      <>
                         {isVideoPlaying ? (
-                          <div className="relative w-full aspect-video bg-black">
+                          <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden">
                             <iframe
                               src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`}
                               className="w-full h-full"
                               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                               allowFullScreen
                             />
-                            <button
-                              onClick={() => setFeedPlayingVideoId(null)}
-                              className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center"
-                            >
+                            <button onClick={() => setFeedPlayingVideoId(null)} className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center">
                               <X size={16} className="text-white" />
                             </button>
                           </div>
                         ) : (
                           <button onClick={() => setFeedPlayingVideoId(videoId)} className="block w-full text-left">
-                            <div className="relative w-full aspect-video bg-slate-900">
-                              {video?.thumbnail && (
-                                <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover" />
-                              )}
+                            <div className="relative w-full aspect-video bg-slate-900 rounded-xl overflow-hidden">
+                              {video?.thumbnail && <img src={video.thumbnail} alt={video.title} className="w-full h-full object-cover" />}
                               <div className="absolute inset-0 flex items-center justify-center">
-                                <div className="w-14 h-14 rounded-full bg-red-600/90 flex items-center justify-center shadow-lg">
-                                  <Play size={24} className="text-white ml-1" fill="white" />
+                                <div
+                                  className="w-10 h-10 rounded-full flex items-center justify-center"
+                                  style={{
+                                    background: 'rgba(255, 255, 255, 0.25)',
+                                    backdropFilter: 'blur(9.4px)',
+                                    WebkitBackdropFilter: 'blur(9.4px)',
+                                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+                                  }}
+                                >
+                                  <Play size={18} className="text-white ml-0.5" fill="white" />
                                 </div>
                               </div>
                             </div>
                           </button>
                         )}
-                        <div className="px-4 py-3">
-                          <p className="font-bold text-slate-900 dark:text-slate-100 text-sm mb-3 line-clamp-2">{decodeHtmlEntities(video?.title || 'YouTube Video')}</p>
-                          <button
-                            onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
-                          >
-                            {item.source_book_cover_url ? (
-                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
-                            ) : (
-                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
+                        <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm mt-2 line-clamp-2">{decodeHtmlEntities(video?.title || 'YouTube Video')}</p>
+                        {video?.description && (
+                          <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                            <p className={`text-[13px] text-slate-500 dark:text-slate-400 leading-relaxed ${
+                              expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-2'
+                            }`}>
+                              {video.description}
+                            </p>
+                            {video.description.length > 120 && (
+                              <button
+                                onClick={() => {
+                                  setExpandedFeedDescriptions(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(item.id)) next.delete(item.id);
+                                    else next.add(item.id);
+                                    return next;
+                                  });
+                                }}
+                                className="text-blue-600 dark:text-blue-400 text-sm font-semibold mt-1"
+                              >
+                                {expandedFeedDescriptions.has(item.id) ? 'Show less' : 'more'}
+                              </button>
                             )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500 dark:text-slate-400">About</p>
-                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
-                            </div>
-                          </button>
-                        </div>
-                      </motion.div>
-                    );
+                          </div>
+                        )}
+                      </>
+                    ));
 
                   case 'related_book':
                     const relatedBook = item.content.related_book;
                     const handleRelatedBookClick = () => {
                       if (!relatedBook) return;
-                      // Create a BookWithRatings object from the related book
                       const bookForModal: BookWithRatings = {
                         id: `related-${item.id}`,
                         user_id: user?.id || '',
@@ -6622,91 +6600,276 @@ export default function App() {
                       };
                       setViewingBookFromOtherUser(bookForModal);
                     };
-                    return (
-                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
-                        <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(245, 158, 11, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
-                            <BookMarked size={20} className="text-white" />
+                    return renderThreadCard('related_book', (
+                      <div onClick={handleRelatedBookClick} className="w-full text-left active:scale-[0.98] transition-transform cursor-pointer">
+                        <div className="flex items-center gap-3 mt-2 mb-3">
+                          <div className="relative flex-shrink-0">
+                            {item.source_book_cover_url ? (
+                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-[70px] h-[106px] object-cover rounded-lg shadow-sm" />
+                            ) : (
+                              <div className="w-[70px] h-[106px] bg-slate-100 dark:bg-slate-800 rounded-lg flex items-center justify-center">
+                                <BookOpen size={18} className="text-slate-400" />
+                              </div>
+                            )}
+                            <div className="absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full bg-green-500 flex items-center justify-center shadow-sm">
+                              <Check size={12} className="text-white" strokeWidth={3} />
+                            </div>
                           </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Related Books</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">Similar books you might enjoy</p>
+                          <ChevronsRight size={18} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
+                          <div className="flex-shrink-0">
+                            {relatedBook?.cover_url ? (
+                              <img src={relatedBook.cover_url} alt={relatedBook.title} className="w-32 h-48 object-cover rounded-lg shadow-sm" />
+                            ) : (
+                              <div className="w-32 h-48 bg-slate-100 dark:bg-slate-800 rounded-lg flex items-center justify-center">
+                                <BookOpen size={24} className="text-slate-400" />
+                              </div>
+                            )}
                           </div>
-                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
-                          <ReadToggle />
                         </div>
-                        <div className="px-4 pb-4">
-                          <button
-                            onClick={handleRelatedBookClick}
-                            className="w-full text-left active:scale-[0.98] transition-transform"
-                          >
-                            <div className="flex gap-4">
-                              {relatedBook?.cover_url ? (
-                                <img src={relatedBook.cover_url} alt={relatedBook.title} className="w-24 h-36 object-cover rounded-lg flex-shrink-0 shadow-md" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
-                              ) : (
-                                <div className="w-24 h-36 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center shadow-md">
-                                  <BookOpen size={28} className="text-slate-400" />
+                        <p className="font-bold text-slate-900 dark:text-slate-100 text-base leading-tight">{decodeHtmlEntities(relatedBook?.title || 'Related Book')}</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{decodeHtmlEntities(relatedBook?.author || '')}</p>
+                        {relatedBook?.reason && (
+                          <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
+                            <p className={`text-sm text-slate-600 dark:text-slate-300 leading-snug ${
+                              expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-3'
+                            }`}>
+                              {decodeHtmlEntities(relatedBook.reason)}
+                            </p>
+                            {relatedBook.reason.length > 150 && (
+                              <button
+                                onClick={() => {
+                                  setExpandedFeedDescriptions(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(item.id)) next.delete(item.id);
+                                    else next.add(item.id);
+                                    return next;
+                                  });
+                                }}
+                                className="text-blue-600 dark:text-blue-400 text-sm font-semibold mt-1"
+                              >
+                                {expandedFeedDescriptions.has(item.id) ? 'Show less' : 'more'}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ));
+
+                  case 'related_work':
+                    const relatedWork = item.content.related_work;
+                    const workType = relatedWork?.type || 'movie';
+                    const WorkIcon = workType === 'album' ? Music : workType === 'show' ? Tv : Film;
+                    const workLabel = workType === 'album' ? 'Album' : workType === 'show' ? 'TV Show' : 'Movie';
+                    const workPosterUrl = (workType === 'album' && relatedWork?.itunes_artwork) || relatedWork?.poster_url;
+
+                    if (workType === 'album') {
+                      const albumArt = relatedWork?.itunes_artwork || relatedWork?.poster_url;
+                      const albumPlayUrl = relatedWork?.itunes_url
+                        ? `https://song.link/${relatedWork.itunes_url}`
+                        : null;
+                      return renderThreadCard('related_work', (
+                        <div>
+                          {/* Vinyl record visual — container height = vinyl disc, sleeve = disc * 1.05 */}
+                          <div className="relative w-[96%] mx-auto my-6 flex items-center" style={{ aspectRatio: '1.7 / 1' }}>
+                            {/* Vinyl disc (behind sleeve) — 100% height, right-aligned */}
+                            <div
+                              className="absolute z-10 aspect-square"
+                              style={{ height: '100%', right: '20px', top: '50%', transform: 'translateY(-50%)' }}
+                            >
+                              <div
+                                className="w-full aspect-square rounded-full animate-[vinyl-spin_3s_linear_infinite]"
+                                style={{
+                                  background: 'radial-gradient(circle, #222 0%, #111 40%, #000 100%)',
+                                  boxShadow: '0 0 30px rgba(0,0,0,0.6)',
+                                }}
+                              >
+                                {/* Grooves */}
+                                <div
+                                  className="absolute inset-0 rounded-full opacity-40 pointer-events-none"
+                                  style={{ background: 'repeating-radial-gradient(circle, transparent 0, transparent 2px, rgba(255,255,255,0.03) 3px, transparent 4px)' }}
+                                />
+                                {/* Center label */}
+                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-1/3 aspect-square rounded-full bg-zinc-800 border-4 border-black/20 overflow-hidden shadow-inner flex items-center justify-center">
+                                  {albumArt && (
+                                    <div
+                                      className="absolute inset-0 bg-center bg-cover opacity-80"
+                                      style={{ backgroundImage: `url('${albumArt}')` }}
+                                    />
+                                  )}
+                                  <div className="absolute inset-0 bg-black/30" />
+                                  <div className="z-20 w-2 h-2 bg-zinc-950 rounded-full border border-white/10 shadow-inner" />
                                 </div>
-                              )}
-                              <div className="flex-1 min-w-0 flex flex-col justify-center">
-                                <p className="font-bold text-slate-900 dark:text-slate-100 text-lg leading-tight">{decodeHtmlEntities(relatedBook?.title || 'Related Book')}</p>
-                                <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">{decodeHtmlEntities(relatedBook?.author || 'Unknown Author')}</p>
-                                {relatedBook?.reason && (
-                                  <p className="text-sm text-slate-700 dark:text-slate-300 mt-2 leading-snug">{decodeHtmlEntities(relatedBook.reason)}</p>
-                                )}
                               </div>
                             </div>
+
+                            {/* Album sleeve (on top) — 105% of disc height, vertically centered */}
+                            <div
+                              className="absolute z-20 aspect-square rounded-sm"
+                              style={{ height: '105%', left: 0, top: '50%', transform: 'translateY(-50%)', boxShadow: '10px 10px 40px rgba(0,0,0,0.5)' }}
+                            >
+                              <div className="absolute inset-0 rounded-sm overflow-hidden">
+                                {albumArt ? (
+                                  <img
+                                    src={albumArt}
+                                    alt={decodeHtmlEntities(relatedWork?.title || '')}
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="absolute inset-0 bg-gradient-to-b from-pink-800 to-pink-950 flex items-center justify-center">
+                                    <Disc3 size={36} className="text-white/30" />
+                                  </div>
+                                )}
+                                <div className="absolute inset-y-0 right-0 w-3 bg-gradient-to-l from-black/30 to-transparent z-30" />
+                              </div>
+
+                              {/* Play button — centered on album art */}
+                              {relatedWork?.itunes_url && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
+                                      openSystemBrowser(relatedWork.itunes_url!);
+                                    } else if (relatedWork.music_links) {
+                                      setFeedMusicModalData({ musicLinks: relatedWork.music_links, title: relatedWork.title || '', artist: relatedWork.director || '' });
+                                    } else {
+                                      window.open(`https://song.link/${relatedWork.itunes_url}`, '_blank');
+                                    }
+                                  }}
+                                  className="absolute z-30 w-10 h-10 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                                  style={{
+                                    top: '50%',
+                                    left: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    background: 'rgba(255, 255, 255, 0.25)',
+                                    backdropFilter: 'blur(9.4px)',
+                                    WebkitBackdropFilter: 'blur(9.4px)',
+                                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+                                  }}
+                                >
+                                  <Play size={16} className="text-white ml-0.5" fill="white" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          {/* Text info */}
+                          <span className="inline-flex items-center gap-1 py-0.5 px-1.5 text-[10px] font-bold rounded-full uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 mb-1">
+                            <Music size={10} />
+                            Album
+                          </span>
+                          <p className="font-bold text-slate-900 dark:text-slate-100 text-[15px] leading-tight">{decodeHtmlEntities(relatedWork?.title || '')}</p>
+                          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                            {decodeHtmlEntities(relatedWork?.director || '')}
+                            {relatedWork?.release_year ? ` (${relatedWork.release_year})` : ''}
+                          </p>
+                          {relatedWork?.reason && (
+                            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1.5 leading-snug line-clamp-3">{decodeHtmlEntities(relatedWork.reason)}</p>
+                          )}
+                        </div>
+                      ));
+                    }
+
+                    return renderThreadCard('related_work', (
+                      <div>
+                        <div className="relative w-[70%] rounded-lg mb-3" style={{ aspectRatio: '2 / 3' }}>
+                          <div className="absolute inset-0 rounded-lg overflow-hidden" style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.5)', filter: 'drop-shadow(2px 3px 6px rgba(0,0,0,0.4))' }}>
+                            {workPosterUrl ? (
+                              <img src={workPosterUrl} alt={decodeHtmlEntities(relatedWork?.title || '')} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full bg-gradient-to-b from-slate-700 to-slate-900 flex items-center justify-center">
+                                <WorkIcon size={40} className="text-white/30" />
+                              </div>
+                            )}
+                            {/* Paper crease texture */}
+                            <div
+                              className="absolute inset-0 pointer-events-none opacity-[0.75] mix-blend-screen"
+                              style={{
+                                backgroundImage: `url('/paper-texture.jpg')`,
+                                backgroundSize: 'cover',
+                                backgroundPosition: 'center',
+                                filter: 'grayscale(1) invert(1)',
+                              }}
+                            />
+                            {/* Vignette */}
+                            <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: 'inset 0 0 50px rgba(0,0,0,0.35)' }} />
+                          </div>
+                          {/* Watch button — bottom right */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const wl = relatedWork?.watch_links;
+                              if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent) && wl?.apple) {
+                                openSystemBrowser(wl.apple);
+                              } else if (wl && Object.keys(wl).some(k => k !== 'tmdb_url' && wl[k as keyof typeof wl])) {
+                                setFeedWatchModalData({ watchLinks: wl, title: relatedWork?.title || '', year: relatedWork?.release_year });
+                              } else if (relatedWork?.itunes_url) {
+                                window.open(relatedWork.itunes_url, '_blank');
+                              }
+                            }}
+                            className="absolute z-30 bottom-2 right-2 h-8 px-3 rounded-full flex items-center gap-1.5 active:scale-95 transition-transform"
+                            style={{
+                              background: 'rgba(255, 255, 255, 0.25)',
+                              backdropFilter: 'blur(9.4px)',
+                              WebkitBackdropFilter: 'blur(9.4px)',
+                              border: '1px solid rgba(255, 255, 255, 0.3)',
+                              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+                            }}
+                          >
+                            <Play size={12} className="text-white ml-0.5" fill="white" />
+                            <span className="text-white text-xs font-semibold">Watch</span>
                           </button>
                         </div>
-                      </motion.div>
-                    );
+                        <div>
+                          <span className="inline-flex items-center gap-1 py-0.5 px-1.5 text-[10px] font-bold rounded-full uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 mb-1">
+                            <WorkIcon size={10} />
+                            {workLabel}
+                          </span>
+                          <p className="font-bold text-slate-900 dark:text-slate-100 text-[15px] leading-tight">{decodeHtmlEntities(relatedWork?.title || '')}</p>
+                          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                            {decodeHtmlEntities(relatedWork?.director || '')}
+                            {relatedWork?.release_year ? ` (${relatedWork.release_year})` : ''}
+                          </p>
+                          {relatedWork?.reason && (
+                            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1.5 leading-snug line-clamp-3">{decodeHtmlEntities(relatedWork.reason)}</p>
+                          )}
+                        </div>
+                      </div>
+                    ));
 
                   case 'article':
                     const article = item.content.article;
-                    return (
-                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
-                        <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(59, 130, 246, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-                            <FileText size={20} className="text-white" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Articles</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">Academic article about this book</p>
-                          </div>
-                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
-                          <ReadToggle />
-                        </div>
-                        <div className="px-4 pb-4">
-                          <div className="bg-white/40 dark:bg-white/10 rounded-xl p-3 mb-3">
-                            <p className="font-semibold text-slate-800 dark:text-slate-200 text-sm mb-1">{decodeHtmlEntities(article?.title || 'Article')}</p>
-                            {article?.snippet && (
-                              <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">{decodeHtmlEntities(article.snippet)}</p>
-                            )}
-                            {article?.url && (
-                              <a href={article.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 mt-2 text-xs text-blue-600 dark:text-blue-400 font-medium">
-                                <ExternalLink size={12} />
-                                Read article
-                              </a>
-                            )}
-                          </div>
-                          <button
-                            onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
-                          >
-                            {item.source_book_cover_url ? (
-                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
-                            ) : (
-                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500 dark:text-slate-400">About</p>
-                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
+                    const articleDomain = (() => {
+                      try { return new URL(article?.url || '').hostname.replace('www.', ''); } catch { return ''; }
+                    })();
+                    return renderThreadCard('article', (
+                      <>
+                        {article?.url && (
+                          <p className="text-[15px] mb-2">
+                            <a href={article.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 block truncate" onClick={(e) => e.stopPropagation()}>{article.url}</a>
+                          </p>
+                        )}
+                      <a
+                        href={article?.url || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="px-3.5 py-3">
+                          {articleDomain && (
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                              <img src={`https://www.google.com/s2/favicons?domain=${articleDomain}&sz=32`} alt="" className="w-4 h-4 rounded-sm" />
+                              <span className="text-[13px] text-slate-500 dark:text-slate-400">{articleDomain}</span>
                             </div>
-                          </button>
+                          )}
+                          <p className="font-semibold text-slate-900 dark:text-slate-100 text-[15px] leading-snug line-clamp-2">{decodeHtmlEntities(article?.title || 'Article')}</p>
+                          {article?.snippet && (
+                            <p className="text-[13px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{decodeHtmlEntities(article.snippet)}</p>
+                          )}
                         </div>
-                      </motion.div>
-                    );
+                      </a>
+                      </>
+                    ));
 
                   case 'friend_book':
                     const handleFriendBookAdd = () => {
@@ -6728,219 +6891,162 @@ export default function App() {
                       };
                       setViewingBookFromOtherUser(bookForModal);
                     };
+                    const friendAvatarUrl = item.content.friend_avatar_url;
+                    const friendName = item.content.friend_name || 'A friend';
+                    // Fetch book summary if not already fetched
+                    const summaryKey = `${(item.source_book_title || '').toLowerCase().trim()}::${(item.source_book_author || '').toLowerCase().trim()}`;
+                    if (!feedSummaryFetchedRef.current.has(summaryKey) && item.source_book_title && item.source_book_author) {
+                      feedSummaryFetchedRef.current.add(summaryKey);
+                      supabase.from('book_summary_cache')
+                        .select('summary_data')
+                        .eq('book_title', (item.source_book_title || '').toLowerCase().trim())
+                        .eq('book_author', (item.source_book_author || '').toLowerCase().trim())
+                        .maybeSingle()
+                        .then(({ data }) => {
+                          if (data?.summary_data?.summary) {
+                            setFeedBookSummaries(prev => new Map(prev).set(summaryKey, data.summary_data.summary));
+                          }
+                        });
+                    }
+                    const friendBookSummary = feedBookSummaries.get(summaryKey);
                     return (
-                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
-                        <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(168, 85, 247, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(168, 85, 247, 0.3)' }}>
-                            <Users size={20} className="text-white" />
+                      <motion.div key={item.id} initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }} className={`w-full ${cardOpacity}`}>
+                        <div className="flex gap-3 px-4 pt-3 pb-2">
+                          {/* Friend's avatar */}
+                          <div className="flex-shrink-0 self-start mt-1">
+                            {friendAvatarUrl ? (
+                              <img src={friendAvatarUrl} alt="" className="w-11 h-11 rounded-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <div className="w-11 h-11 rounded-full bg-slate-200/60 dark:bg-slate-800 flex items-center justify-center">
+                                <Users size={18} className="text-slate-400" />
+                              </div>
+                            )}
                           </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">A friend added a book</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">{item.content.action || 'added'}</p>
-                          </div>
-                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
-                          <ReadToggle />
-                        </div>
-                        {item.source_book_cover_url ? (
-                          <div className="relative w-full aspect-[3/4]">
-                            <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-full h-full object-cover" />
-                            <button
-                              onClick={handleFriendBookAdd}
-                              className="absolute bottom-2 right-2 text-white text-xs font-bold rounded-full transition-all active:scale-95 px-3 py-1.5"
-                              style={blueGlassmorphicStyle}
-                            >
-                              Add book
-                            </button>
-                          </div>
-                        ) : null}
-                        <div className="px-4 py-3">
-                          <p className="font-bold text-slate-900 dark:text-slate-100">{item.source_book_title}</p>
-                          <p className="text-sm text-slate-600 dark:text-slate-400">{item.source_book_author}</p>
-                          {item.content.description && (
-                            <div className="mt-2">
-                              <p className={`text-sm text-slate-700 dark:text-slate-300 leading-relaxed ${
-                                expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-4'
-                              }`}>
-                                {item.content.description}
-                              </p>
-                              {item.content.description.length > 200 && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setExpandedFeedDescriptions(prev => {
-                                      const next = new Set(prev);
-                                      if (next.has(item.id)) {
-                                        next.delete(item.id);
-                                      } else {
-                                        next.add(item.id);
-                                      }
-                                      return next;
-                                    });
-                                  }}
-                                  className="text-blue-600 dark:text-blue-400 text-sm font-medium mt-1"
-                                >
-                                  {expandedFeedDescriptions.has(item.id) ? 'Show less' : 'Read more'}
-                                </button>
-                              )}
+                          {/* Content column */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2 mb-2">
+                              <span className="font-bold text-[15px] text-slate-900 dark:text-slate-100 line-clamp-1">{friendName}</span>
+                              <span className="text-[13px] text-slate-400 dark:text-slate-500 flex-shrink-0">{timeAgo(item.created_at)}</span>
                             </div>
-                          )}
-                          {!item.source_book_cover_url && (
-                            <button
-                              onClick={handleFriendBookAdd}
-                              className="mt-3 text-white text-xs font-bold rounded-full transition-all active:scale-95 px-3 py-1.5"
-                              style={blueGlassmorphicStyle}
-                            >
-                              Add book
-                            </button>
-                          )}
+                            <p className="text-[15px] text-slate-800 dark:text-slate-200 mb-2">{item.content.action || 'added'} a book</p>
+                            {/* Book card */}
+                            <div onClick={handleFriendBookAdd} className="w-full text-left active:scale-[0.98] transition-transform cursor-pointer">
+                              {item.source_book_cover_url && (
+                                <div className="relative w-[80%] aspect-[3/4] rounded-xl mb-2">
+                                  <div className="absolute inset-0 rounded-xl overflow-hidden">
+                                    <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-full h-full object-cover" />
+                                  </div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleFriendBookAdd();
+                                    }}
+                                    className="absolute z-30 bottom-2 right-2 h-8 px-3 rounded-full flex items-center gap-1.5 active:scale-95 transition-transform"
+                                    style={{
+                                      background: 'rgba(255, 255, 255, 0.25)',
+                                      backdropFilter: 'blur(9.4px)',
+                                      WebkitBackdropFilter: 'blur(9.4px)',
+                                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                                      boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+                                    }}
+                                  >
+                                    <Plus size={12} className="text-black" />
+                                    <span className="text-black text-xs font-semibold">Add</span>
+                                  </button>
+                                </div>
+                              )}
+                              <p className="font-bold text-slate-900 dark:text-slate-100 text-[15px]">{item.source_book_title}</p>
+                              <p className="text-sm text-slate-500 dark:text-slate-400">{item.source_book_author}</p>
+                            </div>
+                            {(friendBookSummary || item.content.description) && (
+                              <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                                <p className={`text-[15px] text-slate-700 dark:text-slate-300 leading-relaxed ${
+                                  expandedFeedDescriptions.has(item.id) ? '' : 'line-clamp-4'
+                                }`}>
+                                  {friendBookSummary || item.content.description}
+                                </p>
+                                {(friendBookSummary || item.content.description || '').length > 200 && (
+                                  <button
+                                    onClick={() => {
+                                      setExpandedFeedDescriptions(prev => {
+                                        const next = new Set(prev);
+                                        if (next.has(item.id)) next.delete(item.id);
+                                        else next.add(item.id);
+                                        return next;
+                                      });
+                                    }}
+                                    className="text-blue-600 dark:text-blue-400 text-sm font-semibold mt-1"
+                                  >
+                                    {expandedFeedDescriptions.has(item.id) ? 'Show less' : 'more'}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            {/* Action bar */}
+                            <div className="flex items-center gap-6 mt-2.5 pb-1">
+                              <FeedHeart />
+                              <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />
+                              <Send size={17} className="text-slate-600 dark:text-slate-400" />
+                            </div>
+                          </div>
                         </div>
+                        <div className="h-px bg-slate-200/50 dark:bg-slate-700/40" />
                       </motion.div>
                     );
 
                   case 'did_you_know':
-                    // "Did you know?" item with 3 notes shown together with pagination dots
                     const didYouKnowNotes: string[] = item.content.notes || [];
                     const didYouKnowSourceUrl: string | undefined = item.content.source_url;
-                    const currentNoteIdx = didYouKnowNoteIndex.get(item.id) || 0;
 
-                    // Helper functions for navigation
-                    const goToNextNote = () => {
-                      setDidYouKnowNoteIndex(prev => {
-                        const newMap = new Map(prev);
-                        newMap.set(item.id, (currentNoteIdx + 1) % didYouKnowNotes.length);
-                        return newMap;
-                      });
-                    };
-                    const goToPrevNote = () => {
-                      setDidYouKnowNoteIndex(prev => {
-                        const newMap = new Map(prev);
-                        newMap.set(item.id, currentNoteIdx > 0 ? currentNoteIdx - 1 : didYouKnowNotes.length - 1);
-                        return newMap;
-                      });
-                    };
-
-                    // Swipe detection state (using data attributes to avoid React state in render)
-                    let touchStartX = 0;
-                    let touchStartY = 0;
-
-                    return (
-                      <motion.div key={item.id} layout initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0, marginBottom: 0 }} transition={{ duration: 0.3 }} className={`w-full rounded-2xl overflow-hidden ${cardOpacity}`} style={feedCardStyle}>
-                        <div className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(6, 182, 212, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(6, 182, 212, 0.3)' }}>
-                            <Lightbulb size={20} className="text-white" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">Insights</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">Interesting facts about this book</p>
-                          </div>
-                          <p className="text-xs text-slate-400">{timeAgo(item.created_at)}</p>
-                          <ReadToggle />
-                        </div>
-                        <div className="px-4 pb-4">
-                          {/* Notes carousel with pagination dots inside - tap to advance, swipe to navigate */}
-                          <div
-                            className="rounded-xl p-4 mb-3 min-h-[100px] cursor-pointer select-none active:opacity-80 transition-opacity"
-                            style={{
-                              background: 'rgba(255, 255, 255, 0.6)',
-                              backdropFilter: 'blur(9.4px)',
-                              WebkitBackdropFilter: 'blur(9.4px)',
-                              border: '1px solid rgba(255, 255, 255, 0.3)',
-                            }}
-                            onClick={(e) => {
-                              // Don't trigger if clicking on pagination dots
-                              if ((e.target as HTMLElement).closest('button')) return;
-                              goToNextNote();
-                            }}
-                            onTouchStart={(e) => {
-                              const touch = e.touches[0];
-                              touchStartX = touch.clientX;
-                              touchStartY = touch.clientY;
-                            }}
-                            onTouchEnd={(e) => {
-                              const touch = e.changedTouches[0];
-                              const deltaX = touch.clientX - touchStartX;
-                              const deltaY = touch.clientY - touchStartY;
-                              const minSwipeDistance = 50;
-
-                              // Only handle horizontal swipes (ignore vertical scrolling)
-                              if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > minSwipeDistance) {
-                                e.preventDefault();
-                                if (deltaX < 0) {
-                                  // Swipe left = next
-                                  goToNextNote();
-                                } else {
-                                  // Swipe right = previous
-                                  goToPrevNote();
-                                }
-                              }
-                            }}
+                    return renderThreadCard('did_you_know', (
+                      <div className="space-y-2">
+                        {didYouKnowNotes.map((note, idx) => (
+                          <p key={idx} className="text-[15px] text-slate-800 dark:text-slate-200 leading-relaxed">{note}</p>
+                        ))}
+                        {didYouKnowSourceUrl && (
+                          <a
+                            href={didYouKnowSourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 mt-1 text-xs text-blue-600 dark:text-blue-400 font-semibold"
                           >
-                            <AnimatePresence mode="wait">
-                              <motion.p
-                                key={currentNoteIdx}
-                                initial={{ opacity: 0, x: 20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: -20 }}
-                                transition={{ duration: 0.2 }}
-                                className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed"
-                              >
-                                {didYouKnowNotes[currentNoteIdx] || ''}
-                              </motion.p>
-                            </AnimatePresence>
-                            {didYouKnowSourceUrl && currentNoteIdx === 2 && (
-                              <a
-                                href={didYouKnowSourceUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="inline-flex items-center gap-1 mt-2 text-xs text-indigo-600 font-medium hover:text-indigo-700"
-                              >
-                                <ExternalLink size={12} />
-                                Source
-                              </a>
-                            )}
+                            <ExternalLink size={12} />
+                            Source
+                          </a>
+                        )}
+                      </div>
+                    ));
 
-                            {/* Pagination dots inside the note box */}
-                            {didYouKnowNotes.length > 1 && (
-                              <div className="flex justify-center gap-2 mt-4 pt-3 border-t border-slate-200/50">
-                                {didYouKnowNotes.map((_, idx) => (
-                                  <button
-                                    key={idx}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setDidYouKnowNoteIndex(prev => {
-                                        const newMap = new Map(prev);
-                                        newMap.set(item.id, idx);
-                                        return newMap;
-                                      });
-                                    }}
-                                    className={`w-2 h-2 rounded-full transition-all ${
-                                      idx === currentNoteIdx
-                                        ? 'bg-blue-500 w-4'
-                                        : 'bg-slate-300 hover:bg-slate-400'
-                                    }`}
-                                  />
-                                ))}
+                  case 'user_post':
+                    return (
+                      <motion.div key={item.id} initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }} className={`w-full ${cardOpacity}`}>
+                        <div className="flex gap-3 px-4 pt-3 pb-2">
+                          {/* Avatar */}
+                          <div className="flex-shrink-0 self-start mt-1">
+                            {item.content.user_avatar ? (
+                              <img src={item.content.user_avatar} alt="" className="w-11 h-11 rounded-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <div className="w-11 h-11 rounded-full bg-slate-200/60 dark:bg-slate-800 flex items-center justify-center">
+                                <span className="text-sm font-bold text-slate-600 dark:text-slate-300">{(item.content.user_name || '?').charAt(0).toUpperCase()}</span>
                               </div>
                             )}
                           </div>
-
-                          <button
-                            onClick={openSourceBookOverlay}
-                            className="w-full text-left flex items-center gap-3 bg-white/30 dark:bg-white/12 rounded-xl p-2 active:scale-[0.98] transition-transform"
-                          >
-                            {item.source_book_cover_url ? (
-                              <img src={item.source_book_cover_url} alt={item.source_book_title} className="w-10 h-14 object-cover rounded-lg flex-shrink-0" style={{ border: '1px solid rgba(255, 255, 255, 0.3)' }} />
-                            ) : (
-                              <div className="w-10 h-14 bg-slate-200 rounded-lg flex-shrink-0 flex items-center justify-center"><BookOpen size={16} className="text-slate-400" /></div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs text-slate-500 dark:text-slate-400">About</p>
-                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{item.source_book_title}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{item.source_book_author}</p>
+                          {/* Content column */}
+                          <div className="flex-1 min-w-0 break-words">
+                            <div className="flex items-baseline gap-2 mb-2">
+                              <span className="font-bold text-[15px] text-slate-900 dark:text-slate-100">{item.content.user_name || 'You'}</span>
+                              <span className="text-[13px] text-slate-400 dark:text-slate-500 flex-shrink-0">{timeAgo(item.created_at)}</span>
                             </div>
-                          </button>
+                            <p className="text-[15px] text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-wrap">{item.content.text}</p>
+                            {/* Action bar */}
+                            <div className="flex items-center gap-6 mt-2.5 pb-1">
+                              <FeedHeart />
+                              <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />
+                              <Send size={17} className="text-slate-600 dark:text-slate-400" />
+                            </div>
+                          </div>
                         </div>
+                        <div className="h-px bg-slate-200/50 dark:bg-slate-700/40" />
                       </motion.div>
                     );
 
@@ -7527,6 +7633,125 @@ export default function App() {
                 </div>
             )}
           </motion.main>
+        ) : showCreatePost ? (
+          <motion.main
+            key="create-post"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex-1 flex flex-col relative pt-20 overflow-y-auto ios-scroll"
+            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
+          >
+            <div className="w-full max-w-[600px] mx-auto px-4 py-4" style={{ marginTop: '30px' }}>
+              <div className="rounded-2xl overflow-hidden" style={glassmorphicStyle}>
+                {/* Compose area */}
+                <div className="px-4 pt-4">
+                  <div className="flex gap-3">
+                    {/* Avatar + thread line */}
+                    <div className="flex flex-col items-center">
+                      {userAvatar ? (
+                        <img
+                          src={userAvatar}
+                          alt={userName}
+                          className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-white/30 dark:bg-white/10 flex items-center justify-center flex-shrink-0">
+                          <span className="text-sm font-bold text-slate-600 dark:text-slate-300">{userName.charAt(0).toUpperCase()}</span>
+                        </div>
+                      )}
+                      <div className="w-px flex-1 bg-white/30 dark:bg-white/15 mt-2 min-h-[24px]" />
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 min-w-0 pb-4">
+                      <p className="font-bold text-[15px] text-slate-900 dark:text-slate-100">{userName}</p>
+                      <textarea
+                        ref={(el) => { if (el && showCreatePost) setTimeout(() => el.focus(), 300); }}
+                        value={createPostText}
+                        onChange={(e) => {
+                          setCreatePostText(e.target.value);
+                          e.target.style.height = 'auto';
+                          e.target.style.height = e.target.scrollHeight + 'px';
+                        }}
+                        placeholder="What's new?"
+                        className="w-full mt-1 text-[15px] text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 bg-transparent outline-none resize-none min-h-[80px]"
+                        rows={4}
+                      />
+
+                      {/* Attachment icons */}
+                      <div className="flex items-center gap-4 mt-1">
+                        <button className="active:opacity-60">
+                          <ImageIcon size={20} className="text-slate-400 dark:text-slate-500" />
+                        </button>
+                        <button className="active:opacity-60">
+                          <Quote size={20} className="text-slate-400 dark:text-slate-500" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="flex items-center justify-end px-4 py-3 border-t border-white/20 dark:border-white/10">
+                  <button
+                    disabled={!createPostText.trim()}
+                    onClick={() => {
+                      if (!createPostText.trim()) return;
+                      const newPost: PersonalizedFeedItem = {
+                        id: `user-post-${Date.now()}`,
+                        user_id: '',
+                        source_book_id: '',
+                        source_book_title: '',
+                        source_book_author: '',
+                        source_book_cover_url: null,
+                        type: 'user_post',
+                        content: {
+                          text: createPostText.trim(),
+                          user_name: userName,
+                          user_avatar: userAvatar,
+                        },
+                        content_hash: null,
+                        reading_status: null,
+                        base_score: 1000,
+                        times_shown: 0,
+                        last_shown_at: null,
+                        created_at: new Date().toISOString(),
+                        read: false,
+                        source_book_created_at: null,
+                      };
+                      setPersonalizedFeedItems(prev => [newPost, ...prev]);
+                      setCreatePostText('');
+                      // Navigate to feed
+                      setShowCreatePost(false);
+                      setShowFeedPage(true);
+                      setShowBookshelf(false);
+                      setShowBookshelfCovers(false);
+                      setShowNotesView(false);
+                      setShowAccountPage(false);
+                      setShowSortingResults(false);
+                      setShowChatPage(false);
+                      setChatBookSelected(false);
+                      setScrollY(0);
+                    }}
+                    className="px-5 py-2 rounded-full font-bold text-[15px] text-white transition-all active:scale-95 disabled:opacity-40"
+                    style={{
+                      background: createPostText.trim()
+                        ? 'rgba(59, 130, 246, 0.85)'
+                        : 'rgba(59, 130, 246, 0.3)',
+                      backdropFilter: 'blur(9.4px)',
+                      WebkitBackdropFilter: 'blur(9.4px)',
+                      border: '1px solid rgba(59, 130, 246, 0.3)',
+                    }}
+                  >
+                    Post
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.main>
         ) : showSortingResults ? (
           <motion.main
             key="sorting-results"
@@ -7623,7 +7848,7 @@ export default function App() {
                               if (avgScore) {
                                 return (
                                   <div className="flex items-center gap-1">
-                                    <Star size={12} className="fill-amber-400 text-amber-400" />
+                                    <Heart size={12} className="fill-pink-500 text-pink-500" />
                                     <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{avgScore}</span>
                                   </div>
                                 );
@@ -8425,7 +8650,7 @@ export default function App() {
                               {/* Rating Badge */}
                               {avgScore && (
                                 <div className="absolute top-2 right-2 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
-                                  <Star size={12} className="fill-amber-400 text-amber-400" />
+                                  <Heart size={12} className="fill-pink-500 text-pink-500" />
                                   <span className="text-xs font-bold text-white">{avgScore}</span>
                           </div>
                         )}
@@ -8590,7 +8815,7 @@ export default function App() {
                         {/* Average Score KPI */}
                         <div className="rounded-xl p-4 flex flex-col items-center min-w-[100px]" style={glassmorphicStyle}>
                           <div className="flex items-center gap-1 mb-1">
-                            <Star size={16} className="fill-amber-400 text-amber-400" />
+                            <Heart size={16} className="fill-pink-500 text-pink-500" />
                             <span className="text-lg font-bold text-slate-950 dark:text-slate-50">
                               {avgScore > 0 ? avgScore.toFixed(1) : '—'}
                             </span>
@@ -8754,7 +8979,7 @@ export default function App() {
                           {/* Rating - Above the book */}
                           {avgScore && (
                             <div className="flex items-center gap-1 mb-3">
-                              <Star size={14} className="fill-amber-400 text-amber-400" />
+                              <Heart size={14} className="fill-pink-500 text-pink-500" />
                               <span className="font-black text-sm text-slate-950 dark:text-slate-50">
                                 {avgScore}
                               </span>
@@ -8801,9 +9026,9 @@ export default function App() {
                                   boxShadow: '0 10px 20px rgba(0,0,0,0.1)',
                                 }}
                               >
-                                <span className="text-[#ffd60a] mr-1">
-                                  {'★'.repeat(Math.floor(parseFloat(avgScore)))}
-                                  {'☆'.repeat(5 - Math.floor(parseFloat(avgScore)))}
+                                <span className="text-pink-500 mr-1">
+                                  {'♥'.repeat(Math.floor(parseFloat(avgScore)))}
+                                  {'♡'.repeat(5 - Math.floor(parseFloat(avgScore)))}
                                 </span>
                                 {avgScore}
                               </div>
@@ -9336,7 +9561,7 @@ export default function App() {
                       className="px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1 active:scale-90 transition-transform"
                       style={coverButtonGlassmorphicStyle}
                     >
-                      <Star size={14} className="fill-amber-400 text-amber-400" />
+                      <Heart size={14} className="fill-pink-500 text-pink-500" />
                       <span className="font-black text-sm text-slate-950 dark:text-slate-50">
                         {calculateAvg(activeBook.ratings) || 'Rate'}
                       </span>
@@ -9374,26 +9599,21 @@ export default function App() {
               )}
             </div>
 
-            {/* Info box - always open, below cover and above facts */}
-            {!showRatingOverlay && (
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={`info-${activeBook?.id || 'default'}`}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.3, ease: "easeInOut" }}
-                  className="w-full mt-3"
-                >
-                  <div className="rounded-2xl px-4 py-3 mx-auto" style={bookPageGlassmorphicStyle}>
-                  {/* Line 1: Title */}
+            {/* Info + Book Summary — unified card stack below cover */}
+            {!showRatingOverlay && (() => {
+              const summary = bookSummaries.get(activeBook.id);
+              const isLoadingSummary = loadingSummaryForBookId === activeBook.id && !summary;
+
+              const infoCardContent = (
+                <>
+                  {/* Title */}
                   <h2 className="text-sm font-black text-slate-950 dark:text-slate-50 leading-tight line-clamp-2 mb-2">{activeBook.title}</h2>
-                  {/* Line 2: Summary/Synopsis */}
+                  {/* Summary/Synopsis */}
                   {activeBook.summary && (
                     <div className="mb-2">
                       <p
                         className={`text-xs text-black leading-relaxed ${!isSummaryExpanded ? 'line-clamp-5' : ''} cursor-pointer`}
-                        onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+                        onClick={(e) => { e.stopPropagation(); setIsSummaryExpanded(!isSummaryExpanded); }}
                       >
                         {activeBook.summary}
                       </p>
@@ -9410,55 +9630,205 @@ export default function App() {
                       )}
                     </div>
                   )}
-                  {/* Line 3: Author */}
+                  {/* Author */}
                   <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-2">{activeBook.author}</p>
-                  {/* Line 4: All Labels */}
+                  {/* Labels */}
                   <div className="flex items-center gap-2 flex-wrap">
                     {activeBook.first_issue_year && (
-                      <>
-                        <span className="bg-blue-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-blue-800">
-                          First Issue: {activeBook.first_issue_year}
-                        </span>
-                      </>
+                      <span className="bg-blue-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-blue-800">
+                        First Issue: {activeBook.first_issue_year}
+                      </span>
                     )}
                     {activeBook.publish_year && !activeBook.first_issue_year && (
-                      <>
-                        <span className="bg-slate-100/90 dark:bg-slate-700/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800 dark:text-slate-200">
-                          {activeBook.publish_year}
-                        </span>
-                      </>
+                      <span className="bg-slate-100/90 dark:bg-slate-700/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800 dark:text-slate-200">
+                        {activeBook.publish_year}
+                      </span>
                     )}
                     {activeBook.genre && (
-                      <>
-                        <span className="bg-slate-100/90 dark:bg-slate-700/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800 dark:text-slate-200">
-                          {activeBook.genre}
-                        </span>
-                      </>
+                      <span className="bg-slate-100/90 dark:bg-slate-700/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800 dark:text-slate-200">
+                        {activeBook.genre}
+                      </span>
                     )}
                     {activeBook.isbn && (
-                      <>
-                        <span className="bg-slate-100/90 dark:bg-slate-700/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800 dark:text-slate-200">
-                          ISBN: {activeBook.isbn}
-                        </span>
-                      </>
+                      <span className="bg-slate-100/90 dark:bg-slate-700/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800 dark:text-slate-200">
+                        ISBN: {activeBook.isbn}
+                      </span>
                     )}
                     {(activeBook.wikipedia_url || activeBook.google_books_url) && (
-                      <>
-                        <a
-                          href={activeBook.google_books_url || activeBook.wikipedia_url || '#'}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[10px] text-blue-700 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline"
-                        >
-                          Source <ExternalLink size={10} />
-                        </a>
-                      </>
+                      <a
+                        href={activeBook.google_books_url || activeBook.wikipedia_url || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[10px] text-blue-700 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline"
+                      >
+                        Source <ExternalLink size={10} />
+                      </a>
                     )}
                   </div>
-                {/* Divider between info and readers */}
-                {!isReviewer && <div className="border-t border-white/20 dark:border-white/10 my-2" />}
-                {/* Readers section - profile pictures and chat button */}
-                {!isReviewer && (
+                  {/* Divider between info and readers */}
+                  {!isReviewer && <div className="border-t border-white/20 dark:border-white/10 my-2" />}
+                  {/* Readers section */}
+                  {!isReviewer && (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {isLoadingBookReaders ? (
+                          <motion.div
+                            animate={{ opacity: [0.5, 0.8, 0.5] }}
+                            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                            className="flex items-center gap-2"
+                          >
+                            <div className="flex -space-x-2">
+                              {[1, 2, 3].map((i) => (
+                                <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-slate-300/50 dark:bg-slate-600/50" style={{ zIndex: 5 - i }} />
+                              ))}
+                            </div>
+                            <div className="w-16 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded ml-1" />
+                          </motion.div>
+                        ) : (
+                          <>
+                            {(() => {
+                              const hasBot = !!(activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id));
+                              const sortedReaders = [...bookReaders].sort((a, b) => (b.isFollowing ? 1 : 0) - (a.isFollowing ? 1 : 0));
+                              const maxReaders = Math.min(sortedReaders.length, 3);
+                              const slotsLeft = 3 - maxReaders;
+                              const showBot = hasBot && slotsLeft > 0;
+                              const showMe = slotsLeft > (showBot ? 1 : 0);
+                              return (
+                                <div className="flex -space-x-2">
+                                  {showMe && (userAvatar ? (
+                                    <img
+                                      src={userAvatar}
+                                      alt={userName}
+                                      className="w-8 h-8 shrink-0 rounded-full border-2 border-emerald-400 object-cover"
+                                      style={{ zIndex: 7 }}
+                                      title={`${userName} (you)`}
+                                      referrerPolicy="no-referrer"
+                                    />
+                                  ) : (
+                                    <div
+                                      className="w-8 h-8 shrink-0 rounded-full border-2 border-emerald-400 flex items-center justify-center text-xs font-bold text-white"
+                                      style={{ zIndex: 7, background: avatarGradient(user?.id || userName) }}
+                                      title={`${userName} (you)`}
+                                    >
+                                      {userName.charAt(0).toUpperCase()}
+                                    </div>
+                                  ))}
+                                  {showBot && (
+                                    <div
+                                      className="w-8 h-8 shrink-0 rounded-full border-2 border-sky-400 bg-gradient-to-br from-sky-100 to-sky-200 flex items-center justify-center"
+                                      style={{ zIndex: 6 }}
+                                      title="Book Expert Bot"
+                                    >
+                                      <Bot className="w-4 h-4 text-sky-600" />
+                                    </div>
+                                  )}
+                                  {sortedReaders.slice(0, maxReaders).map((reader, index) => (
+                                    reader.avatar ? (
+                                      <img
+                                        key={reader.id}
+                                        src={reader.avatar}
+                                        alt={reader.name}
+                                        className="w-8 h-8 shrink-0 rounded-full border-2 border-white object-cover"
+                                        style={{ zIndex: 4 - index }}
+                                        title={reader.name}
+                                        referrerPolicy="no-referrer"
+                                      />
+                                    ) : (
+                                      <div
+                                        key={reader.id}
+                                        className="w-8 h-8 shrink-0 rounded-full border-2 border-white flex items-center justify-center text-xs font-bold text-white"
+                                        style={{ zIndex: 4 - index, background: avatarGradient(reader.id) }}
+                                        title={reader.name}
+                                      >
+                                        {reader.name.charAt(0).toUpperCase()}
+                                      </div>
+                                    )
+                                  ))}
+                                </div>
+                              );
+                            })()}
+                            <span className="text-xs text-slate-600 dark:text-slate-400 ml-1">
+                              {bookReaders.length + 1 + (activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id) ? 1 : 0)} {bookReaders.length === 0 && !(activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id)) ? 'reader' : 'readers'}
+                            </span>
+                          </>
+                        )}
+                      </div>
+
+                      {/* Telegram chat button */}
+                      {!isLoadingBookReaders && (
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!activeBook?.canonical_book_id) return;
+
+                            if (!localStorage.getItem('hasJoinedTelegramGroup')) {
+                              setShowTelegramJoinModal(true);
+                              return;
+                            }
+
+                            const cachedTopic = telegramTopics.get(activeBook.canonical_book_id);
+                            if (cachedTopic) {
+                              window.open(cachedTopic.inviteLink, '_blank');
+                              return;
+                            }
+
+                            const newWindow = window.open('', '_blank');
+                            setIsLoadingTelegramTopic(true);
+                            try {
+                              const topic = await getOrCreateTelegramTopic(
+                                activeBook.title,
+                                activeBook.author,
+                                activeBook.canonical_book_id,
+                                activeBook.cover_url || undefined,
+                                activeBook.genre || undefined
+                              );
+
+                              if (topic) {
+                                setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
+                                if (newWindow) {
+                                  newWindow.location.href = topic.inviteLink;
+                                } else {
+                                  window.open(topic.inviteLink, '_blank');
+                                }
+                              } else {
+                                newWindow?.close();
+                              }
+                            } catch (err) {
+                              console.error('Error opening Telegram topic:', err);
+                              newWindow?.close();
+                            } finally {
+                              setIsLoadingTelegramTopic(false);
+                            }
+                          }}
+                          disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
+                          className="flex items-center justify-center w-8 h-8 rounded-full active:scale-95 transition-all disabled:opacity-50"
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.6)',
+                            backdropFilter: 'blur(9.4px)',
+                            WebkitBackdropFilter: 'blur(9.4px)',
+                            border: '1px solid rgba(255, 255, 255, 0.3)',
+                          }}
+                        >
+                          {isLoadingTelegramTopic ? (
+                            <motion.div
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                              className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full"
+                            />
+                          ) : (
+                            <MessagesSquare size={16} className="text-slate-700 dark:text-slate-300" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+
+              // If summary is loading or available, show unified stack with info as card 1
+              if (isLoadingSummary || summary) {
+                const readersContent = !isReviewer ? (
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       {isLoadingBookReaders ? (
@@ -9476,7 +9846,6 @@ export default function App() {
                         </motion.div>
                       ) : (
                         <>
-                          {/* Stacked profile pictures — max 3 thumbnails, prioritise other readers */}
                           {(() => {
                             const hasBot = !!(activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id));
                             const sortedReaders = [...bookReaders].sort((a, b) => (b.isFollowing ? 1 : 0) - (a.isFollowing ? 1 : 0));
@@ -9487,50 +9856,22 @@ export default function App() {
                             return (
                               <div className="flex -space-x-2">
                                 {showMe && (userAvatar ? (
-                                  <img
-                                    src={userAvatar}
-                                    alt={userName}
-                                    className="w-8 h-8 shrink-0 rounded-full border-2 border-emerald-400 object-cover"
-                                    style={{ zIndex: 7 }}
-                                    title={`${userName} (you)`}
-                                    referrerPolicy="no-referrer"
-                                  />
+                                  <img src={userAvatar} alt={userName} className="w-8 h-8 shrink-0 rounded-full border-2 border-emerald-400 object-cover" style={{ zIndex: 7 }} title={`${userName} (you)`} referrerPolicy="no-referrer" />
                                 ) : (
-                                  <div
-                                    className="w-8 h-8 shrink-0 rounded-full border-2 border-emerald-400 flex items-center justify-center text-xs font-bold text-white"
-                                    style={{ zIndex: 7, background: avatarGradient(user?.id || userName) }}
-                                    title={`${userName} (you)`}
-                                  >
+                                  <div className="w-8 h-8 shrink-0 rounded-full border-2 border-emerald-400 flex items-center justify-center text-xs font-bold text-white" style={{ zIndex: 7, background: avatarGradient(user?.id || userName) }} title={`${userName} (you)`}>
                                     {userName.charAt(0).toUpperCase()}
                                   </div>
                                 ))}
                                 {showBot && (
-                                  <div
-                                    className="w-8 h-8 shrink-0 rounded-full border-2 border-sky-400 bg-gradient-to-br from-sky-100 to-sky-200 flex items-center justify-center"
-                                    style={{ zIndex: 6 }}
-                                    title="Book Expert Bot"
-                                  >
+                                  <div className="w-8 h-8 shrink-0 rounded-full border-2 border-sky-400 bg-gradient-to-br from-sky-100 to-sky-200 flex items-center justify-center" style={{ zIndex: 6 }} title="Book Expert Bot">
                                     <Bot className="w-4 h-4 text-sky-600" />
                                   </div>
                                 )}
                                 {sortedReaders.slice(0, maxReaders).map((reader, index) => (
                                   reader.avatar ? (
-                                    <img
-                                      key={reader.id}
-                                      src={reader.avatar}
-                                      alt={reader.name}
-                                      className="w-8 h-8 shrink-0 rounded-full border-2 border-white object-cover"
-                                      style={{ zIndex: 4 - index }}
-                                      title={reader.name}
-                                      referrerPolicy="no-referrer"
-                                    />
+                                    <img key={reader.id} src={reader.avatar} alt={reader.name} className="w-8 h-8 shrink-0 rounded-full border-2 border-white object-cover" style={{ zIndex: 4 - index }} title={reader.name} referrerPolicy="no-referrer" />
                                   ) : (
-                                    <div
-                                      key={reader.id}
-                                      className="w-8 h-8 shrink-0 rounded-full border-2 border-white flex items-center justify-center text-xs font-bold text-white"
-                                      style={{ zIndex: 4 - index, background: avatarGradient(reader.id) }}
-                                      title={reader.name}
-                                    >
+                                    <div key={reader.id} className="w-8 h-8 shrink-0 rounded-full border-2 border-white flex items-center justify-center text-xs font-bold text-white" style={{ zIndex: 4 - index, background: avatarGradient(reader.id) }} title={reader.name}>
                                       {reader.name.charAt(0).toUpperCase()}
                                     </div>
                                   )
@@ -9544,80 +9885,78 @@ export default function App() {
                         </>
                       )}
                     </div>
-
-                    {/* Telegram chat button */}
                     {!isLoadingBookReaders && (
                       <button
-                        onClick={async () => {
+                        onClick={async (e) => {
+                          e.stopPropagation();
                           if (!activeBook?.canonical_book_id) return;
-
-                          // First-time: show join modal
                           if (!localStorage.getItem('hasJoinedTelegramGroup')) {
                             setShowTelegramJoinModal(true);
                             return;
                           }
-
-                          // Returning user: open topic directly
                           const cachedTopic = telegramTopics.get(activeBook.canonical_book_id);
                           if (cachedTopic) {
                             window.open(cachedTopic.inviteLink, '_blank');
                             return;
                           }
-
                           const newWindow = window.open('', '_blank');
                           setIsLoadingTelegramTopic(true);
                           try {
-                            const topic = await getOrCreateTelegramTopic(
-                              activeBook.title,
-                              activeBook.author,
-                              activeBook.canonical_book_id,
-                              activeBook.cover_url || undefined,
-                              activeBook.genre || undefined
-                            );
-
+                            const topic = await getOrCreateTelegramTopic(activeBook.title, activeBook.author, activeBook.canonical_book_id, activeBook.cover_url || undefined, activeBook.genre || undefined);
                             if (topic) {
                               setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
-                              if (newWindow) {
-                                newWindow.location.href = topic.inviteLink;
-                              } else {
-                                window.open(topic.inviteLink, '_blank');
-                              }
-                            } else {
-                              newWindow?.close();
-                            }
-                          } catch (err) {
-                            console.error('Error opening Telegram topic:', err);
-                            newWindow?.close();
-                          } finally {
-                            setIsLoadingTelegramTopic(false);
-                          }
+                              if (newWindow) newWindow.location.href = topic.inviteLink;
+                              else window.open(topic.inviteLink, '_blank');
+                            } else { newWindow?.close(); }
+                          } catch (err) { console.error('Error opening Telegram topic:', err); newWindow?.close(); }
+                          finally { setIsLoadingTelegramTopic(false); }
                         }}
                         disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
                         className="flex items-center justify-center w-8 h-8 rounded-full active:scale-95 transition-all disabled:opacity-50"
-                        style={{
-                          background: 'rgba(255, 255, 255, 0.6)',
-                          backdropFilter: 'blur(9.4px)',
-                          WebkitBackdropFilter: 'blur(9.4px)',
-                          border: '1px solid rgba(255, 255, 255, 0.3)',
-                        }}
+                        style={{ background: 'rgba(255, 255, 255, 0.6)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 255, 255, 0.3)' }}
                       >
                         {isLoadingTelegramTopic ? (
-                          <motion.div
-                            animate={{ rotate: 360 }}
-                            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                            className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full"
-                          />
+                          <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full" />
                         ) : (
                           <MessagesSquare size={16} className="text-slate-700 dark:text-slate-300" />
                         )}
                       </button>
                     )}
                   </div>
-                )}
-                </div>
-              </motion.div>
-              </AnimatePresence>
-            )}
+                ) : undefined;
+
+                return (
+                  <div className="w-full mt-3">
+                    <BookSummaryComponent
+                      summary={summary!}
+                      bookId={activeBook.id}
+                      isLoading={isLoadingSummary}
+                      infoCard={infoCardContent}
+                      firstIssueYear={activeBook.first_issue_year}
+                      readersSection={readersContent}
+                    />
+                  </div>
+                );
+              }
+
+              // No summary at all — show info card as standalone glassmorphic box
+              return (
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={`info-${activeBook?.id || 'default'}`}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                    className="w-full mt-3"
+                  >
+                    <div className="rounded-2xl px-4 py-3 mx-auto" style={bookPageGlassmorphicStyle}>
+                      {infoCardContent}
+                    </div>
+                  </motion.div>
+                </AnimatePresence>
+              );
+            })()}
 
             {/* Spotlight recommendation with neon header — uses the same component UI as the book page sections */}
             {!showRatingOverlay && spotlightRecommendation && (
@@ -9631,7 +9970,7 @@ export default function App() {
                 relatedMovies={relatedMovies}
                 spotlightIndex={spotlightIndex}
                 setSpotlightIndex={setSpotlightIndex}
-                setShowAccountPage={setShowAccountPage}
+                setShowAccountPage={(val: React.SetStateAction<boolean>) => { const next = typeof val === 'function' ? val(showAccountPage) : val; if (next) capturePreviousView(); setShowAccountPage(next); }}
                 handleAddBook={handleAddBook}
                 moreBelowAnimRef={moreBelowAnimRef}
                 readingStatus={activeBook.reading_status}
@@ -9684,6 +10023,7 @@ export default function App() {
                   >
                 {/* Insights: Show if we have facts, research, or are loading */}
                 {(() => {
+                  if (contentPreferences.fun_facts === false) return null;
                   const isNotRead = activeBook.reading_status !== 'read_it';
                   const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
                   const isInsightsRevealed = revealedSections.has('insights');
@@ -9884,6 +10224,10 @@ export default function App() {
                               insights={currentInsights}
                               bookId={`${activeBook.id}-${selectedInsightCategory}`}
                               isLoading={false}
+                              renderAction={(idx) => {
+                                const hash = getContentHash('insight', currentInsights[idx]?.text?.substring(0, 50) || '');
+                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={14} />;
+                              }}
                             />
                           ) : null}
                         </div>
@@ -9894,6 +10238,7 @@ export default function App() {
                 
                 {/* Podcast Episodes - Show below author facts */}
                 {(() => {
+                  if (contentPreferences.podcasts === false) return null;
                   const episodes = combinedPodcastEpisodes;
                   const hasEpisodes = episodes.length > 0;
                   // Only show loading if we don't have episodes yet. Once loaded, always show.
@@ -9940,6 +10285,10 @@ export default function App() {
                               episodes={episodes}
                               bookId={activeBook?.id || ''}
                               isLoading={false}
+                              renderAction={(idx) => {
+                                const hash = getContentHash('podcast', episodes[idx]?.url || '');
+                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={14} />;
+                              }}
                             />
                           )}
                       </div>
@@ -9949,6 +10298,7 @@ export default function App() {
 
                 {/* YouTube Videos - Show below podcasts */}
                 {(() => {
+                  if (contentPreferences.youtube === false) return null;
                   const videos = youtubeVideos.get(activeBook.id) || [];
                   const hasVideos = videos.length > 0;
                   const isLoading = !bookPageSectionsResolved && loadingVideosForBookId === activeBook.id && !hasVideos;
@@ -9993,6 +10343,10 @@ export default function App() {
                               videos={videos}
                               bookId={activeBook.id}
                               isLoading={false}
+                              renderAction={(idx) => {
+                                const hash = getContentHash('youtube', videos[idx]?.videoId || '');
+                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={14} />;
+                              }}
                             />
                           )}
                       </div>
@@ -10002,6 +10356,7 @@ export default function App() {
 
                 {/* Analysis Articles - Show below videos */}
                 {(() => {
+                  if (contentPreferences.articles === false) return null;
                   const articles = analysisArticles.get(activeBook.id) || [];
                   // Check if we have real articles (not just the fallback search URL)
                   // A fallback article has a title that starts with "Search Google Scholar" and URL contains "scholar.google.com/scholar?q="
@@ -10052,6 +10407,10 @@ export default function App() {
                               articles={articles}
                               bookId={activeBook.id}
                               isLoading={false}
+                              renderAction={(idx) => {
+                                const hash = getContentHash('article', articles[idx]?.url || '');
+                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={14} />;
+                              }}
                             />
                           )}
                       </div>
@@ -10061,6 +10420,7 @@ export default function App() {
 
                 {/* Related Movies & Shows */}
                 {(() => {
+                  if (contentPreferences.related_work === false) return null;
                   const movies = relatedMovies.get(activeBook.id);
                   const hasData = movies !== undefined;
                   const hasMovies = movies && movies.length > 0;
@@ -10104,25 +10464,43 @@ export default function App() {
                           movies={movies || []}
                           bookId={activeBook.id}
                           isLoading={false}
+                          renderAction={(idx) => {
+                            const m = (movies || [])[idx];
+                            const hash = getContentHash('related_work', m?.title || '');
+                            return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={14} />;
+                          }}
                         />
                       )}
                     </div>
                   );
                 })()}
 
-                {/* Next Reads Animation */}
-                {(relatedMovies.get(activeBook.id)?.length ?? 0) > 0 && (
-                  <div className="flex justify-center -mt-4 -mb-4">
-                    <Lottie
-                      animationData={nextReadsAnimation}
-                      loop={true}
-                      style={{ width: 200, height: 88 }}
-                    />
-                  </div>
-                )}
+                {/* Hidden content - single row */}
+                {(() => {
+                  const hiddenSections: { key: string; label: string }[] = [];
+                  if (contentPreferences.fun_facts === false) hiddenSections.push({ key: 'fun_facts', label: 'Fun Facts' });
+                  if (contentPreferences.podcasts === false) hiddenSections.push({ key: 'podcasts', label: 'Podcasts' });
+                  if (contentPreferences.youtube === false) hiddenSections.push({ key: 'youtube', label: 'YouTube' });
+                  if (contentPreferences.articles === false) hiddenSections.push({ key: 'articles', label: 'Articles' });
+                  if (contentPreferences.related_work === false) hiddenSections.push({ key: 'related_work', label: 'Related Work' });
+                  if (contentPreferences.related_books === false) hiddenSections.push({ key: 'related_books', label: 'Related Books' });
+                  if (hiddenSections.length === 0) return null;
+                  return (
+                    <div className="w-full">
+                      <div className="flex items-center justify-between px-4 py-3 rounded-2xl" style={glassmorphicStyle}>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <EyeOff size={14} className="text-slate-400 flex-shrink-0" />
+                          <span className="text-xs text-slate-400 truncate">{hiddenSections.map(s => s.label).join(', ')} hidden</span>
+                        </div>
+                        <button onClick={() => { capturePreviousView(); setShowAccountPage(true); }} className="text-xs font-medium text-blue-500 active:opacity-70 flex-shrink-0 ml-2">Settings</button>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Related Books - Show below Related Movies */}
                 {(() => {
+                  if (contentPreferences.related_books === false) return null;
                   const related = relatedBooks.get(activeBook.id);
                   const hasData = related !== undefined;
                   const hasRelated = related && related.length > 0;
@@ -10131,6 +10509,14 @@ export default function App() {
                   if (!isLoading && !hasRelated) return null;
 
                   return (
+                    <>
+                    <div className="flex justify-center -mt-4 -mb-4">
+                      <Lottie
+                        animationData={nextReadsAnimation}
+                        loop={true}
+                        style={{ width: 200, height: 88 }}
+                      />
+                    </div>
                     <div className="w-full space-y-2 !mt-0">
                       {!featureFlags.bookPageSectionHeaders.relatedBooks && (
                         <div className="flex items-center justify-center mb-2">
@@ -10167,9 +10553,15 @@ export default function App() {
                           bookId={activeBook.id}
                           isLoading={false}
                           onAddBook={handleAddBook}
+                          renderAction={(idx) => {
+                            const b = (related || [])[idx];
+                            const hash = getContentHash('related_book', b?.title || '');
+                            return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={14} />;
+                          }}
                         />
                       )}
                     </div>
+                    </>
                   );
                 })()}
 
@@ -10360,6 +10752,7 @@ export default function App() {
               setShowFeedPage(false);
               setShowChatPage(false);
               setChatBookSelected(false);
+              setShowCreatePost(false);
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
               showBookshelfCovers
@@ -10375,7 +10768,7 @@ export default function App() {
           </button>
 
           {/* Chat button */}
-          {!isReviewer && featureFlags.chat_enabled && (
+          {!isReviewer && featureFlags.chat_enabled && remoteFlags.chat_enabled && (
               <button
                 onClick={() => {
                   triggerLightHaptic();
@@ -10389,6 +10782,7 @@ export default function App() {
                   setShowNotesView(false);
                   setShowAccountPage(false);
                   setShowSortingResults(false);
+                  setShowCreatePost(false);
                 }}
                 className={`relative w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
                   showChatPage
@@ -10396,7 +10790,7 @@ export default function App() {
                     : 'bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12'
                 }`}
               >
-                <MessageCircle size={18} className="text-slate-700 dark:text-slate-300" />
+                <MessageSquareHeart size={18} className="text-slate-700 dark:text-slate-300" />
                 <AnimatePresence>
                   {chatComingSoon && (
                     <motion.div
@@ -10412,6 +10806,32 @@ export default function App() {
                 </AnimatePresence>
               </button>
           )}
+
+          {/* Create post button */}
+          <button
+            onClick={() => {
+              triggerLightHaptic();
+              if (showCreatePost) return;
+              setScrollY(0);
+              setCreatePostText('');
+              setShowCreatePost(true);
+              setShowChatPage(false);
+              setChatBookSelected(false);
+              setShowFeedPage(false);
+              setShowBookshelf(false);
+              setShowBookshelfCovers(false);
+              setShowNotesView(false);
+              setShowAccountPage(false);
+              setShowSortingResults(false);
+            }}
+            className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
+              showCreatePost
+                ? 'bg-white/40 dark:bg-white/10 hover:bg-white/50 dark:bg-white/15'
+                : 'bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12'
+            }`}
+          >
+            <Plus size={20} className="text-slate-700 dark:text-slate-300" />
+          </button>
 
           {/* Feed button */}
           <button
@@ -10432,6 +10852,7 @@ export default function App() {
               setShowSortingResults(false);
               setShowChatPage(false);
               setChatBookSelected(false);
+              setShowCreatePost(false);
             }}
             className={`w-11 h-11 rounded-full active:scale-95 transition-all flex items-center justify-center ${
               showFeedPage
@@ -10836,7 +11257,7 @@ export default function App() {
                                 if (avgScore) {
                                   return (
                                     <div className="flex items-center gap-1">
-                                      <Star size={12} className="fill-amber-400 text-amber-400" />
+                                      <Heart size={12} className="fill-pink-500 text-pink-500" />
                                       <span className="text-xs font-bold text-slate-950 dark:text-slate-50">{avgScore}</span>
                                     </div>
                                   );
@@ -12097,6 +12518,28 @@ export default function App() {
           )}
         </AnimatePresence>
 
+        {/* Music Modal for feed album items */}
+        {feedMusicModalData && (
+          <MusicModal
+            musicLinks={feedMusicModalData.musicLinks}
+            albumTitle={feedMusicModalData.title}
+            albumArtist={feedMusicModalData.artist}
+            onClose={() => setFeedMusicModalData(null)}
+          />
+        )}
+
+        {/* Watch Modal for feed movie/show items */}
+        {feedWatchModalData && (
+          <WatchModal
+            watchLinks={feedWatchModalData.watchLinks}
+            title={feedWatchModalData.title}
+            year={feedWatchModalData.year}
+            onClose={() => setFeedWatchModalData(null)}
+          />
+        )}
+
+        {/* Create Post Sheet - now inline view */}
+
         {/* Quick View Modal for Books from Other Users */}
       <AnimatePresence>
           {viewingBookFromOtherUser && (
@@ -12160,7 +12603,7 @@ export default function App() {
                     if (avgScore) {
                       return (
                         <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-black/70 backdrop-blur-sm rounded-full px-2 py-1">
-                          <Star size={14} className="fill-amber-400 text-amber-400" />
+                          <Heart size={14} className="fill-pink-500 text-pink-500" />
                           <span className="text-sm font-bold text-white">
                             {avgScore}
                           </span>
@@ -12622,6 +13065,7 @@ export default function App() {
                           { key: 'youtube', icon: Play, label: 'YouTube Videos' },
                           { key: 'related_work', icon: Film, label: 'Related Work' },
                           { key: 'articles', icon: ScrollText, label: 'Academic Articles' },
+                          { key: 'related_books', icon: BookMarked, label: 'Related Books' },
                         ].map((item, i) => (
                           <motion.button
                             key={item.key}
@@ -12924,6 +13368,7 @@ export default function App() {
               {!isReviewer && (
               <button
                 onClick={() => {
+                  capturePreviousView();
                   setShowAccountPage(true);
                   setShowChatPage(false);
                   setChatBookSelected(false);
