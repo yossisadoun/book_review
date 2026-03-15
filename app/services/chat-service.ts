@@ -192,6 +192,179 @@ export async function saveChatMessages(
   }
 }
 
+// --- Character Chat Functions ---
+
+export interface CharacterChatContext {
+  characterName: string;
+  bookTitle: string;
+  bookAuthor: string;
+  context: Record<string, string>; // The structured JSON from Grok
+  avatarUrl?: string;
+}
+
+export async function sendCharacterChatMessage(
+  messages: ChatMessage[],
+  characterContext: CharacterChatContext
+): Promise<string> {
+  const { data, error } = await supabase.functions.invoke('quick-processor', {
+    body: {
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+      characterContext,
+    },
+  });
+
+  if (error) {
+    console.error('[sendCharacterChatMessage] Error:', error);
+    throw new Error('Failed to send message');
+  }
+
+  logGrokUsage('character_chat', data?.usage);
+  return data?.content || '';
+}
+
+export async function generateCharacterGreeting(
+  characterContext: CharacterChatContext,
+  lastMessageAt?: string | null
+): Promise<string> {
+  const { data, error } = await supabase.functions.invoke('quick-processor', {
+    body: {
+      characterContext,
+      mode: 'greeting',
+      lastMessageAt,
+    },
+  });
+
+  if (error) {
+    console.error('[generateCharacterGreeting] Error:', error);
+    throw new Error('Failed to generate greeting');
+  }
+
+  logGrokUsage('character_chat_greeting', data?.usage);
+  return data?.content || '';
+}
+
+export async function loadCharacterChatHistory(
+  bookTitle: string,
+  bookAuthor: string,
+  characterName: string
+): Promise<ChatMessage[]> {
+  const { data, error } = await supabase
+    .from('character_chats')
+    .select('id, role, content, created_at')
+    .eq('book_title', bookTitle.toLowerCase().trim())
+    .eq('book_author', bookAuthor.toLowerCase().trim())
+    .eq('character_name', characterName)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('[loadCharacterChatHistory] Error:', error);
+    return [];
+  }
+
+  return (data || []).map(row => ({
+    id: row.id,
+    role: row.role as 'user' | 'assistant',
+    content: row.content,
+    created_at: row.created_at,
+  }));
+}
+
+export async function saveCharacterChatMessages(
+  bookTitle: string,
+  bookAuthor: string,
+  characterName: string,
+  messages: ChatMessage[]
+): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const rows = messages.map(m => ({
+    user_id: user.id,
+    book_title: bookTitle.toLowerCase().trim(),
+    book_author: bookAuthor.toLowerCase().trim(),
+    character_name: characterName,
+    role: m.role,
+    content: m.content,
+  }));
+
+  const { error } = await supabase.from('character_chats').insert(rows);
+  if (error) {
+    console.error('[saveCharacterChatMessages] Error:', error);
+  }
+}
+
+export interface CharacterChatListItem {
+  character_name: string;
+  book_title: string;
+  book_author: string;
+  avatar_url?: string;
+  last_message: string;
+  last_message_at: string;
+  message_count: number;
+}
+
+export async function getCharacterChatList(): Promise<CharacterChatListItem[]> {
+  const [chatsResult, avatarsResult] = await Promise.all([
+    supabase
+      .from('character_chats')
+      .select('character_name, book_title, book_author, content, created_at')
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('character_avatars_cache')
+      .select('book_title, book_author, avatars'),
+  ]);
+
+  if (chatsResult.error) {
+    console.error('[getCharacterChatList] Error:', chatsResult.error);
+    return [];
+  }
+
+  // Build avatar URL lookup: "character::book_title" -> image_url
+  const avatarUrlMap = new Map<string, string>();
+  for (const row of avatarsResult.data || []) {
+    const avatars = row.avatars as Array<{ character: string; image_url: string }> | null;
+    if (avatars) {
+      for (const a of avatars) {
+        avatarUrlMap.set(`${a.character}::${row.book_title}`, a.image_url);
+      }
+    }
+  }
+
+  // Deduplicate by character_name+book_title: keep latest message + count
+  const map = new Map<string, CharacterChatListItem>();
+  for (const row of chatsResult.data || []) {
+    const key = `${row.character_name}::${row.book_title}`;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, {
+        character_name: row.character_name,
+        book_title: row.book_title,
+        book_author: row.book_author,
+        avatar_url: avatarUrlMap.get(key),
+        last_message: row.content,
+        last_message_at: row.created_at,
+        message_count: 1,
+      });
+    } else {
+      existing.message_count++;
+    }
+  }
+
+  return Array.from(map.values());
+}
+
+export async function deleteCharacterChat(characterName: string, bookTitle: string): Promise<void> {
+  const { error } = await supabase
+    .from('character_chats')
+    .delete()
+    .eq('character_name', characterName)
+    .eq('book_title', bookTitle.toLowerCase().trim());
+
+  if (error) {
+    console.error('[deleteCharacterChat] Error:', error);
+  }
+}
+
 export function getStarterPrompts(readingStatus: ReadingStatus, generalMode?: boolean): string[] {
   if (generalMode) {
     return [

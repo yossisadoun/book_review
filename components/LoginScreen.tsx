@@ -69,6 +69,7 @@ const [guestLoading, setGuestLoading] = useState(false);
     <div
       className="fixed inset-0 flex flex-col items-center justify-center p-4 overflow-y-auto"
       style={{
+        backgroundColor: 'white',
         backgroundImage: `url(${getAssetPath('/bg.webp')})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',

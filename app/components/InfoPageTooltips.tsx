@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lightbulb, FileText, Play, User, Bot, Music } from 'lucide-react';
+import { Lightbulb, FileText, Play, User, Bot, Music, Film } from 'lucide-react';
 
 // Helper to resolve asset paths (handles /book_review prefix on GitHub Pages)
 function getAssetPath(path: string): string {
@@ -29,28 +29,10 @@ const InfoPageTooltips = React.memo(function InfoPageTooltips() {
       type: 'youtube',
       thumbnail: getAssetPath('/onboarding_visuals/video.webp'),
       label: 'YouTube',
-      explainer: 'Essays, breakdowns, and visual analysis',
+      explainer: 'Watch video essays and breakdowns',
       title: 'The Messed Up Origins of Alice in Wonderland',
       subtitle: 'YouTube · Essay',
       content: 'How a boat trip with a real girl named Alice became one of the most iconic stories ever written',
-    },
-    {
-      type: 'podcast',
-      thumbnail: getAssetPath('/onboarding_visuals/podcast.webp'),
-      label: 'Podcast',
-      explainer: 'Interviews and deep dives',
-      title: 'About Lewis Carroll',
-      subtitle: 'The life and mind behind Alice in Wonderland',
-      content: 'A deep dive into the Oxford mathematician who created a nonsensical world that changed literature forever',
-    },
-    {
-      type: 'album',
-      thumbnail: getAssetPath('/onboarding_visuals/album.webp'),
-      label: 'Music',
-      explainer: 'Albums and music inspired by the book',
-      title: 'Alice in Wonderland Soundtrack',
-      subtitle: 'Danny Elfman · Album',
-      content: 'A whimsical score that captures the madness and wonder of Carroll\'s world',
     },
     {
       type: 'icon',
@@ -62,6 +44,24 @@ const InfoPageTooltips = React.memo(function InfoPageTooltips() {
       content: 'Lewis Carroll invented the story during a boat trip with Alice Liddell on July 4, 1862 — he called it "Alice\'s Adventures Under Ground" before it became a book.',
     },
     {
+      type: 'podcast',
+      thumbnail: getAssetPath('/onboarding_visuals/podcast.webp'),
+      label: 'Podcast',
+      explainer: 'Listen to interviews and deep-dive podcasts',
+      title: 'About Lewis Carroll',
+      subtitle: 'The life and mind behind Alice in Wonderland',
+      content: 'A deep dive into the Oxford mathematician who created a nonsensical world that changed literature forever',
+    },
+    {
+      type: 'album',
+      thumbnail: getAssetPath('/onboarding_visuals/album.webp'),
+      label: 'Music',
+      explainer: 'Albums and music inspired by the book',
+      title: 'Surrealistic Pillow',
+      subtitle: 'Jefferson Airplane · Album',
+      content: 'Features "White Rabbit" — a psychedelic anthem directly inspired by Alice\'s journey down the rabbit hole',
+    },
+    {
       type: 'icon',
       icon: <FileText size={24} className="text-white" />,
       color: 'rgba(59, 130, 246, 0.9)',
@@ -69,6 +69,15 @@ const InfoPageTooltips = React.memo(function InfoPageTooltips() {
       label: 'Essay',
       explainer: 'Long-form analysis and academic writing',
       content: 'Carroll, a mathematics lecturer at Oxford, embedded mathematical puzzles and logical paradoxes throughout the text',
+    },
+    {
+      type: 'movie',
+      thumbnail: getAssetPath('/onboarding_visuals/movie.webp'),
+      label: 'Movie',
+      explainer: 'Related movies and adaptations',
+      title: 'Alice in Wonderland',
+      subtitle: 'Tim Burton · 2010',
+      content: 'A visually stunning reimagining that brings Carroll\'s fantastical world to life with an all-star cast',
     },
   ];
 
@@ -173,7 +182,7 @@ const InfoPageTooltips = React.memo(function InfoPageTooltips() {
             border: '1px solid rgba(255, 255, 255, 0.4)',
           }}
         >
-          {(currentTooltip.type === 'youtube' || currentTooltip.type === 'podcast' || currentTooltip.type === 'album') ? (
+          {(currentTooltip.type === 'youtube' || currentTooltip.type === 'podcast' || currentTooltip.type === 'album' || currentTooltip.type === 'movie') ? (
             <div>
               <div className="w-[min(112px,14vh)] h-[min(112px,14vh)] rounded-xl overflow-hidden relative float-left mr-[min(16px,2vh)] mb-2">
                 <img
@@ -185,6 +194,8 @@ const InfoPageTooltips = React.memo(function InfoPageTooltips() {
                   <div className="w-[min(48px,6vh)] h-[min(48px,6vh)] rounded-full bg-white/90 flex items-center justify-center">
                     {currentTooltip.type === 'album'
                       ? <Music size={22} className="text-green-600" />
+                      : currentTooltip.type === 'movie'
+                      ? <Film size={22} className="text-amber-600" />
                       : <Play size={22} className={currentTooltip.type === 'youtube' ? 'text-red-600 ml-0.5' : 'text-purple-600 ml-0.5'} fill="currentColor" />
                     }
                   </div>

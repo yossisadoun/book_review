@@ -125,6 +125,23 @@ body {
   -webkit-transform: translateZ(0);
 }
 
+@keyframes fadeOut {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes neon-rainbow {
+  0%   { background-color: rgba(255, 255, 255, 1); }
+  12%  { background-color: rgba(255, 20, 147, 0.25); }
+  24%  { background-color: rgba(255, 69, 0, 0.25); }
+  36%  { background-color: rgba(255, 215, 0, 0.25); }
+  48%  { background-color: rgba(57, 255, 20, 0.25); }
+  60%  { background-color: rgba(0, 255, 255, 0.25); }
+  72%  { background-color: rgba(123, 104, 238, 0.25); }
+  84%  { background-color: rgba(255, 0, 255, 0.25); }
+  100% { background-color: rgba(255, 255, 255, 1); }
+}
+
 @keyframes vinyl-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }

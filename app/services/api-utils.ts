@@ -204,6 +204,38 @@ export async function logGrokUsage(functionName: string, usage: GrokUsageInput |
   }
 }
 
+export async function logImageGeneration(functionName: string, imageCount: number): Promise<void> {
+  if (imageCount <= 0) return;
+
+  const COST_PER_IMAGE = 0.005;
+  const estimatedCost = imageCount * COST_PER_IMAGE;
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    console.warn('[logImageGeneration] No user logged in, skipping log');
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from('grok_usage_logs')
+      .insert({
+        user_id: user.id,
+        function_name: functionName,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+        estimated_cost: estimatedCost,
+      });
+
+    if (error) {
+      console.error('[logImageGeneration] Error saving to Supabase:', error);
+    }
+  } catch (err) {
+    console.error('[logImageGeneration] Error saving to Supabase:', err);
+  }
+}
+
 export async function getGrokUsageLogs(userId: string): Promise<GrokUsageLog[]> {
   try {
     const { data, error } = await supabase

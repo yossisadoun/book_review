@@ -216,30 +216,31 @@ let spotifyAccessToken: string | null = null;
 let spotifyTokenExpiry = 0;
 
 export async function getSpotifyAccessToken(): Promise<string | null> {
-  const clientId = process.env.NEXT_PUBLIC_SPOTIFY_CLIENT_ID;
-  const clientSecret = process.env.NEXT_PUBLIC_SPOTIFY_CLIENT_SECRET;
-
-  if (!clientId || !clientSecret) {
-    console.warn('[getSpotifyAccessToken] Spotify credentials missing');
-    return null;
-  }
-
   if (spotifyAccessToken && Date.now() < spotifyTokenExpiry) {
     return spotifyAccessToken;
   }
 
   try {
-    const response = await fetch('https://accounts.spotify.com/api/token', {
+    // Get token via server-side edge function (keeps client secret off the client)
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      console.warn('[getSpotifyAccessToken] No active session');
+      return null;
+    }
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (!supabaseUrl) return null;
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/spotify-token`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': 'Basic ' + btoa(`${clientId}:${clientSecret}`),
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
       },
-      body: 'grant_type=client_credentials',
     });
 
     if (!response.ok) {
-      console.error('[getSpotifyAccessToken] ❌ Failed to get token:', response.status);
+      console.error('[getSpotifyAccessToken] ❌ Edge function returned:', response.status);
       return null;
     }
 

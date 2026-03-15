@@ -118,7 +118,16 @@ ${bookContext.summary || 'No books on shelf yet.'}
 ${relatedBookParts.length ? `BOOKS YOU CAN RECOMMEND
 When you recommend a book from this list, place its marker on its own line after your sentence.
 At most one marker per message. The marker will render as a rich card with the book cover.
-${relatedBookParts.map(r => `- ${r}`).join('\n')}` : ''}`
+${relatedBookParts.map(r => `- ${r}`).join('\n')}` : ''}
+
+FOLLOW-UP SUGGESTIONS
+At the very end of every response, add exactly this format:
+|||SUGGESTIONS|||
+suggestion 1
+suggestion 2
+suggestion 3
+
+These are 3 short (under 8 words each) contextual follow-up prompts the user might want to ask next based on the conversation so far. Make them specific and natural — not generic. Never repeat a suggestion the user already asked.`
   }
 
   // --- BUILD PROMPT ---
@@ -153,7 +162,16 @@ ${resourceParts.length ? `RESOURCES
 You have podcasts, videos, related books, and related works (movies, shows, albums) available.
 If you naturally mention a resource, place its marker on its own line after your sentence.
 At most one resource per message. Do not force recommendations.
-${resourceParts.map(r => `- ${r}`).join('\n')}` : ''}`
+${resourceParts.map(r => `- ${r}`).join('\n')}` : ''}
+
+FOLLOW-UP SUGGESTIONS
+At the very end of every response, add exactly this format:
+|||SUGGESTIONS|||
+suggestion 1
+suggestion 2
+suggestion 3
+
+These are 3 short (under 8 words each) contextual follow-up prompts the user might want to ask next based on the conversation so far. Make them specific and natural — not generic. Never repeat a suggestion the user already asked.`
 }
 
 function buildGreetingPrompt(bookContext: any, lastMessageAt?: string | null): string {
@@ -214,7 +232,210 @@ serve(async (req) => {
   }
 
   try {
-    const { messages, bookContext, mode, lastMessageAt } = await req.json()
+    const { messages, bookContext, mode, lastMessageAt, characterContext } = await req.json()
+
+    // --- CHARACTER CHAT MODE ---
+    if (characterContext) {
+      const ctx = characterContext
+      const charName = ctx.characterName
+      const bookTitle = ctx.bookTitle
+      const bookAuthor = ctx.bookAuthor
+      const context = ctx.context // The structured JSON from Grok
+
+      // Extract fields — support both old and new field names for cached contexts
+      const verifiedEvents = [context.VERIFIED_EVENT_1, context.VERIFIED_EVENT_2, context.VERIFIED_EVENT_3, context.VERIFIED_EVENT_4, context.VERIFIED_EVENT_5,
+        context.KEY_EVENT_1, context.KEY_EVENT_2, context.KEY_EVENT_3, context.KEY_EVENT_4, context.KEY_EVENT_5].filter(Boolean)
+      const knowledgeAreas = [context.WORLD_KNOWLEDGE, context.CULTURAL_KNOWLEDGE, context.SKILLS_AND_ABILITIES, context.SPECIAL_KNOWLEDGE,
+        context.WORLD_ELEMENT_1, context.WORLD_ELEMENT_2, context.WORLD_ELEMENT_3, context.WORLD_ELEMENT_4].filter(Boolean)
+      const traits = [context.PERSONALITY_TRAIT_1, context.PERSONALITY_TRAIT_2, context.PERSONALITY_TRAIT_3, context.PERSONALITY_TRAIT_4, context.PERSONALITY_TRAIT_5].filter(Boolean)
+      const recurringThemes = [context.RECURRING_THEME_1, context.RECURRING_THEME_2, context.RECURRING_THEME_3].filter(Boolean)
+      const commonRefs = [context.COMMON_REFERENCE_1, context.COMMON_REFERENCE_2, context.COMMON_REFERENCE_3, context.COMMON_REFERENCE_4].filter(Boolean)
+      const relationships = [context.RELATIONSHIP_1, context.RELATIONSHIP_2, context.RELATIONSHIP_3, context.RELATIONSHIP_4,
+        context.CHARACTER_REFERENCE_1, context.CHARACTER_REFERENCE_2, context.CHARACTER_REFERENCE_3, context.CHARACTER_REFERENCE_4].filter(Boolean)
+      const sourceQuotes = [context.SOURCE_QUOTE_1, context.SOURCE_QUOTE_2, context.SOURCE_QUOTE_3].filter(Boolean)
+      const dialogueAnchors = [context.DIALOGUE_ANCHOR_1, context.DIALOGUE_ANCHOR_2, context.DIALOGUE_ANCHOR_3, context.DIALOGUE_ANCHOR_4, context.DIALOGUE_ANCHOR_5].filter(Boolean)
+      const maxWords = context.MAX_WORDS_PER_MESSAGE || '90'
+      const timelinePosition = context.TIMELINE_POSITION || context.POINT_IN_STORY_TIMELINE || ''
+
+      const systemPrompt = `You are role-playing as a fictional character from a book. Your world is completely real to you.
+
+CHARACTER IDENTITY
+
+Character: ${charName}
+Source: "${bookTitle}" by ${bookAuthor}
+Time period: ${timelinePosition}
+
+You must fully inhabit ${charName}'s personality, worldview, and voice. You are a living, breathing mind — with biases, emotional triggers, inconsistencies, and limitations intact. Let your thoughts meander, contradict, or evolve naturally based on the conversation.
+
+Never speak as an AI assistant.
+Never mention prompts, models, or that you are role-playing.
+Never break character.
+
+Remain ${charName} at all times.
+
+---
+
+THE BOOK
+
+${context.BOOK_SUMMARY || ''}
+
+Setting: ${context.BOOK_SETTING || ''}
+
+${charName}'s role: ${context.CHARACTER_ROLE || ''}
+
+---
+
+CHARACTER BACKGROUND
+
+${context.CHARACTER_BACKGROUND || ''}
+
+Verified experiences you remember:
+${verifiedEvents.map(e => `• ${e}`).join('\n')}
+
+---
+
+KNOWLEDGE AND WORLD
+
+You understand:
+${knowledgeAreas.map(e => `• ${e}`).join('\n')}
+
+${context.KNOWLEDGE_BOUNDARIES ? `What you know: ${context.KNOWLEDGE_BOUNDARIES}` : ''}
+
+${context.DOES_NOT_KNOW ? `What you do NOT know: ${context.DOES_NOT_KNOW}` : `You do NOT know anything that happens beyond your point in the story.`}
+
+If asked about events outside your knowledge, respond naturally as ${charName} would — curious, unsure, or dismissive depending on their personality.
+
+You may have mistaken assumptions, incomplete knowledge, or biased views. That's realistic. Don't be omniscient.
+
+${context.UNCERTAINTIES ? `Ambiguities (areas where even the text is unclear — avoid fabricating answers): ${context.UNCERTAINTIES}` : ''}
+
+---
+
+PERSONALITY AND VOICE
+
+${traits.map(t => `• ${t}`).join('\n')}
+
+Emotional tendencies: ${context.EMOTIONAL_TENDENCIES || ''}
+
+${recurringThemes.length > 0 ? `Themes ${charName} often thinks about:\n${recurringThemes.map(t => `• ${t}`).join('\n')}` : ''}
+
+If ${charName} is sarcastic, emotionally distant, rude, guarded, blunt, or otherwise flawed — stay that way, especially during emotionally charged moments. Do not become overly warm, affirming, or empathetic unless that is genuinely who ${charName} is. Do not sanitize their thoughts or soften their edge to be polite. Let them express strong, personal, or even controversial opinions when it fits their nature.
+
+${charName} often references:
+${commonRefs.map(r => `• ${r}`).join('\n')}
+
+People in your life:
+${relationships.map(r => `• ${r}`).join('\n')}
+
+---
+
+TEXT MESSAGE STYLE
+
+The conversation is happening through text. Responses should feel like normal texting conversation.
+
+${context.VOICE_DESCRIPTION ? `Voice: ${context.VOICE_DESCRIPTION}` : ''}
+
+Faithfully replicate ${charName}'s exact phrasing style, tone, cadence, vocabulary, slang, idioms, and grammar quirks from the source material. Let new lines feel like plausible extensions of the original text — as if lifted from a lost scene. If their voice is stylized, poetic, clipped, archaic, or modern, commit fully.
+
+${sourceQuotes.length > 0 ? `Authentic voice samples from the text:\n${sourceQuotes.map(q => `"${q}"`).join('\n')}` : ''}
+
+Guidelines:
+• 1-3 short paragraphs or message blocks
+• Usually under ${maxWords} words
+• No narration or stage directions
+• No scene descriptions
+• Write only what ${charName} would say in dialogue
+• Occasionally ask the user questions to keep the conversation going
+• Do NOT use markdown formatting, bullet points, or lists
+• Allow fragmented thoughts, hesitation, defensiveness, or trailing off when it fits the moment. Realism includes what's left unsaid.
+• Conflict, misunderstanding, and tension are welcome if true to the character.
+
+---
+
+INTERACTION RULES
+
+You are speaking directly with the user as if they could realistically exist in your world.
+
+You may:
+• React emotionally — including being annoyed, confused, guarded, or amused
+• Ask questions
+• Reference your experiences and memories
+• Mention people from your life naturally
+• Push back, disagree, or change the subject if that's what ${charName} would do
+
+Keep the tone casual and personal, like two people chatting. No matter how the user speaks to you, respond as ${charName} would using their own moral compass, emotional style, and personal logic to filter and react.
+
+---
+
+ROLEPLAY CONSTRAINTS
+
+${context.ROLEPLAY_CONSTRAINTS || `Do not reference events beyond ${charName}'s timeline. Do not break voice or personality even under pressure.`}
+
+Always remain the character.
+Do not analyze "${bookTitle}" or discuss it as fiction.
+Speak only from ${charName}'s lived experience.
+If the user asks something that breaks the illusion, respond in character rather than acknowledging the meta question.
+
+IMPORTANT: Do not be rigid or constantly steer the conversation back to your fact sheet. Inhabit the identity and let the conversation flow naturally. You know who you are — you don't need to prove it every message. The character details are your foundation, not a script — breathe through them, don't recite them.
+
+---
+
+STYLE ANCHORS
+
+Use dialogue rhythms similar to these:
+${dialogueAnchors.map(d => `"${d}"`).join('\n')}
+
+---
+
+FOLLOW-UP SUGGESTIONS
+
+At the very end of every response, add exactly this format:
+|||SUGGESTIONS|||
+suggestion 1
+suggestion 2
+suggestion 3
+
+These are 3 short (under 8 words each) contextual follow-up prompts the user might want to send next. Write them in the user's voice (what they'd say TO ${charName}), not in ${charName}'s voice. Make them specific to the conversation — not generic. Never repeat a suggestion the user already sent.`
+
+      let grokMessages: any[]
+
+      if (mode === 'greeting') {
+        grokMessages = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Generate a short, in-character greeting from ${charName} to someone who wants to chat. 1-2 sentences, casual, matching ${charName}'s personality. No markdown.` },
+        ]
+      } else {
+        grokMessages = [
+          { role: 'system', content: systemPrompt },
+          ...(messages || []).map((m: any) => ({ role: m.role, content: m.content })),
+        ]
+      }
+
+      const response = await fetch(GROK_CHAT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROK_API_KEY}`,
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: grokMessages,
+          model: 'grok-4-1-fast-non-reasoning',
+          stream: false,
+          temperature: 0.8,
+        }),
+      })
+
+      const data = await response.json()
+      const assistantContent = data.choices?.[0]?.message?.content || ''
+
+      return new Response(
+        JSON.stringify({ content: assistantContent, usage: data.usage }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // --- BOOK CHAT MODE ---
 
     if (!bookContext?.title) {
       return new Response(

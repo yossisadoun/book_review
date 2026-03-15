@@ -110,6 +110,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import Lottie from 'lottie-react';
 import spinnerAnimation from '@/public/spinner.json';
+import refreshAnimation from '@/public/refresh.json';
 import OnboardingScreen from './components/OnboardingScreen';
 import bookPageOnboardingAnimation from '@/public/onboarding_anim_book_page_new.json';
 import dailySpotAnimation from '@/public/daily_spot.json';
@@ -141,12 +142,16 @@ import AddBookSheet from './components/AddBookSheet';
 import ConnectAccountModal from './components/ConnectAccountModal';
 import BookChat from './components/BookChat';
 import NotesEditorOverlay from './components/NotesEditorOverlay';
-import { getChatList, deleteChatForBook, type ChatListItem, type BookChatContext } from './services/chat-service';
+import { getChatList, deleteChatForBook, getCharacterChatList, deleteCharacterChat, type ChatListItem, type CharacterChatListItem, type BookChatContext } from './services/chat-service';
 import { getCached, setCache, CACHE_KEYS } from './services/cache-service';
 import HeartButton from './components/HeartButton';
 import { getContentHash, toggleHeart, loadHearts } from './services/heart-service';
 import BookSummaryComponent from './components/BookSummary';
+import CharacterAvatars from './components/CharacterAvatars';
+// CharacterChat removed — character chats now use BookChat with characterContext prop
 import { getBookSummary } from './services/book-summary-service';
+import { getCharacterAvatars, getCharacterContext } from './services/character-avatars-service';
+import type { CharacterChatContext } from './services/chat-service';
 
 // Helper function to get the correct path for static assets (handles basePath)
 // getAssetPath imported from ./components/utils
@@ -575,6 +580,9 @@ export default function App() {
   // Book summary state
   const [bookSummaries, setBookSummaries] = useState<Map<string, import('./types').BookSummary>>(new Map());
   const [loadingSummaryForBookId, setLoadingSummaryForBookId] = useState<string | null>(null);
+  // Character avatars state
+  const [characterAvatars, setCharacterAvatars] = useState<Map<string, import('./types').CharacterAvatar[]>>(new Map());
+  const [loadingAvatarsForBookId, setLoadingAvatarsForBookId] = useState<string | null>(null);
   // Book infographic state
   const [bookInfographics, setBookInfographics] = useState<Map<string, BookInfographic>>(new Map());
   const [loadingInfographicForBookId, setLoadingInfographicForBookId] = useState<string | null>(null);
@@ -685,13 +693,28 @@ export default function App() {
   if (!showBookshelfCovers) triviaButtonMountRef.current = 0;
   const [chatBookSelected, setChatBookSelected] = useState(false);
   const [chatGeneralMode, setChatGeneralMode] = useState(false);
+  const chatOpenedFromBookPage = useRef(false);
+  const [characterChatContext, setCharacterChatContext] = useState<CharacterChatContext | null>(null);
+  const [loadingCharacterChat, setLoadingCharacterChat] = useState<string | false>(false);
   const [chatList, setChatList] = useState<ChatListItem[]>([]);
+  const [characterChatList, setCharacterChatList] = useState<CharacterChatListItem[]>([]);
   const [chatListLoading, setChatListLoading] = useState(false);
   const [chatSwipeId, setChatSwipeId] = useState<string | null>(null);
   const chatSwipeRef = useRef<{ startX: number; currentX: number; bookId: string } | null>(null);
   const [chatPullDistance, setChatPullDistance] = useState(0);
   const [chatRefreshing, setChatRefreshing] = useState(false);
   const chatPullStartY = useRef<number | null>(null);
+  const [feedPullDistance, setFeedPullDistance] = useState(0);
+  const [feedRefreshing, setFeedRefreshing] = useState(false);
+  const [feedRefreshDone, setFeedRefreshDone] = useState(false);
+  const [feedRefreshFading, setFeedRefreshFading] = useState(false);
+  const feedPullStartY = useRef<number | null>(null);
+  const feedHapticFired = useRef(false);
+  const feedLottieRef = useRef<any>(null);
+  const [chatRefreshDone, setChatRefreshDone] = useState(false);
+  const [chatRefreshFading, setChatRefreshFading] = useState(false);
+  const chatHapticFired = useRef(false);
+  const chatLottieRef = useRef<any>(null);
   const [dismissedChatIds, setDismissedChatIds] = useState<Set<string>>(() => {
     if (typeof window === 'undefined') return new Set();
     try { return new Set(JSON.parse(localStorage.getItem('dismissedChatIds') || '[]')); } catch { return new Set(); }
@@ -1898,7 +1921,11 @@ export default function App() {
       if (s.showAccountPage) { restorePreviousView(); return; }
       if (s.showFollowingPage) { setShowFollowingPage(false); setShowBookshelfCovers(true); return; }
       if (s.showFeedPage) { setShowFeedPage(false); setShowBookshelfCovers(true); return; }
-      if (s.showChatPage && s.chatBookSelected) { setChatBookSelected(false); setChatGeneralMode(false); return; }
+      if (s.showChatPage && s.chatBookSelected) {
+        setChatBookSelected(false); setChatGeneralMode(false); setCharacterChatContext(null); setScrollY(0);
+        if (chatOpenedFromBookPage.current) { chatOpenedFromBookPage.current = false; setShowChatPage(false); }
+        return;
+      }
       if (s.showChatPage) { setShowChatPage(false); return; }
       if (s.showCreatePost) { setShowCreatePost(false); setShowBookshelfCovers(true); return; }
       if (s.showSortingResults) { setShowSortingResults(false); setShowBookshelfCovers(true); return; }
@@ -1918,9 +1945,10 @@ export default function App() {
     let cancelled = false;
     (async () => {
       setChatListLoading(true);
-      const list = await getChatList();
+      const [list, charList] = await Promise.all([getChatList(), getCharacterChatList()]);
       if (!cancelled) {
         setChatList(list);
+        setCharacterChatList(charList);
         setChatListLoading(false);
       }
     })();
@@ -3994,9 +4022,30 @@ export default function App() {
       });
     }, 500);
 
+    // Also fetch character avatars
+    if (!characterAvatars.has(bookId)) {
+      setLoadingAvatarsForBookId(bookId);
+      getCharacterAvatars(currentBook.title, currentBook.author).then((avatars) => {
+        if (cancelled) return;
+        setLoadingAvatarsForBookId(null);
+        if (avatars.length > 0) {
+          setCharacterAvatars(prev => {
+            const next = new Map(prev);
+            next.set(bookId, avatars);
+            return next;
+          });
+        }
+      }).catch((err) => {
+        if (cancelled) return;
+        setLoadingAvatarsForBookId(null);
+        console.error('[CharacterAvatars] Error:', err);
+      });
+    }
+
     return () => {
       cancelled = true;
       setLoadingSummaryForBookId(null);
+      setLoadingAvatarsForBookId(null);
       fetchingSummaryRef.current.delete(bookId);
       clearTimeout(fetchTimer);
     };
@@ -4340,7 +4389,7 @@ export default function App() {
         }));
 
         setPersonalizedFeedItems(itemsWithReadStatus as PersonalizedFeedItem[]);
-        setCache(CACHE_KEYS.feed(user.id), items);
+        if (user) setCache(CACHE_KEYS.feed(user.id), items);
         feedLoadedRef.current = true;
         console.log(`[Feed] ✅ Loaded ${items.length} feed items (${readItems.size} marked as read)`);
 
@@ -5140,6 +5189,7 @@ export default function App() {
       <div
         className="fixed inset-0 text-slate-900 dark:text-slate-100 font-sans select-none overflow-hidden flex flex-col"
         style={{
+          backgroundColor: 'white',
           backgroundImage: `url(${getAssetPath('/bg.webp')})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
@@ -5250,6 +5300,7 @@ export default function App() {
   // Use background image for all pages (including book details)
   const shouldUseBackgroundImage = true;
   const backgroundImageStyle: React.CSSProperties = {
+    backgroundColor: 'white',
     backgroundImage: `url(${getAssetPath('/bg.webp')})`,
     backgroundSize: 'cover',
     backgroundPosition: 'center',
@@ -5391,6 +5442,7 @@ export default function App() {
           <div
             className="fixed inset-0 pointer-events-none z-0 dark:brightness-50 dark:saturate-[0.6]"
             style={{
+              backgroundColor: 'white',
               backgroundImage: `url(${getAssetPath('/bg.webp')})`,
               backgroundSize: 'cover',
               backgroundPosition: 'center',
@@ -5443,7 +5495,9 @@ export default function App() {
           transition={{ duration: 0.3, ease: "easeInOut" }}
           className="w-full z-40 fixed top-[50px] left-0 right-0 px-4 py-3 flex items-center justify-between"
           style={{
-            background: 'transparent'
+            background: 'transparent',
+            transform: `translateY(${feedPullDistance || chatPullDistance}px)`,
+            transition: (feedPullStartY.current !== null || chatPullStartY.current !== null) ? 'none' : 'transform 0.3s ease-out',
           }}
         >
           {/* BOOKS/BOOKSHELF/NOTES text on left with icon */}
@@ -5609,7 +5663,7 @@ export default function App() {
         )}
 
         {/* Info button when on bookshelf (not when viewing another user) */}
-        {(showBookshelf || showBookshelfCovers) && !showAccountPage && !showSortingResults && !showFollowingPage && !showNotesView && !showFeedPage && !viewingUserId && (
+        {(showBookshelf || showBookshelfCovers) && !showAccountPage && !showSortingResults && !showFollowingPage && !showNotesView && !showFeedPage && !showChatPage && !viewingUserId && (
           <button
             onClick={() => { setShowAboutScreen(true); }}
             className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
@@ -6196,9 +6250,94 @@ export default function App() {
                 setIsLoadingMoreFeed(false);
               }
             }}
+            onTouchStart={(e) => {
+              if (e.currentTarget.scrollTop <= 0 && !feedRefreshing) {
+                feedPullStartY.current = e.touches[0].clientY;
+                feedHapticFired.current = false;
+              }
+            }}
+            onTouchMove={(e) => {
+              if (feedPullStartY.current === null || feedRefreshing) return;
+              const dy = e.touches[0].clientY - feedPullStartY.current;
+              if (dy > 0) {
+                const dist = Math.min(dy * 0.3, 40);
+                setFeedPullDistance(dist);
+                if (dist >= 30 && !feedHapticFired.current) {
+                  feedHapticFired.current = true;
+                  triggerMediumHaptic();
+                }
+              } else {
+                feedPullStartY.current = null;
+                setFeedPullDistance(0);
+              }
+            }}
+            onTouchEnd={() => {
+              if (feedPullStartY.current === null) return;
+              feedPullStartY.current = null;
+              if (feedPullDistance >= 30) {
+                setFeedRefreshing(true);
+                setFeedPullDistance(20);
+                if (feedLottieRef.current) {
+                  feedLottieRef.current.loop = true;
+                  feedLottieRef.current.goToAndPlay(0);
+                }
+                (async () => {
+                  try {
+                    const items = await getPersonalizedFeed(user!.id);
+                    const readItems = getReadFeedItems();
+                    const itemsWithReadStatus = items.map(item => ({
+                      ...item,
+                      read: readItems.has(item.id)
+                    }));
+                    setPersonalizedFeedItems(itemsWithReadStatus as PersonalizedFeedItem[]);
+                    if (user) setCache(CACHE_KEYS.feed(user.id), items);
+                    setFeedDisplayCount(8);
+                  } catch (error) {
+                    console.error('[Feed] ❌ Error refreshing feed:', error);
+                  } finally {
+                    setFeedRefreshDone(true);
+                    if (feedLottieRef.current) {
+                      feedLottieRef.current.loop = false;
+                    }
+                  }
+                })();
+              } else {
+                setFeedPullDistance(0);
+              }
+            }}
           >
             {/* Feed Page */}
-            <div className="w-full max-w-[700px] md:mx-auto flex flex-col gap-0 px-0 pt-8">
+            {/* Pull to refresh indicator - positioned absolutely so it doesn't push content */}
+            {(feedPullDistance > 0 || feedRefreshing || feedRefreshDone || feedRefreshFading) && (
+              <div className="absolute left-0 right-0 flex justify-center z-50" style={{ top: `${60 + feedPullDistance}px`, transition: feedPullStartY.current !== null ? 'none' : 'top 0.3s ease-out' }}>
+                <div
+                  className="w-20 h-20"
+                  style={{
+                    opacity: feedRefreshFading ? 1 : feedRefreshDone ? 1 : feedRefreshing ? 1 : Math.min(feedPullDistance / 30, 1),
+                    animation: feedRefreshFading ? 'fadeOut 0.8s ease-out forwards' : undefined,
+                  }}
+                >
+                  <Lottie
+                    lottieRef={feedLottieRef}
+                    animationData={refreshAnimation}
+                    loop={true}
+                    autoplay={false}
+                    onLoopComplete={() => {
+                      if (feedRefreshDone) {
+                        setFeedRefreshing(false);
+                        setFeedRefreshDone(false);
+                        setFeedRefreshFading(true);
+                        setTimeout(() => {
+                          setFeedRefreshFading(false);
+                          setFeedPullDistance(0);
+                        }, 800);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+            <div className="w-full max-w-[700px] md:mx-auto flex flex-col gap-0 px-0 pt-8" style={{ transform: `translateY(${feedPullDistance}px)`, transition: feedPullStartY.current !== null ? 'none' : 'transform 0.3s ease-out' }}>
               {/* Anonymous user feed empty state */}
               {isAnonymous ? (
                 <div
@@ -7237,13 +7376,19 @@ export default function App() {
               onTouchStart: (e: React.TouchEvent<HTMLElement>) => {
                 if (e.currentTarget.scrollTop <= 0 && !chatRefreshing) {
                   chatPullStartY.current = e.touches[0].clientY;
+                  chatHapticFired.current = false;
                 }
               },
               onTouchMove: (e: React.TouchEvent<HTMLElement>) => {
                 if (chatPullStartY.current === null || chatRefreshing) return;
                 const dy = e.touches[0].clientY - chatPullStartY.current;
                 if (dy > 0) {
-                  setChatPullDistance(Math.min(dy * 0.5, 80));
+                  const dist = Math.min(dy * 0.3, 40);
+                  setChatPullDistance(dist);
+                  if (dist >= 30 && !chatHapticFired.current) {
+                    chatHapticFired.current = true;
+                    triggerMediumHaptic();
+                  }
                 } else {
                   chatPullStartY.current = null;
                   setChatPullDistance(0);
@@ -7252,16 +7397,22 @@ export default function App() {
               onTouchEnd: () => {
                 if (chatPullStartY.current === null) return;
                 chatPullStartY.current = null;
-                if (chatPullDistance >= 60) {
+                if (chatPullDistance >= 30) {
                   setChatRefreshing(true);
-                  setChatPullDistance(40);
+                  setChatPullDistance(20);
+                  if (chatLottieRef.current) {
+                    chatLottieRef.current.loop = true;
+                    chatLottieRef.current.goToAndPlay(0);
+                  }
                   (async () => {
                     setChatListLoading(true);
                     const list = await getChatList();
                     setChatList(list);
                     setChatListLoading(false);
-                    setChatRefreshing(false);
-                    setChatPullDistance(0);
+                    setChatRefreshDone(true);
+                    if (chatLottieRef.current) {
+                      chatLottieRef.current.loop = false;
+                    }
                   })();
                 } else {
                   setChatPullDistance(0);
@@ -7343,12 +7494,30 @@ export default function App() {
                 onBack={() => {
                   setChatBookSelected(false);
                   setChatGeneralMode(false);
+                  setScrollY(0);
+                  if (chatOpenedFromBookPage.current) { chatOpenedFromBookPage.current = false; setShowChatPage(false); }
                 }}
                 onAddBook={async (meta) => {
                   setChatBookSelected(false);
                   setChatGeneralMode(false);
                   setShowChatPage(false);
                   await handleAddBook(meta);
+                }}
+              />
+            ) : chatBookSelected && characterChatContext && activeBook ? (
+              <BookChat
+                book={activeBook}
+                bookContext={{
+                  title: characterChatContext.bookTitle,
+                  author: characterChatContext.bookAuthor,
+                  readingStatus: activeBook.reading_status || null,
+                }}
+                characterContext={characterChatContext}
+                onBack={() => {
+                  setChatBookSelected(false);
+                  setCharacterChatContext(null);
+                  setScrollY(0);
+                  if (chatOpenedFromBookPage.current) { chatOpenedFromBookPage.current = false; setShowChatPage(false); }
                 }}
               />
             ) : chatBookSelected && activeBook ? (
@@ -7391,6 +7560,8 @@ export default function App() {
                 })()}
                 onBack={() => {
                   setChatBookSelected(false);
+                  setScrollY(0);
+                  if (chatOpenedFromBookPage.current) { chatOpenedFromBookPage.current = false; setShowChatPage(false); }
                 }}
                 onAddBook={async (meta) => {
                   setChatBookSelected(false);
@@ -7400,26 +7571,38 @@ export default function App() {
               />
             ) : (
               /* Chat list view */
-                <div className="w-full max-w-[600px] mx-auto px-4 py-4" style={{ marginTop: '30px', transform: `translateY(${chatPullDistance}px)`, transition: chatPullStartY.current !== null ? 'none' : 'transform 0.3s ease-out' }}>
-                  {/* Pull to refresh indicator */}
-                  {(chatPullDistance > 0 || chatRefreshing) && (
-                    <div className="flex justify-center mb-3 -mt-8">
-                      {chatRefreshing ? (
-                        <motion.div
-                          animate={{ rotate: 360 }}
-                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                          className="w-5 h-5 border-2 border-slate-300 border-t-slate-600 rounded-full"
-                        />
-                      ) : (
-                        <motion.div
-                          style={{ opacity: Math.min(chatPullDistance / 60, 1), rotate: (chatPullDistance / 60) * 180 }}
-                          className="text-slate-400"
-                        >
-                          <ChevronLeft size={20} style={{ transform: 'rotate(-90deg)' }} />
-                        </motion.div>
-                      )}
+                <>
+                {/* Pull to refresh indicator - positioned absolutely */}
+                {(chatPullDistance > 0 || chatRefreshing || chatRefreshDone || chatRefreshFading) && (
+                  <div className="absolute left-0 right-0 flex justify-center z-50" style={{ top: `${60 + chatPullDistance}px`, transition: chatPullStartY.current !== null ? 'none' : 'top 0.3s ease-out' }}>
+                    <div
+                      className="w-20 h-20"
+                      style={{
+                        opacity: chatRefreshFading ? 1 : chatRefreshDone ? 1 : chatRefreshing ? 1 : Math.min(chatPullDistance / 30, 1),
+                        animation: chatRefreshFading ? 'fadeOut 0.8s ease-out forwards' : undefined,
+                      }}
+                    >
+                      <Lottie
+                        lottieRef={chatLottieRef}
+                        animationData={refreshAnimation}
+                        loop={true}
+                        autoplay={false}
+                        onLoopComplete={() => {
+                          if (chatRefreshDone) {
+                            setChatRefreshing(false);
+                            setChatRefreshDone(false);
+                            setChatRefreshFading(true);
+                            setTimeout(() => {
+                              setChatRefreshFading(false);
+                              setChatPullDistance(0);
+                            }, 800);
+                          }
+                        }}
+                      />
                     </div>
-                  )}
+                  </div>
+                )}
+                <div className="w-full max-w-[600px] mx-auto px-4 py-4" style={{ marginTop: '30px', transform: `translateY(${chatPullDistance}px)`, transition: chatPullStartY.current !== null ? 'none' : 'transform 0.3s ease-out' }}>
                   {/* Book picker for new chat — hidden for now */}
                   {false && books.length > 0 && (
                     <div
@@ -7517,7 +7700,6 @@ export default function App() {
                       ))}
                     </div>
                   ) : (() => {
-                    // Always show bookshelf chat at top (synthetic if no history yet), unless dismissed
                     const BOOKSHELF_ID = '00000000-0000-0000-0000-000000000000';
                     const existingBookshelfChat = chatList.find(c => c.book_id === BOOKSHELF_ID);
                     const bookshelfEntry: ChatListItem = existingBookshelfChat || {
@@ -7529,37 +7711,112 @@ export default function App() {
                       message_count: 0,
                     };
 
-                    // Reading books: show existing chats + placeholders for books without chats (unless dismissed)
-                    const readingBooks = books.filter(b => b.reading_status === 'reading');
-                    const existingReadingChats = chatList.filter(c => {
-                      if (c.book_id === BOOKSHELF_ID) return false;
-                      const b = books.find(bk => bk.id === c.book_id);
-                      return b?.reading_status === 'reading';
+                    // Build unified list: book chats + character chats, all as one type
+                    type UnifiedChatItem = {
+                      key: string;
+                      type: 'book' | 'character';
+                      title: string;
+                      subtitle: string;
+                      last_message: string;
+                      last_message_at: string;
+                      message_count: number;
+                      isReading?: boolean;
+                      // Book chat fields
+                      book_id?: string;
+                      coverUrl?: string;
+                      matchingBook?: typeof books[0];
+                      isGeneral?: boolean;
+                      // Character chat fields
+                      character_name?: string;
+                      book_title?: string;
+                      book_author?: string;
+                      avatarUrl?: string;
+                    };
+
+                    const unifiedItems: UnifiedChatItem[] = [];
+
+                    // Add bookshelf/general chat
+                    unifiedItems.push({
+                      key: BOOKSHELF_ID,
+                      type: 'book',
+                      title: 'General Chat',
+                      subtitle: '',
+                      last_message: bookshelfEntry.last_message,
+                      last_message_at: bookshelfEntry.last_message_at,
+                      message_count: bookshelfEntry.message_count,
+                      book_id: BOOKSHELF_ID,
+                      isGeneral: true,
                     });
-                    const existingReadingBookIds = new Set(existingReadingChats.map(c => c.book_id));
-                    const placeholderReadingChats: ChatListItem[] = readingBooks
-                      .filter(b => !existingReadingBookIds.has(b.id))
-                      .map(b => ({
-                        book_id: b.id,
-                        book_title: b.title,
-                        book_author: b.author || '',
+
+                    // Add book chats (excluding bookshelf)
+                    for (const chat of chatList) {
+                      if (chat.book_id === BOOKSHELF_ID) continue;
+                      const matchingBook = books.find(b => b.id === chat.book_id);
+                      unifiedItems.push({
+                        key: chat.book_id,
+                        type: 'book',
+                        title: chat.book_title,
+                        subtitle: chat.book_author,
+                        last_message: chat.last_message,
+                        last_message_at: chat.last_message_at,
+                        message_count: chat.message_count,
+                        isReading: matchingBook?.reading_status === 'reading',
+                        book_id: chat.book_id,
+                        coverUrl: matchingBook?.cover_url || undefined,
+                        matchingBook,
+                      });
+                    }
+
+                    // Add reading books without chats as placeholders
+                    const existingBookIds = new Set(chatList.map(c => c.book_id));
+                    for (const b of books.filter(bk => bk.reading_status === 'reading')) {
+                      if (existingBookIds.has(b.id) || dismissedChatIds.has(b.id)) continue;
+                      unifiedItems.push({
+                        key: b.id,
+                        type: 'book',
+                        title: b.title,
+                        subtitle: b.author || '',
                         last_message: 'Tap to start chatting',
                         last_message_at: new Date().toISOString(),
                         message_count: 0,
-                      }));
-                    const readingChats = [...existingReadingChats, ...placeholderReadingChats];
+                        isReading: true,
+                        book_id: b.id,
+                        coverUrl: b.cover_url || undefined,
+                        matchingBook: b,
+                      });
+                    }
 
-                    const otherChats = chatList.filter(c => {
-                      if (c.book_id === BOOKSHELF_ID) return false;
-                      const b = books.find(bk => bk.id === c.book_id);
-                      return b?.reading_status !== 'reading';
-                    });
-                    const pinnedChats = [bookshelfEntry, ...readingChats];
+                    // Add character chats
+                    for (const chat of characterChatList) {
+                      const matchingBook = books.find(b => b.title.toLowerCase().trim() === chat.book_title.toLowerCase().trim());
+                      const avatars = matchingBook ? characterAvatars.get(matchingBook.id) || [] : [];
+                      const avatarUrl = avatars.find(a => a.character === chat.character_name)?.image_url || chat.avatar_url;
+                      unifiedItems.push({
+                        key: `char_${chat.character_name}_${chat.book_title}`,
+                        type: 'character',
+                        title: chat.character_name,
+                        subtitle: chat.book_title,
+                        last_message: chat.last_message,
+                        last_message_at: chat.last_message_at,
+                        message_count: chat.message_count,
+                        isReading: matchingBook?.reading_status === 'reading',
+                        character_name: chat.character_name,
+                        book_title: chat.book_title,
+                        book_author: chat.book_author,
+                        avatarUrl,
+                        coverUrl: matchingBook?.cover_url || undefined,
+                        matchingBook,
+                      });
+                    }
+
+                    // Sort: items with messages sorted by last_message_at desc, then placeholders at bottom
+                    const withMessages = unifiedItems.filter(c => c.message_count > 0).sort((a, b) => new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime());
+                    const placeholders = unifiedItems.filter(c => c.message_count === 0);
+                    const sortedItems = [...withMessages, ...placeholders];
 
                     const handleDeleteChat = async (bookId: string) => {
                       setChatList(prev => prev.filter(c => c.book_id !== bookId));
                       setChatSwipeId(null);
-                      // Persist dismissal so placeholder doesn't reappear
                       setDismissedChatIds(prev => {
                         const next = new Set(prev);
                         next.add(bookId);
@@ -7569,120 +7826,31 @@ export default function App() {
                       await deleteChatForBook(bookId);
                     };
 
-                    const swipeHandlers = (bookId: string) => ({
+                    const swipeHandlers = (key: string) => ({
                       onTouchStart: (e: React.TouchEvent) => {
-                        chatSwipeRef.current = { startX: e.touches[0].clientX, currentX: e.touches[0].clientX, bookId };
-                        if (chatSwipeId && chatSwipeId !== bookId) setChatSwipeId(null);
+                        chatSwipeRef.current = { startX: e.touches[0].clientX, currentX: e.touches[0].clientX, bookId: key };
+                        if (chatSwipeId && chatSwipeId !== key) setChatSwipeId(null);
                       },
                       onTouchMove: (e: React.TouchEvent) => {
-                        if (!chatSwipeRef.current || chatSwipeRef.current.bookId !== bookId) return;
+                        if (!chatSwipeRef.current || chatSwipeRef.current.bookId !== key) return;
                         chatSwipeRef.current.currentX = e.touches[0].clientX;
                       },
                       onTouchEnd: () => {
-                        if (!chatSwipeRef.current || chatSwipeRef.current.bookId !== bookId) return;
+                        if (!chatSwipeRef.current || chatSwipeRef.current.bookId !== key) return;
                         const dx = chatSwipeRef.current.startX - chatSwipeRef.current.currentX;
-                        if (dx > 60) setChatSwipeId(bookId);
+                        if (dx > 60) setChatSwipeId(key);
                         else if (dx < -30) setChatSwipeId(null);
                         chatSwipeRef.current = null;
                       },
                     });
 
-                    const renderChatItem = (chat: ChatListItem, isPinned: boolean, showDivider: boolean) => {
-                      const isGeneral = chat.book_id === BOOKSHELF_ID;
-                      const matchingBook = isGeneral ? undefined : books.find(b => b.id === chat.book_id);
-                      const coverUrl = matchingBook?.cover_url;
-                      const isSwiped = chatSwipeId === chat.book_id;
-                      return (
-                        <div key={chat.book_id} className="relative" {...swipeHandlers(chat.book_id)}>
-                          {/* Delete button behind */}
-                          <div
-                            className="absolute right-0 top-0 bottom-0 w-20 flex items-center justify-center bg-red-500/10 rounded-r-xl"
-                            style={{ opacity: isSwiped ? 1 : 0, pointerEvents: isSwiped ? 'auto' : 'none', transition: 'opacity 0.2s ease-out' }}
-                          >
-                            <button
-                              onClick={() => handleDeleteChat(chat.book_id)}
-                              className="flex flex-col items-center gap-0.5 active:scale-95 transition-transform"
-                            >
-                              <Trash2 size={18} className="text-red-500" />
-                              <span className="text-[10px] font-semibold text-red-500">Delete</span>
-                            </button>
-                          </div>
-                          {/* Chat row */}
-                          <button
-                            onClick={() => {
-                              if (isSwiped) { setChatSwipeId(null); return; }
-                              if (isGeneral) {
-                                setChatGeneralMode(true);
-                              } else if (matchingBook) {
-                                const idx = books.indexOf(matchingBook);
-                                if (idx >= 0) setSelectedIndex(idx);
-                              }
-                              // Undismiss so it reappears if deleted later
-                              if (dismissedChatIds.has(chat.book_id)) {
-                                setDismissedChatIds(prev => {
-                                  const next = new Set(prev);
-                                  next.delete(chat.book_id);
-                                  localStorage.setItem('dismissedChatIds', JSON.stringify([...next]));
-                                  return next;
-                                });
-                              }
-                              setChatBookSelected(true);
-                            }}
-                            className="w-full flex items-center gap-3 px-3 py-3 text-left active:opacity-80 relative z-10"
-                            style={{
-                              transform: isSwiped ? 'translateX(-80px)' : 'translateX(0)',
-                              transition: 'transform 0.25s ease-out',
-                            }}
-                          >
-                            {/* Round thumbnail */}
-                            {isGeneral ? (
-                              <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
-                                style={{ background: 'rgba(255, 0, 123, 0.55)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 0, 123, 0.3)' }}
-                              >
-                                <Library size={22} className="text-white/90" />
-                              </div>
-                            ) : coverUrl ? (
-                              <div className="w-12 h-12 rounded-full overflow-hidden shrink-0 bg-slate-200">
-                                <img
-                                  src={coverUrl}
-                                  alt={chat.book_title}
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
-                            ) : (
-                              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
-                                <BookOpen size={18} className="text-white/60" />
-                              </div>
-                            )}
-                            {/* Text content */}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="text-[15px] font-semibold text-slate-800 truncate">{isGeneral ? 'General Chat' : chat.book_title}</p>
-                                <span className="text-[11px] text-slate-400 shrink-0">{timeAgo(chat.last_message_at)}</span>
-                              </div>
-                              <div className="flex items-center justify-between gap-2 mt-0.5">
-                                <p className="text-[13px] text-slate-500 truncate">{chat.last_message || chat.book_author}</p>
-                                {isPinned && (
-                                  <Pin size={12} className="text-slate-400 shrink-0" style={{ transform: 'rotate(45deg)' }} />
-                                )}
-                              </div>
-                            </div>
-                          </button>
-                          {/* Divider line */}
-                          {showDivider && (
-                            <div className="ml-[72px] mr-3 h-px bg-slate-200/60" />
-                          )}
-                        </div>
-                      );
-                    };
-
-                    const realChats = [...pinnedChats.filter(c => c.message_count > 0), ...otherChats];
-                    const placeholderChats = pinnedChats.filter(c => c.message_count === 0);
+                    const activeItems = sortedItems.filter(c => c.message_count > 0);
+                    const placeholderItems = sortedItems.filter(c => c.message_count === 0);
 
                     return (
                       <>
-                        {/* Real chats — glassmorphic card */}
-                        {realChats.length > 0 && (
+                        {/* All chats — single sorted list */}
+                        {activeItems.length > 0 && (
                           <div
                             className="rounded-2xl overflow-hidden mb-3"
                             style={{
@@ -7693,49 +7861,114 @@ export default function App() {
                               boxShadow: '0 2px 12px rgba(0, 0, 0, 0.04)',
                             }}
                           >
-                            {realChats.map((chat, i) => {
-                              const isPinned = pinnedChats.includes(chat);
-                              const showDivider = i < realChats.length - 1;
-                              return renderChatItem(chat, isPinned, showDivider);
-                            })}
-                          </div>
-                        )}
-
-                        {/* Placeholder chats — same layout as real chats but no background */}
-                        {placeholderChats.length > 0 && (
-                          <div className="flex flex-col gap-2">
-                            {placeholderChats.map((chat) => {
-                              const isGeneral = chat.book_id === BOOKSHELF_ID;
-                              const matchingBook = isGeneral ? undefined : books.find(b => b.id === chat.book_id);
-                              const coverUrl = matchingBook?.cover_url;
+                            {activeItems.map((item, i) => {
+                              const isSwiped = chatSwipeId === item.key;
+                              const showDivider = i < activeItems.length - 1;
                               return (
-                                <div
-                                  key={chat.book_id}
-                                  className="relative rounded-2xl"
-                                  style={{ border: '1px solid rgba(0, 0, 0, 0.08)' }}
-                                >
-                                  <button
-                                    onClick={() => {
-                                      if (isGeneral) {
-                                        setChatGeneralMode(true);
-                                      } else if (matchingBook) {
-                                        const idx = books.indexOf(matchingBook);
-                                        if (idx >= 0) setSelectedIndex(idx);
-                                      }
-                                      setChatBookSelected(true);
-                                    }}
-                                    className="w-full flex items-center gap-3 px-3 py-3 text-left active:opacity-80"
+                                <div key={item.key} className="relative" {...swipeHandlers(item.key)}>
+                                  {/* Delete button behind */}
+                                  <div
+                                    className="absolute right-0 top-0 bottom-0 w-20 flex items-center justify-center bg-red-500/10 rounded-r-xl"
+                                    style={{ opacity: isSwiped ? 1 : 0, pointerEvents: isSwiped ? 'auto' : 'none', transition: 'opacity 0.2s ease-out' }}
                                   >
-                                    {/* Round thumbnail */}
-                                    {isGeneral ? (
+                                    <button
+                                      onClick={async () => {
+                                        if (item.type === 'character') {
+                                          setCharacterChatList(prev => prev.filter(c => !(c.character_name === item.character_name && c.book_title === item.book_title)));
+                                          setChatSwipeId(null);
+                                          await deleteCharacterChat(item.character_name!, item.book_title!);
+                                        } else {
+                                          handleDeleteChat(item.book_id!);
+                                        }
+                                      }}
+                                      className="flex flex-col items-center gap-0.5 active:scale-95 transition-transform"
+                                    >
+                                      <Trash2 size={18} className="text-red-500" />
+                                      <span className="text-[10px] font-semibold text-red-500">Delete</span>
+                                    </button>
+                                  </div>
+                                  {/* Chat row */}
+                                  <button
+                                    onClick={async () => {
+                                      if (isSwiped) { setChatSwipeId(null); return; }
+                                      if (item.type === 'character') {
+                                        if (!item.matchingBook) return;
+                                        const idx = books.indexOf(item.matchingBook);
+                                        if (idx >= 0) setSelectedIndex(idx);
+                                        setLoadingCharacterChat(item.character_name!);
+                                        try {
+                                          const context = await getCharacterContext(item.character_name!, item.book_title!, item.book_author!);
+                                          if (context) {
+                                            setCharacterChatContext({
+                                              characterName: item.character_name!,
+                                              bookTitle: item.book_title!,
+                                              bookAuthor: item.book_author!,
+                                              context,
+                                              avatarUrl: item.avatarUrl,
+                                            });
+                                            setChatBookSelected(true);
+                                          }
+                                        } catch (err) {
+                                          console.error('[ChatList] Error loading character context:', err);
+                                        } finally {
+                                          setLoadingCharacterChat(false);
+                                        }
+                                      } else {
+                                        if (item.isGeneral) {
+                                          setChatGeneralMode(true);
+                                        } else if (item.matchingBook) {
+                                          const idx = books.indexOf(item.matchingBook);
+                                          if (idx >= 0) setSelectedIndex(idx);
+                                        }
+                                        if (dismissedChatIds.has(item.book_id!)) {
+                                          setDismissedChatIds(prev => {
+                                            const next = new Set(prev);
+                                            next.delete(item.book_id!);
+                                            localStorage.setItem('dismissedChatIds', JSON.stringify([...next]));
+                                            return next;
+                                          });
+                                        }
+                                        setChatBookSelected(true);
+                                      }
+                                    }}
+                                    className="w-full flex items-center gap-3 px-3 py-3 text-left active:opacity-80 relative z-10"
+                                    style={{
+                                      transform: isSwiped ? 'translateX(-80px)' : 'translateX(0)',
+                                      transition: 'transform 0.25s ease-out',
+                                    }}
+                                  >
+                                    {/* Thumbnail */}
+                                    {item.isGeneral ? (
                                       <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
                                         style={{ background: 'rgba(255, 0, 123, 0.55)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 0, 123, 0.3)' }}
                                       >
                                         <Library size={22} className="text-white/90" />
                                       </div>
-                                    ) : coverUrl ? (
+                                    ) : item.type === 'character' ? (
+                                      /* Character: book cover behind, character avatar on top offset right */
+                                      <div className="relative w-12 h-12 shrink-0">
+                                        {item.coverUrl ? (
+                                          <div className="w-10 h-10 rounded-full overflow-hidden absolute top-1 left-0 bg-slate-200">
+                                            <img src={item.coverUrl} alt="" className="w-full h-full object-cover" />
+                                          </div>
+                                        ) : (
+                                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center absolute top-1 left-0">
+                                            <BookOpen size={14} className="text-white/60" />
+                                          </div>
+                                        )}
+                                        {item.avatarUrl ? (
+                                          <div className="w-9 h-9 rounded-full overflow-hidden absolute bottom-0 right-0 bg-slate-200" style={{ border: '2px solid white', boxShadow: '0 1px 4px rgba(0,0,0,0.15)' }}>
+                                            <img src={item.avatarUrl} alt={item.character_name} className="w-full h-full object-cover" />
+                                          </div>
+                                        ) : (
+                                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center absolute bottom-0 right-0" style={{ border: '2px solid white' }}>
+                                            <MessageCircle size={12} className="text-white/80" />
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : item.coverUrl ? (
                                       <div className="w-12 h-12 rounded-full overflow-hidden shrink-0 bg-slate-200">
-                                        <img src={coverUrl} alt={chat.book_title} className="w-full h-full object-cover" />
+                                        <img src={item.coverUrl} alt={item.title} className="w-full h-full object-cover" />
                                       </div>
                                     ) : (
                                       <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
@@ -7744,9 +7977,71 @@ export default function App() {
                                     )}
                                     {/* Text content */}
                                     <div className="flex-1 min-w-0">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <p className="text-[15px] font-semibold text-slate-800 truncate">{item.title}</p>
+                                          {item.isReading && (
+                                            <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full shrink-0 leading-none">Reading</span>
+                                          )}
+                                        </div>
+                                        <span className="text-[11px] text-slate-400 shrink-0">{timeAgo(item.last_message_at)}</span>
+                                      </div>
+                                      <div className="flex items-center justify-between gap-2 mt-0.5">
+                                        <p className="text-[13px] text-slate-500 truncate">{item.last_message}</p>
+                                      </div>
+                                    </div>
+                                  </button>
+                                  {showDivider && (
+                                    <div className="ml-[72px] mr-3 h-px bg-slate-200/60" />
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Placeholder chats — books you're reading but haven't chatted about */}
+                        {placeholderItems.length > 0 && (
+                          <div className="flex flex-col gap-2">
+                            {placeholderItems.map((item) => {
+                              const coverUrl = item.coverUrl;
+                              return (
+                                <div
+                                  key={item.key}
+                                  className="relative rounded-2xl"
+                                  style={{ border: '1px solid rgba(0, 0, 0, 0.08)' }}
+                                >
+                                  <button
+                                    onClick={() => {
+                                      if (item.isGeneral) {
+                                        setChatGeneralMode(true);
+                                      } else if (item.matchingBook) {
+                                        const idx = books.indexOf(item.matchingBook);
+                                        if (idx >= 0) setSelectedIndex(idx);
+                                      }
+                                      setChatBookSelected(true);
+                                    }}
+                                    className="w-full flex items-center gap-3 px-3 py-3 text-left active:opacity-80"
+                                  >
+                                    {item.isGeneral ? (
+                                      <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
+                                        style={{ background: 'rgba(255, 0, 123, 0.55)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 0, 123, 0.3)' }}
+                                      >
+                                        <Library size={22} className="text-white/90" />
+                                      </div>
+                                    ) : coverUrl ? (
+                                      <div className="w-12 h-12 rounded-full overflow-hidden shrink-0 bg-slate-200">
+                                        <img src={coverUrl} alt={item.title} className="w-full h-full object-cover" />
+                                      </div>
+                                    ) : (
+                                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
+                                        <BookOpen size={18} className="text-white/60" />
+                                      </div>
+                                    )}
+                                    <div className="flex-1 min-w-0">
                                       <p className="text-[13px] text-slate-600">Start a chat about</p>
                                       <p className="text-[14px] font-bold text-slate-700 truncate">
-                                        {isGeneral ? 'Your books, recommendations, anything at all' : chat.book_title}
+                                        {item.isGeneral ? 'Your books, recommendations, anything at all' : item.title}
                                       </p>
                                     </div>
                                   </button>
@@ -7783,6 +8078,7 @@ export default function App() {
                     );
                   })()}
                 </div>
+                </>
             )}
           </motion.main>
         ) : showCreatePost ? (
@@ -9266,6 +9562,9 @@ export default function App() {
                 // Enable rubber band bounce effect
                 el.style.overscrollBehaviorY = 'auto';
                 (el.style as any).webkitOverflowScrolling = 'touch';
+                // Reset scroll position when entering book details
+                el.scrollTop = 0;
+                setScrollY(0);
               }
             }}
             className={`flex-1 flex flex-col items-center justify-start p-4 relative pt-28 pb-20 ios-scroll min-h-0 ${showBookPageOnboarding ? 'overflow-hidden' : 'overflow-y-auto'}`}
@@ -9764,6 +10063,149 @@ export default function App() {
               )}
             </div>
 
+            {/* Chat Panel — row of 5 avatars below cover */}
+            {!showRatingOverlay && activeBook && (() => {
+              const avatars = characterAvatars.get(activeBook.id) || [];
+              const isLoadingAvatars = loadingAvatarsForBookId === activeBook.id;
+              const hasTelegramTopic = !!(activeBook.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id));
+
+              return (
+                <div className="w-full mt-3 px-2">
+                  <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-slate-500 mb-2 text-center">Chat about it with</p>
+                  <div className="flex items-center justify-center gap-3">
+                    {/* 1. General book chatbot */}
+                    <button
+                      onClick={() => {
+                        chatOpenedFromBookPage.current = true;
+                        setChatBookSelected(true);
+                        setShowChatPage(true);
+                        setCharacterChatContext(null);
+                      }}
+                      className="flex flex-col items-center gap-1 active:scale-95 transition-transform"
+                    >
+                      <div className="w-12 h-12 rounded-full overflow-hidden" style={{ border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                        <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
+                      </div>
+                      <span className="text-[9px] font-semibold text-slate-500 max-w-[56px] truncate">Book.luver</span>
+                    </button>
+
+                    {/* 2-4. Character avatars (or loading skeletons) */}
+                    {isLoadingAvatars ? (
+                      [0, 1, 2].map(i => (
+                        <div key={`skel-${i}`} className="flex flex-col items-center gap-1">
+                          <motion.div
+                            animate={{ opacity: [0.4, 0.7, 0.4] }}
+                            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut', delay: i * 0.2 }}
+                            className="w-12 h-12 rounded-full bg-slate-200/50"
+                            style={{ border: '2px solid rgba(148, 163, 184, 0.3)' }}
+                          />
+                          <div className="w-8 h-2 rounded bg-slate-200/40 animate-pulse" />
+                        </div>
+                      ))
+                    ) : avatars.length > 0 ? (
+                      avatars.slice(0, 3).map((avatar, i) => {
+                        const isThisLoading = loadingCharacterChat === avatar.character;
+                        return (
+                        <motion.button
+                          key={avatar.character}
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ duration: 0.3, delay: i * 0.1 }}
+                          onClick={async () => {
+                            if (loadingCharacterChat || !activeBook) return;
+                            setLoadingCharacterChat(avatar.character);
+                            try {
+                              const context = await getCharacterContext(avatar.character, activeBook.title, activeBook.author);
+                              if (context) {
+                                setCharacterChatContext({
+                                  characterName: avatar.character,
+                                  bookTitle: activeBook.title,
+                                  bookAuthor: activeBook.author,
+                                  context,
+                                  avatarUrl: avatar.image_url,
+                                });
+                                chatOpenedFromBookPage.current = true;
+                                setChatBookSelected(true);
+                                setShowChatPage(true);
+                              }
+                            } catch (err) {
+                              console.error('[CharacterChat] Error loading context:', err);
+                            } finally {
+                              setLoadingCharacterChat(false);
+                            }
+                          }}
+                          className="flex flex-col items-center gap-1 active:scale-95 transition-transform"
+                        >
+                          <div className="relative">
+                            {isThisLoading && (
+                              <motion.div
+                                className="absolute -inset-[3px] rounded-full"
+                                style={{ border: '2.5px solid transparent', borderTopColor: 'rgba(59, 130, 246, 0.8)', borderRightColor: 'rgba(59, 130, 246, 0.3)' }}
+                                animate={{ rotate: 360 }}
+                                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                              />
+                            )}
+                            <div
+                              className="w-12 h-12 rounded-full overflow-hidden"
+                              style={{
+                                border: isThisLoading ? '2px solid rgba(59, 130, 246, 0.4)' : '2px solid rgba(255, 255, 255, 0.5)',
+                                boxShadow: isThisLoading ? '0 0 12px rgba(59, 130, 246, 0.3)' : '0 2px 8px rgba(0,0,0,0.08)',
+                              }}
+                            >
+                              <img src={avatar.image_url} alt={avatar.character} className="w-full h-full object-cover" loading="lazy" />
+                            </div>
+                          </div>
+                          <span className="text-[9px] font-semibold text-slate-500 max-w-[56px] truncate">{avatar.character.split(' ')[0]}</span>
+                        </motion.button>
+                        );
+                      })
+                    ) : null}
+
+                    {/* 5. Telegram group */}
+                    <button
+                      onClick={async () => {
+                        if (!activeBook?.canonical_book_id) return;
+                        if (!localStorage.getItem('hasJoinedTelegramGroup')) {
+                          setShowTelegramJoinModal(true);
+                          return;
+                        }
+                        const cachedTopic = telegramTopics.get(activeBook.canonical_book_id);
+                        if (cachedTopic) {
+                          window.open(cachedTopic.inviteLink, '_blank');
+                          return;
+                        }
+                        const newWindow = window.open('', '_blank');
+                        setIsLoadingTelegramTopic(true);
+                        try {
+                          const topic = await getOrCreateTelegramTopic(activeBook.title, activeBook.author, activeBook.canonical_book_id, activeBook.cover_url || undefined, activeBook.genre || undefined);
+                          if (topic) {
+                            setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
+                            if (newWindow) newWindow.location.href = topic.inviteLink;
+                            else window.open(topic.inviteLink, '_blank');
+                          } else { newWindow?.close(); }
+                        } catch (err) { console.error('Error opening Telegram topic:', err); newWindow?.close(); }
+                        finally { setIsLoadingTelegramTopic(false); }
+                      }}
+                      disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
+                      className="flex flex-col items-center gap-1 active:scale-95 transition-transform disabled:opacity-50"
+                    >
+                      <div
+                        className="w-12 h-12 rounded-full flex items-center justify-center"
+                        style={{ background: 'linear-gradient(135deg, #dbeafe, #c7d2fe)', border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
+                      >
+                        {isLoadingTelegramTopic ? (
+                          <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full" />
+                        ) : (
+                          <MessagesSquare size={18} className="text-indigo-500" />
+                        )}
+                      </div>
+                      <span className="text-[9px] font-semibold text-slate-500 max-w-[56px] truncate">Group</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Info + Book Summary — unified card stack below cover */}
             {!showRatingOverlay && (() => {
               const summary = bookSummaries.get(activeBook.id);
@@ -9880,13 +10322,7 @@ export default function App() {
                                     </div>
                                   ))}
                                   {showBot && (
-                                    <div
-                                      className="w-8 h-8 shrink-0 rounded-full border-2 border-sky-400 bg-gradient-to-br from-sky-100 to-sky-200 flex items-center justify-center"
-                                      style={{ zIndex: 6 }}
-                                      title="Book Expert Bot"
-                                    >
-                                      <Bot className="w-4 h-4 text-sky-600" />
-                                    </div>
+                                    <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-8 h-8 shrink-0 rounded-full border-2 border-sky-400 object-cover" style={{ zIndex: 6 }} title="Book.luver" />
                                   )}
                                   {sortedReaders.slice(0, maxReaders).map((reader, index) => (
                                     reader.avatar ? (
@@ -10028,9 +10464,7 @@ export default function App() {
                                   </div>
                                 ))}
                                 {showBot && (
-                                  <div className="w-8 h-8 shrink-0 rounded-full border-2 border-sky-400 bg-gradient-to-br from-sky-100 to-sky-200 flex items-center justify-center" style={{ zIndex: 6 }} title="Book Expert Bot">
-                                    <Bot className="w-4 h-4 text-sky-600" />
-                                  </div>
+                                  <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-8 h-8 shrink-0 rounded-full border-2 border-sky-400 object-cover" style={{ zIndex: 6 }} title="Book.luver" />
                                 )}
                                 {sortedReaders.slice(0, maxReaders).map((reader, index) => (
                                   reader.avatar ? (
@@ -12304,12 +12738,7 @@ export default function App() {
                   <div className="flex -space-x-1">
                     {/* Bot reader in discussions header */}
                     {activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id) && (
-                      <div
-                        className="w-6 h-6 rounded-full border border-sky-400 bg-gradient-to-br from-sky-100 to-sky-200 flex items-center justify-center"
-                        title="Book Expert Bot"
-                      >
-                        <Bot className="w-3 h-3 text-sky-600" />
-                      </div>
+                      <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-6 h-6 rounded-full border border-sky-400 object-cover" title="Book.luver" />
                     )}
                     {bookReaders.slice(0, 3).map((reader) => (
                       reader.avatar ? (

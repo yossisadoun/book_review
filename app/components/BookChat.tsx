@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, BookOpen, Headphones, Play, BookMarked, FileText, ExternalLink, Bot, X, CheckCircle2, Film, Disc3, Library } from 'lucide-react';
+import { Send, BookOpen, Headphones, Play, BookMarked, FileText, ExternalLink, X, CheckCircle2, Film, Disc3, Library } from 'lucide-react';
 import { openSystemBrowser, isNativePlatform } from '@/lib/capacitor';
 import { getAssetPath } from './utils';
 import { getCached, setCache, CACHE_KEYS } from '../services/cache-service';
@@ -13,8 +13,13 @@ import {
   loadChatHistory,
   saveChatMessages,
   getStarterPrompts,
+  sendCharacterChatMessage,
+  generateCharacterGreeting,
+  loadCharacterChatHistory,
+  saveCharacterChatMessages,
   type ChatMessage,
   type BookChatContext,
+  type CharacterChatContext,
 } from '../services/chat-service';
 import type { BookWithRatings } from '../types';
 
@@ -23,6 +28,7 @@ interface BookChatProps {
   bookContext: BookChatContext;
   onBack: () => void;
   onAddBook?: (meta: any) => void;
+  characterContext?: CharacterChatContext;
 }
 
 // Rough token estimate: ~4 chars per token for English text
@@ -39,7 +45,8 @@ function formatTime(dateStr?: string): string {
 
 type MessageSegment = { type: 'text'; text: string } | { type: 'card'; cardType: string; cardIndex: number };
 
-export default function BookChat({ book, bookContext, onBack, onAddBook }: BookChatProps) {
+export default function BookChat({ book, bookContext, onBack, onAddBook, characterContext }: BookChatProps) {
+  const isCharacterChat = !!characterContext;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -54,8 +61,15 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [streamingCardLoading, setStreamingCardLoading] = useState(false);
   const streamingRef = useRef<{ timer: ReturnType<typeof setTimeout> | null }>({ timer: null });
+  const [dynamicSuggestions, setDynamicSuggestions] = useState<string[]>([]);
 
-  const starterPrompts = getStarterPrompts(book.reading_status || null, bookContext.generalMode);
+  const starterPrompts = isCharacterChat
+    ? [
+        `What's on your mind, ${characterContext!.characterName.split(' ')[0]}?`,
+        'Tell me about yourself',
+        'What was the hardest thing you went through?',
+      ]
+    : getStarterPrompts(book.reading_status || null, bookContext.generalMode);
 
   // Cleanup streaming timer on unmount
   useEffect(() => {
@@ -65,11 +79,15 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
   }, []);
 
   // Load chat history on mount (with stale-while-revalidate cache)
+  const chatCacheKey = isCharacterChat
+    ? `char_chat_${characterContext!.bookTitle}_${characterContext!.characterName}`.toLowerCase()
+    : CACHE_KEYS.chat(book.id);
+
   useEffect(() => {
     let cancelled = false;
 
     // Show cached messages instantly
-    const cached = getCached<ChatMessage[]>(CACHE_KEYS.chat(book.id));
+    const cached = getCached<ChatMessage[]>(chatCacheKey);
     if (cached && cached.length > 0) {
       setMessages(cached);
       setIsLoadingHistory(false);
@@ -77,15 +95,17 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
 
     (async () => {
       if (!cached || cached.length === 0) setIsLoadingHistory(true);
-      const history = await loadChatHistory(book.id);
+      const history = isCharacterChat
+        ? await loadCharacterChatHistory(characterContext!.bookTitle, characterContext!.bookAuthor, characterContext!.characterName)
+        : await loadChatHistory(book.id);
       if (cancelled) return;
 
       setMessages(history);
-      setCache(CACHE_KEYS.chat(book.id), history);
+      setCache(chatCacheKey, history);
       setIsLoadingHistory(false);
     })();
     return () => { cancelled = true; };
-  }, [book.id]);
+  }, [book.id, chatCacheKey]);
 
   // Track keyboard height via Capacitor Keyboard plugin for smooth animation
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -150,13 +170,25 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
     setMessages(updatedMessages);
     setInput('');
     setIsLoading(true);
+    setDynamicSuggestions([]);
 
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
     }
 
     try {
-      const response = await sendChatMessage(updatedMessages, bookContext);
+      let response = isCharacterChat
+        ? await sendCharacterChatMessage(updatedMessages.slice(-20), characterContext!)
+        : await sendChatMessage(updatedMessages, bookContext);
+
+      // Parse dynamic suggestions from response
+      const suggestionsMatch = response.split('|||SUGGESTIONS|||');
+      if (suggestionsMatch.length > 1) {
+        const suggestionLines = suggestionsMatch[1].trim().split('\n').map(s => s.trim()).filter(s => s.length > 0 && s.length < 60);
+        setDynamicSuggestions(suggestionLines.slice(0, 3));
+        response = suggestionsMatch[0].trim();
+      }
+
       setLastRawResponse(response);
       setIsLoading(false);
 
@@ -178,10 +210,14 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
           const assistantMessage: ChatMessage = { role: 'assistant', content: response, created_at: new Date().toISOString() };
           setMessages(prev => {
             const updated = [...prev, assistantMessage];
-            setCache(CACHE_KEYS.chat(book.id), updated);
+            setCache(chatCacheKey, updated);
             return updated;
           });
-          saveChatMessages(book.id, book.title, book.author, [userMessage, assistantMessage]);
+          if (isCharacterChat) {
+            saveCharacterChatMessages(characterContext!.bookTitle, characterContext!.bookAuthor, characterContext!.characterName, [userMessage, assistantMessage]);
+          } else {
+            saveChatMessages(book.id, book.title, book.author, [userMessage, assistantMessage]);
+          }
           return;
         }
 
@@ -244,7 +280,7 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
         inputRef.current?.focus();
       }
     }
-  }, [input, isLoading, messages, bookContext, book.id, book.title, book.author]);
+  }, [input, isLoading, messages, bookContext, book.id, book.title, book.author, isCharacterChat, characterContext]);
 
   const handleKeyDown = (_e: React.KeyboardEvent) => {
     // Enter inserts a newline (default textarea behavior) — send only via button
@@ -284,15 +320,18 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
           >
             <X size={18} className="text-slate-600" />
           </button>
-          <div
-            className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center"
-            style={{ background: 'linear-gradient(135deg, #e0f2fe, #bae6fd)', border: '1.5px solid rgba(56, 189, 248, 0.5)' }}
-          >
-            <Bot className="w-4 h-4 text-sky-600" />
-          </div>
+          {isCharacterChat && characterContext?.avatarUrl ? (
+            <div className="w-9 h-9 shrink-0 rounded-full overflow-hidden" style={{ border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+              <img src={characterContext.avatarUrl} alt={characterContext.characterName} className="w-full h-full object-cover" />
+            </div>
+          ) : (
+            <div className="w-8 h-8 shrink-0 rounded-full overflow-hidden" style={{ border: '1.5px solid rgba(56, 189, 248, 0.5)' }}>
+              <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
+            </div>
+          )}
           <div className="flex-1 min-w-0">
-            <p className="text-[13px] font-semibold text-slate-800 truncate leading-tight">{book.title}</p>
-            <p className="text-[10px] text-slate-500 truncate leading-tight">{book.author}</p>
+            <p className="text-[13px] font-semibold text-slate-800 truncate leading-tight">{isCharacterChat ? characterContext!.characterName : book.title}</p>
+            <p className="text-[10px] text-slate-500 truncate leading-tight">{isCharacterChat ? `from ${characterContext!.bookTitle}` : book.author}</p>
           </div>
         </div>
       </div>
@@ -341,9 +380,13 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
                 boxShadow: '0 2px 16px rgba(0, 0, 0, 0.04)',
               }}
             >
-              {/* Book cover as avatar */}
+              {/* Avatar */}
               <div className="mb-4 relative">
-                {book.cover_url ? (
+                {isCharacterChat && characterContext?.avatarUrl ? (
+                  <div className="w-16 h-16 rounded-full overflow-hidden" style={{ border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 4px 16px rgba(0,0,0,0.15)' }}>
+                    <img src={characterContext.avatarUrl} alt={characterContext.characterName} className="w-full h-full object-cover" />
+                  </div>
+                ) : book.cover_url ? (
                   <img
                     src={book.cover_url}
                     alt={book.title}
@@ -362,10 +405,10 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
                   </div>
                 )}
               </div>
-              <p className="text-[13px] font-semibold text-slate-700 mb-0.5 text-center">{book.title}</p>
-              <p className="text-[11px] text-slate-500 mb-1 text-center">{book.author}</p>
+              <p className="text-[13px] font-semibold text-slate-700 mb-0.5 text-center">{isCharacterChat ? characterContext!.characterName : book.title}</p>
+              <p className="text-[11px] text-slate-500 mb-1 text-center">{isCharacterChat ? `from ${characterContext!.bookTitle}` : book.author}</p>
               <p className="text-[11px] text-slate-400 mb-8 text-center max-w-[240px]">
-                Your AI reading companion. Ask anything about this book.
+                {isCharacterChat ? `Chat with ${characterContext!.characterName.split(' ')[0]} in character.` : 'Your AI reading companion. Ask anything about this book.'}
               </p>
 
               {/* Starter prompts as tappable chips */}
@@ -611,24 +654,27 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
               )}
 
               {/* Quick reply chips after last assistant message */}
-              {!isLoading && streamingSegments === null && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && (
-                <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
-                  {starterPrompts.slice(0, 2).map((prompt, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleSend(prompt)}
-                      className="px-3 py-[5px] text-[12px] text-slate-500 active:scale-[0.97] active:opacity-70 transition-all"
-                      style={{
-                        background: 'rgba(255, 255, 255, 0.4)',
-                        borderRadius: '999px',
-                        border: '0.5px solid rgba(255, 255, 255, 0.35)',
-                      }}
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {!isLoading && streamingSegments === null && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && (() => {
+                const chips = dynamicSuggestions.length > 0 ? dynamicSuggestions : starterPrompts.slice(0, 2);
+                return (
+                  <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
+                    {chips.map((prompt, i) => (
+                      <button
+                        key={`chip-${i}-${prompt}`}
+                        onClick={() => handleSend(prompt)}
+                        className="px-3 py-[5px] text-[12px] text-slate-500 active:scale-[0.97] active:opacity-70 transition-all"
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.4)',
+                          borderRadius: '999px',
+                          border: '0.5px solid rgba(255, 255, 255, 0.35)',
+                        }}
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
 
               <div ref={messagesEndRef} />
             </div>
@@ -653,7 +699,7 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
             }}
           >
             {(() => {
-              const systemPrompt = buildDebugSystemPrompt(bookContext);
+              const systemPrompt = isCharacterChat ? buildCharacterDebugSystemPrompt(characterContext!) : buildDebugSystemPrompt(bookContext);
               const historyText = messages.map(m => m.content).join(' ');
               const inputTokens = estimateTokens(systemPrompt + ' ' + historyText);
               const outputTokens = Math.round(inputTokens * 0.3); // estimate ~30% of input
@@ -672,8 +718,8 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
                             '=== SYSTEM PROMPT ===',
                             systemPrompt,
                             '',
-                            '=== BOOK CONTEXT ===',
-                            JSON.stringify(bookContext, null, 2),
+                            isCharacterChat ? '=== CHARACTER CONTEXT ===' : '=== BOOK CONTEXT ===',
+                            JSON.stringify(isCharacterChat ? characterContext : bookContext, null, 2),
                             '',
                             '=== CHAT HISTORY ===',
                             JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })), null, 2),
@@ -709,8 +755,8 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">System Prompt ({estimateTokens(systemPrompt).toLocaleString()} tokens)</div>
                   <pre className="whitespace-pre-wrap break-words text-slate-800">{systemPrompt}</pre>
                   <div className="h-px bg-slate-200/60 my-2" />
-                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Book Context (raw JSON)</div>
-                  <pre className="whitespace-pre-wrap break-words">{JSON.stringify(bookContext, null, 2)}</pre>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">{isCharacterChat ? 'Character Context (raw JSON)' : 'Book Context (raw JSON)'}</div>
+                  <pre className="whitespace-pre-wrap break-words">{JSON.stringify(isCharacterChat ? characterContext : bookContext, null, 2)}</pre>
                   <div className="h-px bg-slate-200/60 my-2" />
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Chat History ({messages.length} msgs, ~{estimateTokens(historyText).toLocaleString()} tokens)</div>
                   <pre className="whitespace-pre-wrap break-words">{JSON.stringify(messages.map(m => ({ role: m.role, content: m.content.slice(0, 100) + (m.content.length > 100 ? '...' : '') })), null, 2)}</pre>
@@ -762,7 +808,7 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
               onKeyDown={handleKeyDown}
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
-              placeholder="Message"
+              placeholder={isCharacterChat ? `Message ${characterContext!.characterName.split(' ')[0]}...` : 'Message'}
               rows={1}
               className="flex-1 resize-none bg-transparent text-[15px] text-slate-800 placeholder:text-slate-400 outline-none leading-[20px]"
               style={{ maxHeight: '36px', height: '20px' }}
@@ -793,6 +839,153 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
 }
 
 // Mirror of edge function's buildSystemPrompt — for debug panel only
+function buildCharacterDebugSystemPrompt(charCtx: CharacterChatContext): string {
+  const { characterName, bookTitle, bookAuthor, context } = charCtx;
+
+  // Support both old and new field names for cached contexts
+  const verifiedEvents = [context.VERIFIED_EVENT_1, context.VERIFIED_EVENT_2, context.VERIFIED_EVENT_3, context.VERIFIED_EVENT_4, context.VERIFIED_EVENT_5,
+    context.KEY_EVENT_1, context.KEY_EVENT_2, context.KEY_EVENT_3, context.KEY_EVENT_4, context.KEY_EVENT_5].filter(Boolean);
+  const knowledgeAreas = [context.WORLD_KNOWLEDGE, context.CULTURAL_KNOWLEDGE, context.SKILLS_AND_ABILITIES, context.SPECIAL_KNOWLEDGE,
+    context.WORLD_ELEMENT_1, context.WORLD_ELEMENT_2, context.WORLD_ELEMENT_3, context.WORLD_ELEMENT_4].filter(Boolean);
+  const traits = [context.PERSONALITY_TRAIT_1, context.PERSONALITY_TRAIT_2, context.PERSONALITY_TRAIT_3, context.PERSONALITY_TRAIT_4, context.PERSONALITY_TRAIT_5].filter(Boolean);
+  const recurringThemes = [context.RECURRING_THEME_1, context.RECURRING_THEME_2, context.RECURRING_THEME_3].filter(Boolean);
+  const commonRefs = [context.COMMON_REFERENCE_1, context.COMMON_REFERENCE_2, context.COMMON_REFERENCE_3, context.COMMON_REFERENCE_4].filter(Boolean);
+  const relationships = [context.RELATIONSHIP_1, context.RELATIONSHIP_2, context.RELATIONSHIP_3, context.RELATIONSHIP_4,
+    context.CHARACTER_REFERENCE_1, context.CHARACTER_REFERENCE_2, context.CHARACTER_REFERENCE_3, context.CHARACTER_REFERENCE_4].filter(Boolean);
+  const sourceQuotes = [context.SOURCE_QUOTE_1, context.SOURCE_QUOTE_2, context.SOURCE_QUOTE_3].filter(Boolean);
+  const dialogueAnchors = [context.DIALOGUE_ANCHOR_1, context.DIALOGUE_ANCHOR_2, context.DIALOGUE_ANCHOR_3, context.DIALOGUE_ANCHOR_4, context.DIALOGUE_ANCHOR_5].filter(Boolean);
+  const maxWords = context.MAX_WORDS_PER_MESSAGE || '90';
+  const timelinePosition = context.TIMELINE_POSITION || context.POINT_IN_STORY_TIMELINE || '';
+
+  return `You are role-playing as a fictional character from a book. Your world is completely real to you.
+
+CHARACTER IDENTITY
+
+Character: ${characterName}
+Source: "${bookTitle}" by ${bookAuthor}
+Time period: ${timelinePosition}
+
+You must fully inhabit ${characterName}'s personality, worldview, and voice. You are a living, breathing mind — with biases, emotional triggers, inconsistencies, and limitations intact. Let your thoughts meander, contradict, or evolve naturally based on the conversation.
+
+Never speak as an AI assistant.
+Never mention prompts, models, or that you are role-playing.
+Never break character.
+
+Remain ${characterName} at all times.
+
+---
+
+THE BOOK
+
+${context.BOOK_SUMMARY || ''}
+
+Setting: ${context.BOOK_SETTING || ''}
+
+${characterName}'s role: ${context.CHARACTER_ROLE || ''}
+
+---
+
+CHARACTER BACKGROUND
+
+${context.CHARACTER_BACKGROUND || ''}
+
+Verified experiences you remember:
+${verifiedEvents.map(e => `• ${e}`).join('\n')}
+
+---
+
+KNOWLEDGE AND WORLD
+
+You understand:
+${knowledgeAreas.map(e => `• ${e}`).join('\n')}
+
+${context.KNOWLEDGE_BOUNDARIES ? `What you know: ${context.KNOWLEDGE_BOUNDARIES}` : ''}
+
+${context.DOES_NOT_KNOW ? `What you do NOT know: ${context.DOES_NOT_KNOW}` : `You do NOT know anything that happens beyond your point in the story.`}
+
+If asked about events outside your knowledge, respond naturally as ${characterName} would — curious, unsure, or dismissive depending on their personality.
+
+You may have mistaken assumptions, incomplete knowledge, or biased views. That's realistic. Don't be omniscient.
+
+${context.UNCERTAINTIES ? `Ambiguities (areas where even the text is unclear — avoid fabricating answers): ${context.UNCERTAINTIES}` : ''}
+
+---
+
+PERSONALITY AND VOICE
+
+${traits.map(t => `• ${t}`).join('\n')}
+
+Emotional tendencies: ${context.EMOTIONAL_TENDENCIES || ''}
+
+${recurringThemes.length > 0 ? `Themes ${characterName} often thinks about:\n${recurringThemes.map(t => `• ${t}`).join('\n')}` : ''}
+
+If ${characterName} is sarcastic, emotionally distant, rude, guarded, blunt, or otherwise flawed — stay that way, especially during emotionally charged moments. Do not become overly warm, affirming, or empathetic unless that is genuinely who ${characterName} is. Do not sanitize their thoughts or soften their edge to be polite. Let them express strong, personal, or even controversial opinions when it fits their nature.
+
+${characterName} often references:
+${commonRefs.map(r => `• ${r}`).join('\n')}
+
+People in your life:
+${relationships.map(r => `• ${r}`).join('\n')}
+
+---
+
+TEXT MESSAGE STYLE
+
+The conversation is happening through text. Responses should feel like normal texting conversation.
+
+${context.VOICE_DESCRIPTION ? `Voice: ${context.VOICE_DESCRIPTION}` : ''}
+
+Faithfully replicate ${characterName}'s exact phrasing style, tone, cadence, vocabulary, slang, idioms, and grammar quirks from the source material. Let new lines feel like plausible extensions of the original text — as if lifted from a lost scene. If their voice is stylized, poetic, clipped, archaic, or modern, commit fully.
+
+${sourceQuotes.length > 0 ? `Authentic voice samples from the text:\n${sourceQuotes.map(q => `"${q}"`).join('\n')}` : ''}
+
+Guidelines:
+• 1-3 short paragraphs or message blocks
+• Usually under ${maxWords} words
+• No narration or stage directions
+• No scene descriptions
+• Write only what ${characterName} would say in dialogue
+• Occasionally ask the user questions to keep the conversation going
+• Do NOT use markdown formatting, bullet points, or lists
+• Allow fragmented thoughts, hesitation, defensiveness, or trailing off when it fits the moment. Realism includes what's left unsaid.
+• Conflict, misunderstanding, and tension are welcome if true to the character.
+
+---
+
+INTERACTION RULES
+
+You are speaking directly with the user as if they could realistically exist in your world.
+
+You may:
+• React emotionally — including being annoyed, confused, guarded, or amused
+• Ask questions
+• Reference your experiences and memories
+• Mention people from your life naturally
+• Push back, disagree, or change the subject if that's what ${characterName} would do
+
+Keep the tone casual and personal, like two people chatting. No matter how the user speaks to you, respond as ${characterName} would using their own moral compass, emotional style, and personal logic to filter and react.
+
+---
+
+ROLEPLAY CONSTRAINTS
+
+${context.ROLEPLAY_CONSTRAINTS || `Do not reference events beyond ${characterName}'s timeline. Do not break voice or personality even under pressure.`}
+
+Always remain the character.
+Do not analyze "${bookTitle}" or discuss it as fiction.
+Speak only from ${characterName}'s lived experience.
+If the user asks something that breaks the illusion, respond in character rather than acknowledging the meta question.
+
+IMPORTANT: Do not be rigid or constantly steer the conversation back to your fact sheet. Inhabit the identity and let the conversation flow naturally. You know who you are — you don't need to prove it every message. The character details are your foundation, not a script — breathe through them, don't recite them.
+
+---
+
+STYLE ANCHORS
+
+Use dialogue rhythms similar to these:
+${dialogueAnchors.map(d => `"${d}"`).join('\n')}`;
+}
+
 function buildDebugSystemPrompt(ctx: BookChatContext): string {
   const { title, author, readingStatus, userNotes, userRatings } = ctx;
 

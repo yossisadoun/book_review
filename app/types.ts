@@ -163,6 +163,13 @@ export interface BookSummary {
   glossary: BookSummaryGlossary[];
 }
 
+// Character avatar for book page
+export interface CharacterAvatar {
+  character: string;
+  prompt: string;       // Image generation prompt from Grok
+  image_url: string;    // Generated image URL (Replicate output, stored in Supabase)
+}
+
 // Book Infographic types (orientation guide)
 export interface InfographicCharacter {
   name: string;
