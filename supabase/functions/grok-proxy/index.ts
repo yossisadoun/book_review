@@ -1,4 +1,5 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const GROK_API_KEY = Deno.env.get('GROK_API_KEY') || ''
 const GROK_CHAT_URL = 'https://api.x.ai/v1/chat/completions'

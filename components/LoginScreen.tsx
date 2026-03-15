@@ -8,7 +8,7 @@ import { isNativePlatform } from '@/lib/capacitor';
 import { Capacitor } from '@capacitor/core';
 import heartAnimation from '@/public/heart_anim.json';
 import heartInsideAnimation from '@/public/heart_inside.json';
-import logoAnimation from '@/public/lottie_test.json';
+import logoAnimation from '@/public/book_love_logo.json';
 
 // Heart animation with speed control via ref
 function FastHeartAnimation({ className }: { className?: string }) {
@@ -69,7 +69,7 @@ const [guestLoading, setGuestLoading] = useState(false);
     <div
       className="fixed inset-0 flex flex-col items-center justify-center p-4 overflow-y-auto"
       style={{
-        backgroundImage: `url(${getAssetPath('/bg.png')})`,
+        backgroundImage: `url(${getAssetPath('/bg.webp')})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',

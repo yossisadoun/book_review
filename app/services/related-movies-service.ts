@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { isNativePlatform } from '@/lib/capacitor';
 import type { RelatedMovie, MusicLinks, WatchLinks } from '../types';
 import { fetchWithRetry, grokApiKey, logGrokUsage } from './api-utils';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
@@ -43,6 +44,8 @@ async function fetchMusicLinks(itunesUrl: string): Promise<MusicLinks | null> {
 
 async function enrichAlbumWithItunes(movie: RelatedMovie): Promise<RelatedMovie> {
   if (movie.type !== 'album') return movie;
+  // iTunes Search API blocks CORS on web — only call from native
+  if (!isNativePlatform) return movie;
   const tag = `[iTunes:${movie.title}|${movie.director}]`;
 
   // Strip parentheticals from search query
