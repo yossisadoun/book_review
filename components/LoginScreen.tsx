@@ -197,8 +197,8 @@ const [guestLoading, setGuestLoading] = useState(false);
           )}
         </motion.button>
 
-        {/* Start as guest - text link under all buttons, mobile only */}
-        {isNativePlatform && (
+        {/* Start as guest - text link under all buttons */}
+        {(
           <button
             onClick={async () => {
               if (guestLoading) return;

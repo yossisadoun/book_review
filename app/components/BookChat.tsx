@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Send, BookOpen, Headphones, Play, BookMarked, FileText, ExternalLink, Bot, X, CheckCircle2, Film, Disc3, Library } from 'lucide-react';
 import { openSystemBrowser, isNativePlatform } from '@/lib/capacitor';
 import { getAssetPath } from './utils';
+import { getCached, setCache, CACHE_KEYS } from '../services/cache-service';
 import MusicModal from './MusicModal';
 import type { MusicLinks } from '../types';
 import {
@@ -63,15 +64,24 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
     };
   }, []);
 
-  // Load chat history on mount + auto-generate greeting if needed
+  // Load chat history on mount (with stale-while-revalidate cache)
   useEffect(() => {
     let cancelled = false;
+
+    // Show cached messages instantly
+    const cached = getCached<ChatMessage[]>(CACHE_KEYS.chat(book.id));
+    if (cached && cached.length > 0) {
+      setMessages(cached);
+      setIsLoadingHistory(false);
+    }
+
     (async () => {
-      setIsLoadingHistory(true);
+      if (!cached || cached.length === 0) setIsLoadingHistory(true);
       const history = await loadChatHistory(book.id);
       if (cancelled) return;
 
       setMessages(history);
+      setCache(CACHE_KEYS.chat(book.id), history);
       setIsLoadingHistory(false);
     })();
     return () => { cancelled = true; };
@@ -166,7 +176,11 @@ export default function BookChat({ book, bookContext, onBack, onAddBook }: BookC
           setStreamingText(null);
           setStreamingCardLoading(false);
           const assistantMessage: ChatMessage = { role: 'assistant', content: response, created_at: new Date().toISOString() };
-          setMessages(prev => [...prev, assistantMessage]);
+          setMessages(prev => {
+            const updated = [...prev, assistantMessage];
+            setCache(CACHE_KEYS.chat(book.id), updated);
+            return updated;
+          });
           saveChatMessages(book.id, book.title, book.author, [userMessage, assistantMessage]);
           return;
         }
