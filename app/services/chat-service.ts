@@ -85,7 +85,7 @@ export interface BookChatContext {
     context?: string[];
     didYouKnow?: Array<{ notes: string[] }>;
   };
-  podcasts?: Array<{ title: string; podcast_name?: string; url: string; thumbnail?: string; length?: string }>;
+  podcasts?: Array<{ title: string; podcast_name?: string; url: string; thumbnail?: string; length?: string; audioUrl?: string }>;
   videos?: Array<{ title: string; channelTitle: string; videoId: string }>;
   articles?: Array<{ title: string; url: string; snippet?: string; authors?: string; year?: string }>;
   relatedBooks?: Array<{ title: string; author: string; reason: string; cover_url?: string; thumbnail?: string }>;

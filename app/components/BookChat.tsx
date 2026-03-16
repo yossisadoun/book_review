@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, BookOpen, Headphones, Play, BookMarked, FileText, ExternalLink, X, CheckCircle2, Film, Disc3, Library } from 'lucide-react';
+import { Send, BookOpen, Headphones, Play, Pause, BookMarked, FileText, ExternalLink, X, CheckCircle2, Film, Disc3, Library, CornerDownRight } from 'lucide-react';
 import { openSystemBrowser, isNativePlatform } from '@/lib/capacitor';
 import { getAssetPath } from './utils';
 import { getCached, setCache, CACHE_KEYS } from '../services/cache-service';
@@ -296,6 +297,7 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
   const hasText = input.trim().length > 0;
   const [inputFocused, setInputFocused] = useState(false);
   const [showContext, setShowContext] = useState(false);
+  const [showDebugButton, setShowDebugButton] = useState(false);
 
   return (
     <div className="fixed inset-0 z-[60] flex flex-col" style={{ paddingTop: 'var(--safe-area-top, 0px)', paddingBottom: `${keyboardHeight}px`, transition: 'padding-bottom 0.25s ease-out' }}>
@@ -321,11 +323,11 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
             <X size={18} className="text-slate-600" />
           </button>
           {isCharacterChat && characterContext?.avatarUrl ? (
-            <div className="w-9 h-9 shrink-0 rounded-full overflow-hidden" style={{ border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+            <div className="w-11 h-11 shrink-0 rounded-full overflow-hidden" style={{ border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
               <img src={characterContext.avatarUrl} alt={characterContext.characterName} className="w-full h-full object-cover" />
             </div>
           ) : (
-            <div className="w-8 h-8 shrink-0 rounded-full overflow-hidden" style={{ border: '1.5px solid rgba(56, 189, 248, 0.5)' }}>
+            <div className="w-10 h-10 shrink-0 rounded-full overflow-hidden" style={{ border: '1.5px solid rgba(56, 189, 248, 0.5)' }}>
               <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
             </div>
           )}
@@ -380,35 +382,38 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
                 boxShadow: '0 2px 16px rgba(0, 0, 0, 0.04)',
               }}
             >
-              {/* Avatar */}
-              <div className="mb-4 relative">
-                {isCharacterChat && characterContext?.avatarUrl ? (
-                  <div className="w-16 h-16 rounded-full overflow-hidden" style={{ border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 4px 16px rgba(0,0,0,0.15)' }}>
-                    <img src={characterContext.avatarUrl} alt={characterContext.characterName} className="w-full h-full object-cover" />
-                  </div>
-                ) : book.cover_url ? (
+              {/* Book cover + avatar thumbnails */}
+              <div className="mb-4 relative w-[72px] h-[88px]">
+                {book.cover_url ? (
                   <img
                     src={book.cover_url}
                     alt={book.title}
-                    className="w-16 h-[88px] rounded-lg object-cover"
+                    className="absolute top-0 left-0 w-14 h-[78px] rounded-lg object-cover"
                     style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.15)' }}
                   />
                 ) : book.title === 'My Bookshelf' ? (
-                  <div className="w-16 h-[88px] rounded-lg flex items-center justify-center"
+                  <div className="absolute top-0 left-0 w-14 h-[78px] rounded-lg flex items-center justify-center"
                     style={{ background: 'rgba(255, 0, 123, 0.55)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 0, 123, 0.3)', boxShadow: '0 4px 14px rgba(255, 0, 123, 0.25)' }}
                   >
-                    <Library size={34} className="text-white/90" />
+                    <Library size={28} className="text-white/90" />
                   </div>
                 ) : (
-                  <div className="w-16 h-[88px] rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                    <BookOpen size={24} className="text-white/60" />
+                  <div className="absolute top-0 left-0 w-14 h-[78px] rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                    <BookOpen size={22} className="text-white/60" />
                   </div>
                 )}
+                <div className="absolute bottom-0 right-0 w-11 h-11 rounded-full overflow-hidden" style={{ border: '2px solid white', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
+                  {isCharacterChat && characterContext?.avatarUrl ? (
+                    <img src={characterContext.avatarUrl} alt={characterContext.characterName} className="w-full h-full object-cover" />
+                  ) : (
+                    <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
+                  )}
+                </div>
               </div>
               <p className="text-[13px] font-semibold text-slate-700 mb-0.5 text-center">{isCharacterChat ? characterContext!.characterName : book.title}</p>
               <p className="text-[11px] text-slate-500 mb-1 text-center">{isCharacterChat ? `from ${characterContext!.bookTitle}` : book.author}</p>
               <p className="text-[11px] text-slate-400 mb-8 text-center max-w-[240px]">
-                {isCharacterChat ? `Chat with ${characterContext!.characterName.split(' ')[0]} in character.` : 'Your AI reading companion. Ask anything about this book.'}
+                {isCharacterChat ? `Chat with ${characterContext!.characterName.split(' ')[0]} in character.` : 'Book.luver knows a lot about books! Ask her anything about this one as well'}
               </p>
 
               {/* Starter prompts as tappable chips */}
@@ -433,6 +438,41 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
           ) : (
             /* Message list */
             <div className="flex flex-col gap-[3px] py-1">
+              {/* Chat header with thumbnails and description */}
+              <div className="flex flex-col items-center pt-8 pb-4 px-4">
+                <div className="mb-3 relative w-[72px] h-[88px]">
+                  {book.cover_url ? (
+                    <img
+                      src={book.cover_url}
+                      alt={book.title}
+                      className="absolute top-0 left-0 w-14 h-[78px] rounded-lg object-cover"
+                      style={{ boxShadow: '0 4px 16px rgba(0,0,0,0.15)' }}
+                    />
+                  ) : book.title === 'My Bookshelf' ? (
+                    <div className="absolute top-0 left-0 w-14 h-[78px] rounded-lg flex items-center justify-center"
+                      style={{ background: 'rgba(255, 0, 123, 0.55)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 0, 123, 0.3)', boxShadow: '0 4px 14px rgba(255, 0, 123, 0.25)' }}
+                    >
+                      <Library size={28} className="text-white/90" />
+                    </div>
+                  ) : (
+                    <div className="absolute top-0 left-0 w-14 h-[78px] rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                      <BookOpen size={22} className="text-white/60" />
+                    </div>
+                  )}
+                  <div className="absolute bottom-0 right-0 w-11 h-11 rounded-full overflow-hidden" style={{ border: '2px solid white', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
+                    {isCharacterChat && characterContext?.avatarUrl ? (
+                      <img src={characterContext.avatarUrl} alt={characterContext.characterName} className="w-full h-full object-cover" />
+                    ) : (
+                      <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
+                    )}
+                  </div>
+                </div>
+                <p className="text-[13px] font-semibold text-slate-700 mb-0.5 text-center">{isCharacterChat ? characterContext!.characterName : book.title}</p>
+                <p className="text-[11px] text-slate-500 mb-1 text-center">{isCharacterChat ? `from ${characterContext!.bookTitle}` : book.author}</p>
+                <p className="text-[11px] text-slate-400 text-center max-w-[240px]">
+                  {isCharacterChat ? `Chat with ${characterContext!.characterName.split(' ')[0]} in character.` : 'Book.luver knows a lot about books! Ask her anything about this one as well'}
+                </p>
+              </div>
               {messages.map((msg, i) => {
                 const isUser = msg.role === 'user';
                 const isFirst = i === 0 || messages[i - 1].role !== msg.role;
@@ -653,23 +693,20 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
                 </>
               )}
 
-              {/* Quick reply chips after last assistant message */}
+              {/* Quick reply suggestions after last assistant message */}
               {!isLoading && streamingSegments === null && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && (() => {
                 const chips = dynamicSuggestions.length > 0 ? dynamicSuggestions : starterPrompts.slice(0, 2);
                 return (
-                  <div className="flex flex-wrap gap-1.5 mt-2 mb-1">
+                  <div className="flex flex-col gap-0 mt-3 mb-1">
                     {chips.map((prompt, i) => (
                       <button
                         key={`chip-${i}-${prompt}`}
                         onClick={() => handleSend(prompt)}
-                        className="px-3 py-[5px] text-[12px] text-slate-500 active:scale-[0.97] active:opacity-70 transition-all"
-                        style={{
-                          background: 'rgba(255, 255, 255, 0.4)',
-                          borderRadius: '999px',
-                          border: '0.5px solid rgba(255, 255, 255, 0.35)',
-                        }}
+                        className="flex items-center gap-2.5 px-1 py-2.5 text-left active:opacity-60 transition-opacity"
+                        style={{ borderTop: i > 0 ? '0.5px solid rgba(0, 0, 0, 0.06)' : 'none' }}
                       >
-                        {prompt}
+                        <CornerDownRight size={16} className="text-slate-300 shrink-0" />
+                        <span className="text-[14px] text-slate-700">{prompt}</span>
                       </button>
                     ))}
                   </div>
@@ -779,9 +816,9 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
         className="shrink-0 pt-1.5 flex justify-center"
         style={{ paddingBottom: keyboardHeight > 0 ? '9px' : 'calc(18px + var(--safe-area-bottom, 0px))' }}
       >
-        <motion.div className="flex items-center gap-2" animate={{ width: inputFocused ? '96%' : '80%' }} transition={{ type: 'spring', stiffness: 300, damping: 25 }}>
+        <motion.div className="flex items-end gap-2" animate={{ width: inputFocused ? '96%' : '80%' }} transition={{ type: 'spring', stiffness: 300, damping: 25 }}>
           <div
-            className="flex-1 flex items-center gap-1.5 rounded-[24px] pl-4 pr-3 h-9"
+            className="flex-1 flex items-center gap-1.5 rounded-[24px] pl-4 pr-3 py-1.5"
             style={{
               background: 'rgba(255, 255, 255, 0.55)',
               backdropFilter: 'blur(12px)',
@@ -790,17 +827,18 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
               boxShadow: '0 2px 12px rgba(0, 0, 0, 0.06)',
             }}
           >
-            {/* DEBUG: toggle context viewer */}
-            <button
-              onClick={() => setShowContext(v => !v)}
-              className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold active:scale-90 transition-transform"
-              style={{
-                background: showContext ? 'rgba(59,130,246,0.8)' : 'rgba(0,0,0,0.08)',
-                color: showContext ? '#fff' : '#94a3b8',
-              }}
-            >
-              { '{}'  }
-            </button>
+            {showDebugButton && (
+              <button
+                onClick={() => setShowContext(v => !v)}
+                className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold active:scale-90 transition-transform"
+                style={{
+                  background: 'transparent',
+                  color: showContext ? 'rgba(59,130,246,0.8)' : 'rgba(0,0,0,0.15)',
+                }}
+              >
+                { '{}'  }
+              </button>
+            )}
             <textarea
               ref={inputRef}
               value={input}
@@ -808,10 +846,11 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
               onKeyDown={handleKeyDown}
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
+              onTouchStart={(e) => { if (e.touches.length === 2) setShowDebugButton(v => !v); }}
               placeholder={isCharacterChat ? `Message ${characterContext!.characterName.split(' ')[0]}...` : 'Message'}
               rows={1}
               className="flex-1 resize-none bg-transparent text-[15px] text-slate-800 placeholder:text-slate-400 outline-none leading-[20px]"
-              style={{ maxHeight: '36px', height: '20px' }}
+              style={{ maxHeight: '120px', height: '20px' }}
             />
           </div>
           <button
@@ -1097,7 +1136,47 @@ function formatAssistantMessage(content: string, ctx: BookChatContext, onAddBook
 }
 
 // Rich inline cards for chat — styled to match book page components
+const ApplePodcastsIcon = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="white">
+    <path d="M5.34 0A5.328 5.328 0 000 5.34v13.32A5.328 5.328 0 005.34 24h13.32A5.328 5.328 0 0024 18.66V5.34A5.328 5.328 0 0018.66 0zm6.525 2.568c4.988 0 8.93 3.637 9.32 8.378a.19.19 0 01-.19.208h-1.758a.19.19 0 01-.187-.163 7.26 7.26 0 00-7.186-6.298 7.26 7.26 0 00-7.186 6.298.19.19 0 01-.186.163H2.733a.19.19 0 01-.19-.208c.39-4.741 4.333-8.378 9.321-8.378zm.058 3.39a5.608 5.608 0 015.265 3.87.19.19 0 01-.18.252h-1.762a.19.19 0 01-.176-.12 3.578 3.578 0 00-6.294 0 .19.19 0 01-.176.12H6.833a.19.19 0 01-.18-.253 5.608 5.608 0 015.27-3.868zm-.033 3.39a2.25 2.25 0 110 4.5 2.25 2.25 0 010-4.5zm-.024 5.719c1.024 0 1.854.83 1.854 1.854v2.688c0 1.024-.83 1.854-1.854 1.854a1.854 1.854 0 01-1.854-1.854V16.92c0-1.024.83-1.854 1.854-1.854z"/>
+  </svg>
+);
+
 function InlineChatCard({ type, index, ctx, onAddBook, onPlayAlbum }: { type: string; index: number; ctx: BookChatContext; onAddBook?: (meta: any) => void; onPlayAlbum?: (links: MusicLinks, title: string, artist: string) => void }) {
+  // Fan menu state for podcast and album play buttons
+  const [showPodcastFan, setShowPodcastFan] = useState(false);
+  const [podcastAnchorRect, setPodcastAnchorRect] = useState<DOMRect | null>(null);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const podcastPlayRef = useRef<HTMLButtonElement>(null);
+  const albumPlayRef = useRef<HTMLButtonElement>(null);
+  const [showAlbumFan, setShowAlbumFan] = useState(false);
+  const [albumAnchorRect, setAlbumAnchorRect] = useState<DOMRect | null>(null);
+
+  const stopAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setAudioPlaying(false);
+  }, []);
+
+  const handleTogglePreview = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (audioPlaying) {
+      stopAudio();
+    } else {
+      const p = ctx.podcasts?.[index];
+      if (p?.audioUrl) {
+        const audio = new Audio(p.audioUrl);
+        audio.play();
+        audio.onended = () => setAudioPlaying(false);
+        audioRef.current = audio;
+        setAudioPlaying(true);
+        setShowPodcastFan(false);
+      }
+    }
+  }, [audioPlaying, stopAudio, ctx.podcasts, index]);
   const cardStyle: React.CSSProperties = {
     background: 'rgba(255,255,255,0.45)',
     backdropFilter: 'blur(12px)',
@@ -1133,21 +1212,40 @@ function InlineChatCard({ type, index, ctx, onAddBook, onPlayAlbum }: { type: st
               <Headphones size={36} className="text-white/25" />
             </div>
           )}
-          {/* Play overlay */}
-          <div className="absolute inset-0 flex items-center justify-center">
+          {/* Play overlay — fan menu */}
+          <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: showPodcastFan ? 10000 : 1 }}>
             <button
-              onClick={(e) => { e.stopPropagation(); openSystemBrowser(p.url); }}
-              className="w-12 h-12 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+              ref={podcastPlayRef}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (audioPlaying) {
+                  stopAudio();
+                } else {
+                  const rect = podcastPlayRef.current?.getBoundingClientRect();
+                  if (rect) setPodcastAnchorRect(rect);
+                  setShowPodcastFan(prev => !prev);
+                }
+              }}
+              className="w-12 h-12 rounded-full flex items-center justify-center active:scale-95 transition-all"
               style={{
-                background: 'rgba(255, 255, 255, 0.25)',
+                background: showPodcastFan && !audioPlaying ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
                 backdropFilter: 'blur(9.4px)',
                 WebkitBackdropFilter: 'blur(9.4px)',
-                border: '1px solid rgba(255, 255, 255, 0.3)',
+                border: showPodcastFan && !audioPlaying ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
                 boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
               }}
             >
-              <Play size={20} className="text-white ml-0.5" fill="white" />
+              {audioPlaying ? (
+                <Pause size={20} className="text-white" fill="white" />
+              ) : showPodcastFan ? (
+                <X size={18} className="text-white" />
+              ) : (
+                <Play size={20} className="text-white ml-0.5" fill="white" />
+              )}
             </button>
+            {audioPlaying && (
+              <span className="absolute mt-16 text-[10px] font-semibold text-white drop-shadow-md">Preview</span>
+            )}
           </div>
           <div className="absolute bottom-0 inset-x-0 h-1/3 bg-gradient-to-t from-black/30 to-transparent pointer-events-none" />
         </div>
@@ -1163,6 +1261,65 @@ function InlineChatCard({ type, index, ctx, onAddBook, onPlayAlbum }: { type: st
             </div>
           </div>
         </div>
+        {/* Podcast fan menu — portaled to body */}
+        {typeof document !== 'undefined' && createPortal(
+          <AnimatePresence>
+            {showPodcastFan && podcastAnchorRect && (() => {
+              const hasPreview = !!p.audioUrl;
+              const items: { key: string; icon: React.ReactNode; color: string; onClick: (e: React.MouseEvent) => void }[] = [];
+              if (hasPreview) {
+                items.push({
+                  key: 'preview',
+                  icon: audioPlaying ? <span className="text-white text-xs font-bold">■</span> : <Headphones size={18} className="text-white" />,
+                  color: '#8B5CF6',
+                  onClick: handleTogglePreview,
+                });
+              }
+              items.push({
+                key: 'apple',
+                icon: <ApplePodcastsIcon />,
+                color: '#9933CC',
+                onClick: (e: React.MouseEvent) => { e.stopPropagation(); openSystemBrowser(p.url); setShowPodcastFan(false); },
+              });
+              const count = items.length;
+              const radius = 70;
+              const startAngle = Math.PI;
+              const endAngle = 2 * Math.PI;
+              const angleStep = count > 1 ? (endAngle - startAngle) / (count - 1) : 0;
+              const getPos = (i: number) => {
+                const angle = count > 1 ? startAngle + angleStep * i : 1.5 * Math.PI;
+                return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+              };
+              const cx = podcastAnchorRect.left + podcastAnchorRect.width / 2;
+              const cy = podcastAnchorRect.top + podcastAnchorRect.height / 2;
+              return (
+                <>
+                  <motion.div
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-[9998]"
+                    onClick={(e) => { e.stopPropagation(); setShowPodcastFan(false); }}
+                  />
+                  {items.map((item, i) => {
+                    const pos = getPos(i);
+                    return (
+                      <motion.button
+                        key={item.key}
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        transition={{ duration: 0.15, delay: i * 0.02 }}
+                        onClick={item.onClick}
+                        className="fixed z-[9999] w-11 h-11 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+                        style={{ left: cx + pos.x - 22, top: cy + pos.y - 22, background: item.color, boxShadow: '0 3px 12px rgba(0,0,0,0.3)' }}
+                      >
+                        {item.icon}
+                      </motion.button>
+                    );
+                  })}
+                </>
+              );
+            })()}
+          </AnimatePresence>,
+          document.body
+        )}
       </div>
     );
   }
@@ -1321,34 +1478,35 @@ function InlineChatCard({ type, index, ctx, onAddBook, onPlayAlbum }: { type: st
               <Disc3 size={10} />
               {badgeLabel}
             </span>
-            {/* Play overlay */}
-            <div className="absolute inset-0 flex items-center justify-center z-30">
+            {/* Play overlay — fan menu */}
+            <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: showAlbumFan ? 10000 : 30 }}>
               <button
+                ref={albumPlayRef}
                 onClick={(e) => {
                   e.stopPropagation();
-                  const url = w.itunes_url;
-                  if (url) {
-                    if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
-                      openSystemBrowser(url);
-                    } else if (w.music_links && onPlayAlbum) {
-                      onPlayAlbum(w.music_links, w.title, w.director);
-                    } else {
-                      openSystemBrowser(`https://song.link/${url}`);
-                    }
+                  if (showAlbumFan) {
+                    setShowAlbumFan(false);
+                    setAlbumAnchorRect(null);
                   } else {
-                    openSystemBrowser(`https://music.apple.com/search?term=${encodeURIComponent(`${w.title} ${w.director}`)}`);
+                    const rect = albumPlayRef.current?.getBoundingClientRect();
+                    if (rect) setAlbumAnchorRect(rect);
+                    setShowAlbumFan(true);
                   }
                 }}
-                className="w-12 h-12 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                className="w-12 h-12 rounded-full flex items-center justify-center active:scale-95 transition-all"
                 style={{
-                  background: 'rgba(255, 255, 255, 0.25)',
+                  background: showAlbumFan ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
                   backdropFilter: 'blur(9.4px)',
                   WebkitBackdropFilter: 'blur(9.4px)',
-                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                  border: showAlbumFan ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
                   boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
                 }}
               >
-                <Play size={20} className="text-white ml-0.5" fill="white" />
+                {showAlbumFan ? (
+                  <X size={18} className="text-white" />
+                ) : (
+                  <Play size={20} className="text-white ml-0.5" fill="white" />
+                )}
               </button>
             </div>
             <div className="absolute bottom-0 inset-x-0 h-1/3 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
@@ -1357,6 +1515,16 @@ function InlineChatCard({ type, index, ctx, onAddBook, onPlayAlbum }: { type: st
             <p className="text-[12px] font-bold text-slate-900 line-clamp-2 leading-tight">{w.title}</p>
             <p className="text-[10px] text-slate-500">{w.director}{w.release_year ? ` (${w.release_year})` : ''}</p>
           </div>
+          {/* Album fan menu — uses MusicModal */}
+          {w.music_links && (
+            <MusicModal
+              musicLinks={showAlbumFan ? w.music_links : null}
+              albumTitle={w.title}
+              albumArtist={w.director}
+              onClose={() => { setShowAlbumFan(false); setAlbumAnchorRect(null); }}
+              anchorRef={albumPlayRef}
+            />
+          )}
           <style dangerouslySetInnerHTML={{ __html: `
             @keyframes vinyl-spin {
               from { transform: rotate(0deg); }

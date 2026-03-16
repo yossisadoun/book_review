@@ -37,6 +37,7 @@ import {
   X,
   MessageCircle,
   MessageSquareHeart,
+  MessagesSquare,
   Lightbulb,
   Cloud,
   Share,
@@ -7558,7 +7559,7 @@ export default function App() {
                   const dyk = didYouKnow.get(activeBook.id);
                   if (dyk?.length) insights.didYouKnow = dyk;
                   if (Object.keys(insights).length) ctx.insights = insights;
-                  if (combinedPodcastEpisodes?.length) ctx.podcasts = combinedPodcastEpisodes.map(p => ({ title: p.title, podcast_name: p.podcast_name, url: p.url, thumbnail: p.thumbnail, length: p.length }));
+                  if (combinedPodcastEpisodes?.length) ctx.podcasts = combinedPodcastEpisodes.map(p => ({ title: p.title, podcast_name: p.podcast_name, url: p.url, thumbnail: p.thumbnail, length: p.length, audioUrl: p.audioUrl }));
                   const videos = youtubeVideos.get(activeBook.id);
                   if (videos?.length) ctx.videos = videos.map(v => ({ title: v.title, channelTitle: v.channelTitle, videoId: v.videoId }));
                   const articles = analysisArticles.get(activeBook.id);
@@ -7751,7 +7752,7 @@ export default function App() {
                     unifiedItems.push({
                       key: BOOKSHELF_ID,
                       type: 'book',
-                      title: 'General Chat',
+                      title: 'Your Bookshelf',
                       subtitle: '',
                       last_message: bookshelfEntry.last_message,
                       last_message_at: bookshelfEntry.last_message_at,
@@ -7951,10 +7952,15 @@ export default function App() {
                                   >
                                     {/* Thumbnail */}
                                     {item.isGeneral ? (
-                                      <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
-                                        style={{ background: 'rgba(255, 0, 123, 0.55)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 0, 123, 0.3)' }}
-                                      >
-                                        <Library size={22} className="text-white/90" />
+                                      <div className="relative w-12 h-12 shrink-0">
+                                        <div className="w-10 h-10 rounded-full flex items-center justify-center absolute top-1 left-0"
+                                          style={{ background: 'rgba(255, 0, 123, 0.55)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 0, 123, 0.3)' }}
+                                        >
+                                          <Library size={18} className="text-white/90" />
+                                        </div>
+                                        <div className="w-9 h-9 rounded-full overflow-hidden absolute bottom-0 right-0 bg-slate-200" style={{ border: '2px solid white', boxShadow: '0 1px 4px rgba(0,0,0,0.15)' }}>
+                                          <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
+                                        </div>
                                       </div>
                                     ) : item.type === 'character' ? (
                                       /* Character: book cover behind, character avatar on top offset right */
@@ -8044,23 +8050,38 @@ export default function App() {
                                     className="w-full flex items-center gap-3 px-3 py-3 text-left active:opacity-80"
                                   >
                                     {item.isGeneral ? (
-                                      <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
-                                        style={{ background: 'rgba(255, 0, 123, 0.55)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 0, 123, 0.3)' }}
-                                      >
-                                        <Library size={22} className="text-white/90" />
-                                      </div>
-                                    ) : coverUrl ? (
-                                      <div className="w-12 h-12 rounded-full overflow-hidden shrink-0 bg-slate-200">
-                                        <img src={coverUrl} alt={item.title} className="w-full h-full object-cover" />
+                                      <div className="relative w-12 h-12 shrink-0">
+                                        <div className="w-10 h-10 rounded-full flex items-center justify-center absolute top-1 left-0"
+                                          style={{ background: 'rgba(255, 0, 123, 0.55)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 0, 123, 0.3)' }}
+                                        >
+                                          <Library size={18} className="text-white/90" />
+                                        </div>
+                                        <div className="w-9 h-9 rounded-full overflow-hidden absolute bottom-0 right-0 bg-slate-200" style={{ border: '2px solid white', boxShadow: '0 1px 4px rgba(0,0,0,0.15)' }}>
+                                          <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
+                                        </div>
                                       </div>
                                     ) : (
-                                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
-                                        <BookOpen size={18} className="text-white/60" />
+                                      <div className="relative w-12 h-12 shrink-0">
+                                        {coverUrl ? (
+                                          <div className="w-10 h-10 rounded-full overflow-hidden absolute top-1 left-0 bg-slate-200">
+                                            <img src={coverUrl} alt={item.title} className="w-full h-full object-cover" />
+                                          </div>
+                                        ) : (
+                                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center absolute top-1 left-0">
+                                            <BookOpen size={14} className="text-white/60" />
+                                          </div>
+                                        )}
+                                        <div className="w-9 h-9 rounded-full overflow-hidden absolute bottom-0 right-0 bg-slate-200" style={{ border: '2px solid white', boxShadow: '0 1px 4px rgba(0,0,0,0.15)' }}>
+                                          <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
+                                        </div>
                                       </div>
                                     )}
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-[13px] text-slate-600">Start a chat about</p>
-                                      <p className="text-[14px] font-bold text-slate-700 truncate">
+                                      <div className="flex items-center gap-1.5">
+                                        <MessageSquareHeart size={14} className="text-slate-400 shrink-0" />
+                                        <p className="text-[13px] text-slate-500">Start a chat about</p>
+                                      </div>
+                                      <p className="text-[15px] font-semibold text-slate-800 truncate">
                                         {item.isGeneral ? 'Your books, recommendations, anything at all' : item.title}
                                       </p>
                                     </div>
@@ -10216,7 +10237,7 @@ export default function App() {
                         {isLoadingTelegramTopic ? (
                           <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-5 h-5 border-2 border-slate-500 border-t-transparent rounded-full" />
                         ) : (
-                          <MessageSquareHeart size={22} className="text-indigo-500" />
+                          <MessagesSquare size={22} className="text-indigo-500" />
                         )}
                       </div>
                       <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">Group</span>
@@ -10438,7 +10459,7 @@ export default function App() {
                               className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full"
                             />
                           ) : (
-                            <MessageSquareHeart size={16} className="text-slate-700 dark:text-slate-300" />
+                            <MessagesSquare size={16} className="text-slate-700 dark:text-slate-300" />
                           )}
                         </button>
                       )}
@@ -10537,7 +10558,7 @@ export default function App() {
                         {isLoadingTelegramTopic ? (
                           <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full" />
                         ) : (
-                          <MessageSquareHeart size={16} className="text-slate-700 dark:text-slate-300" />
+                          <MessagesSquare size={16} className="text-slate-700 dark:text-slate-300" />
                         )}
                       </button>
                     )}
@@ -12639,6 +12660,37 @@ export default function App() {
               onSearchAppleBooks={lookupBooksOnAppleBooks}
               onSearchWikipedia={lookupBooksOnWikipedia}
               onGetAISuggestions={getAISuggestions}
+              characterAvatars={characterAvatars}
+              characterChatList={characterChatList}
+              onSelectCharacter={async (bookId, characterName, avatarUrl) => {
+                const bookIndex = books.findIndex(b => b.id === bookId);
+                if (bookIndex === -1) return;
+                const book = books[bookIndex];
+                setSelectedIndex(bookIndex);
+                setLoadingCharacterChat(characterName);
+                try {
+                  const context = await getCharacterContext(characterName, book.title, book.author);
+                  if (context) {
+                    setCharacterChatContext({
+                      characterName,
+                      bookTitle: book.title,
+                      bookAuthor: book.author,
+                      context,
+                      avatarUrl,
+                    });
+                    setChatBookSelected(true);
+                    setShowChatPage(true);
+                    setShowBookshelf(false);
+                    setShowBookshelfCovers(false);
+                    setShowNotesView(false);
+                    setShowFeedPage(false);
+                  }
+                } catch (err) {
+                  console.error('[ChatPicker] Error loading character context:', err);
+                } finally {
+                  setLoadingCharacterChat(false);
+                }
+              }}
             />
           )}
       </AnimatePresence>
@@ -13433,7 +13485,7 @@ export default function App() {
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              <MessageSquareHeart size={32} className="text-blue-600 dark:text-blue-400 mx-auto mb-3" />
+              <MessagesSquare size={32} className="text-blue-600 dark:text-blue-400 mx-auto mb-3" />
               <h3 className="text-lg font-bold text-slate-950 dark:text-slate-50 mb-2">Join the Book Chat</h3>
               <p className="text-sm text-slate-600 dark:text-slate-400 mb-5">
                 To discuss this book with others, first join our Telegram group. Then come back and tap the chat button again to jump straight to the conversation.

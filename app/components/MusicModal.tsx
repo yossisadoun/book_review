@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { MusicLinks } from '../types';
 import { openSystemBrowser, openDeepLink, isNativePlatform } from '@/lib/capacitor';
@@ -90,7 +91,9 @@ export default function MusicModal({ musicLinks, onClose, anchorRef }: MusicModa
   // Get anchor position for the fixed overlay backdrop tap target
   const anchorRect = anchorRef?.current?.getBoundingClientRect();
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <AnimatePresence>
       {/* Invisible full-screen tap target to dismiss */}
       <motion.div
@@ -132,6 +135,7 @@ export default function MusicModal({ musicLinks, onClose, anchorRef }: MusicModa
           </motion.button>
         );
       })}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
