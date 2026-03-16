@@ -203,9 +203,9 @@ function InsightsCards({ insights, bookId, isLoading = false, renderAction, show
                 )}
 
                 {/* Action bar */}
-                <div className="flex items-center gap-6 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-5 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
-                  {showComment && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
+                  {showComment && <span className="flex items-center gap-1"><MessageCircle size={17} className="text-slate-600 dark:text-slate-400" /><span className="text-xs font-medium min-w-[12px] invisible">0</span></span>}
                   {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>
               </div>

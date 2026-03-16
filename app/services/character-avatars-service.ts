@@ -9,7 +9,91 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const REPLICATE_PROXY_URL = `${SUPABASE_URL}/functions/v1/replicate-proxy`;
 
-const GROK_PROMPT = `You are generating **image-generation prompts for literary characters**.
+// One-time cleanup: purge localStorage avatar caches with expired Replicate URLs
+if (typeof window !== 'undefined' && !localStorage.getItem('_avatar_cache_cleaned_v1')) {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key?.startsWith('avatars_')) {
+        const val = localStorage.getItem(key);
+        if (val && (val.includes('replicate.delivery') || val.includes('pbxt.replicate'))) {
+          keysToRemove.push(key);
+        }
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+    if (keysToRemove.length > 0) console.log(`[avatars] Cleaned ${keysToRemove.length} stale avatar caches`);
+    localStorage.setItem('_avatar_cache_cleaned_v1', '1');
+  } catch {}
+}
+
+// --- Avatar Style Configuration ---
+// Each style pairs a prompt style block with reference image URLs.
+// Switch the active style by changing ACTIVE_AVATAR_STYLE.
+
+interface AvatarStyle {
+  id: string;
+  name: string;
+  styleBlock: string;
+  referenceImages: string[];
+}
+
+const AVATAR_STYLES: AvatarStyle[] = [
+  {
+    id: 'flat-cartoon',
+    name: 'Flat Cartoon Icons',
+    styleBlock: `Style: Flat, minimalist cartoon icon illustration. Characters drawn with simple rounded shapes and smooth curves using medium-thick black outlines with consistent stroke weight. No perspective and no 3D shading. Faces extremely simplified with small dot eyes and a tiny curved mouth, minimal facial detail. Bodies stylized as head or small bust shapes.
+
+Color treatment uses flat solid fills with bright saturated colors, no gradients, textures, or lighting effects. The entire background is a single bold solid color filling the whole frame, contrasting with the character colors.
+
+Line style slightly imperfect and organic, giving a hand-drawn doodle feel rather than precise vector geometry.
+
+Overall aesthetic: playful children's-book / sticker-pack icon style, similar to simple indie mobile game icons or Duolingo-like mascots.`,
+    referenceImages: [
+      `${SUPABASE_URL}/storage/v1/object/public/public-assets/reference/style1.jpg`,
+    ],
+  },
+  {
+    id: 'style_3',
+    name: 'Three-Color Minimalist Avatars',
+    styleBlock: `Style: Flat minimalist vector avatar illustration using a strict three-color palette. Characters are drawn with clean, smooth medium-weight outlines and simple geometric shapes. The outline color typically uses the darkest color of the palette.
+
+Faces are extremely simplified: small oval or circular eyes, minimal curved nose, and a small curved smile. Expressions are calm and neutral.
+
+Hair and accessories are rendered as solid flat shapes with no texture, gradients, or shading.
+
+Color structure is strictly limited to three colors total:
+
+Background color
+
+Character base color
+
+Dark detail color for outlines, hair, and facial features
+
+Characters appear as side-angled head portraits (¾ view or profile) but eyes facing to the camera to the front.
+
+The background fills the entire 1:1 square canvas with a solid color. There is no circular frame. The character sits centered in the square with generous negative space.
+
+Overall aesthetic: clean, modern minimalist avatar icon style, similar to indie tech branding illustrations.
+
+No gradients. No shadows. No textures. No extra colors beyond the three-color palette.`,
+    referenceImages: [
+      `${SUPABASE_URL}/storage/v1/object/public/public-assets/reference/style3_1.png`,
+      `${SUPABASE_URL}/storage/v1/object/public/public-assets/reference/style_3_2.png`,
+    ],
+  },
+];
+
+const ACTIVE_AVATAR_STYLE = 'style_3';
+
+function getActiveStyle(): AvatarStyle {
+  return AVATAR_STYLES.find(s => s.id === ACTIVE_AVATAR_STYLE) || AVATAR_STYLES[0];
+}
+
+function buildGrokPrompt(): string {
+  const style = getActiveStyle();
+  return `You are generating **image-generation prompts for literary characters**.
 
 Input will contain only:
 
@@ -54,13 +138,8 @@ Rules:
 
 **Style block (must remain unchanged and appended to every prompt)**
 
-Style: Flat, minimalist cartoon icon illustration. Characters drawn with simple rounded shapes and smooth curves using medium-thick black outlines with consistent stroke weight. No perspective and no 3D shading. Faces extremely simplified with small dot eyes and a tiny curved mouth, minimal facial detail. Bodies stylized as head or small bust shapes.
-
-Color treatment uses flat solid fills with bright saturated colors, no gradients, textures, or lighting effects. The entire background is a single bold solid color filling the whole frame, contrasting with the character colors.
-
-Line style slightly imperfect and organic, giving a hand-drawn doodle feel rather than precise vector geometry.
-
-Overall aesthetic: playful children's-book / sticker-pack icon style, similar to simple indie mobile game icons or Duolingo-like mascots.`;
+${style.styleBlock}`;
+}
 
 interface GrokCharacterResponse {
   book: string;
@@ -79,7 +158,7 @@ async function getCharacterPrompts(bookTitle: string, author: string): Promise<G
 
   const payload = {
     messages: [
-      { role: "system", content: GROK_PROMPT },
+      { role: "system", content: buildGrokPrompt() },
       { role: "user", content: userMessage },
     ],
     model: "grok-4-1-fast-non-reasoning",
@@ -118,11 +197,11 @@ async function getCharacterPrompts(bookTitle: string, author: string): Promise<G
 
 // Step 2: Generate image via Replicate (proxy on web, direct on native)
 async function generateCharacterImage(prompt: string): Promise<string | null> {
-  const STYLE_REFERENCE_URL = `${SUPABASE_URL}/storage/v1/object/public/public-assets/reference/style1.jpg`;
+  const style = getActiveStyle();
 
   const imageInput = {
     prompt,
-    images: [STYLE_REFERENCE_URL],
+    images: style.referenceImages,
     aspect_ratio: '1:1',
     go_fast: false,
     output_format: 'webp',
@@ -249,8 +328,13 @@ export async function getCharacterAvatars(bookTitle: string, author: string): Pr
   // 0. Check localStorage first (instant)
   const localCached = getCached<CharacterAvatar[]>(localCacheKey);
   if (localCached && localCached.length > 0) {
-    console.log('[getCharacterAvatars] Found in localStorage');
-    return localCached;
+    const validLocal = localCached.filter(a =>
+      a.image_url && !a.image_url.includes('replicate.delivery') && !a.image_url.includes('pbxt.replicate')
+    );
+    if (validLocal.length > 0) {
+      console.log('[getCharacterAvatars] Found in localStorage');
+      return validLocal;
+    }
   }
 
   // 1. Check Supabase cache
@@ -263,10 +347,15 @@ export async function getCharacterAvatars(bookTitle: string, author: string): Pr
       .maybeSingle();
 
     if (!error && cached?.avatars) {
-      console.log('[getCharacterAvatars] Found in Supabase cache');
-      const avatars = cached.avatars as CharacterAvatar[];
-      setCache(localCacheKey, avatars);
-      return avatars;
+      const avatars = (cached.avatars as CharacterAvatar[]).filter(a =>
+        a.image_url && !a.image_url.includes('replicate.delivery') && !a.image_url.includes('pbxt.replicate')
+      );
+      if (avatars.length > 0) {
+        console.log('[getCharacterAvatars] Found in Supabase cache');
+        setCache(localCacheKey, avatars);
+        return avatars;
+      }
+      console.log('[getCharacterAvatars] Cached avatars have expired Replicate URLs, regenerating...');
     }
   } catch (err) {
     console.warn('[getCharacterAvatars] Cache check error:', err);

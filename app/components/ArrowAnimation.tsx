@@ -2,7 +2,7 @@
 
 import React, { useRef, useState } from 'react';
 import Lottie from 'lottie-react';
-import arrowAnimation from '@/public/arrow_anim.json';
+import arrowAnimation from '@/public/ArrowAnimation_new.json';
 
 const ArrowAnimation = React.memo(function ArrowAnimation({ isBookshelfEmpty = false, white = false, playOnce = false, opaque = false }: { isBookshelfEmpty?: boolean; white?: boolean; playOnce?: boolean; opaque?: boolean }) {
   const lottieRef = useRef<any>(null);

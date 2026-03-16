@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Headphones, Play, Pause, MessageCircle, Send } from 'lucide-react';
+import { Headphones, Play, Pause, X, MessageCircle, Send } from 'lucide-react';
 import { decodeHtmlEntities, useImageBrightness } from './utils';
 import { openSystemBrowser, openDeepLink, isNativePlatform } from '@/lib/capacitor';
 import { createPortal } from 'react-dom';
@@ -260,9 +260,10 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
                 )}
 
                 {/* Play button — opens tooltips or shows pause when previewing */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ zIndex: showTooltips ? 10000 : 1 }}>
                   <button
                     ref={playButtonRef}
+                    onTouchStart={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (audioPlaying) {
@@ -275,15 +276,17 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
                     }}
                     className="w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-95"
                     style={{
-                      background: 'rgba(255, 255, 255, 0.25)',
+                      background: showTooltips && !audioPlaying ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
                       backdropFilter: 'blur(9.4px)',
                       WebkitBackdropFilter: 'blur(9.4px)',
-                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      border: showTooltips && !audioPlaying ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
                       boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
                     }}
                   >
                     {audioPlaying ? (
                       <Pause size={24} className="text-white" fill="white" />
+                    ) : showTooltips ? (
+                      <X size={22} className="text-white" />
                     ) : (
                       <Play size={24} className="text-white ml-0.5" fill="white" />
                     )}
@@ -330,9 +333,9 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
                 )}
 
                 {/* Action bar */}
-                <div className="flex items-center gap-6 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-5 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
-                  {showComment && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
+                  {showComment && <span className="flex items-center gap-1"><MessageCircle size={17} className="text-slate-600 dark:text-slate-400" /><span className="text-xs font-medium min-w-[12px] invisible">0</span></span>}
                   {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>
               </div>

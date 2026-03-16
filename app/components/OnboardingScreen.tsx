@@ -135,7 +135,7 @@ export default function OnboardingScreen({
       <div
         className="fixed inset-0"
         style={{
-          backgroundColor: 'white',
+          backgroundColor: '#95DCFF',
           backgroundImage: `url(${getAssetPath('/bg.webp')})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',

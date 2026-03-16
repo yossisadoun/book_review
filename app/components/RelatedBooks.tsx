@@ -256,7 +256,12 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderActio
 
               {/* Two covers with chevron */}
               <div className="flex items-center justify-center gap-3 px-4 mt-2 mb-3">
-                <div className="relative flex-shrink-0">
+                <motion.div
+                  className="relative flex-shrink-0"
+                  initial={{ opacity: 0, x: -20, scale: 0.9 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  transition={{ duration: 0.4, delay: 0.1, ease: "easeOut" }}
+                >
                   {sourceBookCoverUrl ? (
                     <img src={sourceBookCoverUrl} alt={sourceBookTitle || 'Source book'} className="w-[70px] h-[106px] object-cover rounded-lg shadow-sm" />
                   ) : (
@@ -267,9 +272,20 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderActio
                   <div className="absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full bg-green-500 flex items-center justify-center shadow-sm">
                     <Check size={12} className="text-white" strokeWidth={3} />
                   </div>
-                </div>
-                <ChevronsRight size={18} className="text-slate-600 dark:text-slate-500 flex-shrink-0" />
-                <div className="flex-shrink-0 relative">
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.5 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.3, delay: 0.25, ease: "easeOut" }}
+                >
+                  <ChevronsRight size={18} className="text-slate-600 dark:text-slate-500 flex-shrink-0" />
+                </motion.div>
+                <motion.div
+                  className="flex-shrink-0 relative"
+                  initial={{ opacity: 0, x: 20, scale: 0.9 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  transition={{ duration: 0.4, delay: 0.2, ease: "easeOut" }}
+                >
                   {coverImage ? (
                     <img
                       src={coverImage}
@@ -306,7 +322,7 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderActio
                       Add
                     </button>
                   )}
-                </div>
+                </motion.div>
               </div>
 
               {/* Info below covers */}
@@ -336,9 +352,9 @@ function RelatedBooks({ books, bookId, isLoading = false, onAddBook, renderActio
                 )}
 
                 {/* Action bar */}
-                <div className="flex items-center gap-6 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-5 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
-                  {showComment && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
+                  {showComment && <span className="flex items-center gap-1"><MessageCircle size={17} className="text-slate-600 dark:text-slate-400" /><span className="text-xs font-medium min-w-[12px] invisible">0</span></span>}
                   {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>
               </div>

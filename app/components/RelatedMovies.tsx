@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Film, Play, Disc3, MessageCircle, Send } from 'lucide-react';
+import { Film, Play, Disc3, MessageCircle, Send, X } from 'lucide-react';
 import { decodeHtmlEntities, getAssetPath } from './utils';
 import { isNativePlatform } from '@/lib/capacitor';
 import { openSystemBrowser } from '@/lib/capacitor';
@@ -294,20 +294,21 @@ function RelatedMovies({ movies, bookId, isLoading = false, renderAction, showPl
 
                         {/* Play button centered on album cover */}
                         {hasPlayAction && (
-                          <div className="absolute inset-0 z-30 flex items-center justify-center">
+                          <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: musicModalData ? 10000 : 30 }}>
                             <button
                               ref={playButtonRef}
-                              onClick={handlePlayWatch}
+                              onTouchStart={(e) => e.stopPropagation()}
+                              onClick={(e) => { e.stopPropagation(); if (musicModalData) { setMusicModalData(null); } else { handlePlayWatch(e); } }}
                               className="w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-95"
                               style={{
-                                background: 'rgba(255, 255, 255, 0.25)',
+                                background: musicModalData ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
                                 backdropFilter: 'blur(9.4px)',
                                 WebkitBackdropFilter: 'blur(9.4px)',
-                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                border: musicModalData ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
                                 boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
                               }}
                             >
-                              <Play size={24} className="text-white ml-0.5" fill="white" />
+                              {musicModalData ? <X size={22} className="text-white" /> : <Play size={24} className="text-white ml-0.5" fill="white" />}
                             </button>
                           </div>
                         )}
@@ -345,20 +346,21 @@ function RelatedMovies({ movies, bookId, isLoading = false, renderAction, showPl
 
                     {/* Play button on image for watchable content */}
                     {hasWatchAction && (
-                      <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: watchModalData ? 10000 : 1 }}>
                         <button
                           ref={watchButtonRef}
-                          onClick={handlePlayWatch}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onClick={(e) => { e.stopPropagation(); if (watchModalData) { setWatchModalData(null); } else { handlePlayWatch(e); } }}
                           className="w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-95"
                           style={{
-                            background: 'rgba(255, 255, 255, 0.25)',
+                            background: watchModalData ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
                             backdropFilter: 'blur(9.4px)',
                             WebkitBackdropFilter: 'blur(9.4px)',
-                            border: '1px solid rgba(255, 255, 255, 0.3)',
+                            border: watchModalData ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
                             boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
                           }}
                         >
-                          <Play size={24} className="text-white ml-0.5" fill="white" />
+                          {watchModalData ? <X size={22} className="text-white" /> : <Play size={24} className="text-white ml-0.5" fill="white" />}
                         </button>
                       </div>
                     )}
@@ -405,9 +407,9 @@ function RelatedMovies({ movies, bookId, isLoading = false, renderAction, showPl
                 )}
 
                 {/* Action bar */}
-                <div className="flex items-center gap-6 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-5 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
-                  {showComment && <MessageCircle size={17} className="text-slate-600 dark:text-slate-400" />}
+                  {showComment && <span className="flex items-center gap-1"><MessageCircle size={17} className="text-slate-600 dark:text-slate-400" /><span className="text-xs font-medium min-w-[12px] invisible">0</span></span>}
                   {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>
               </div>

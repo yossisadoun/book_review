@@ -28,7 +28,6 @@ import {
   User,
   Users,
   MessageSquareQuote,
-  MessagesSquare,
   GripVertical,
   Trophy,
   Volume2,
@@ -5189,7 +5188,7 @@ export default function App() {
       <div
         className="fixed inset-0 text-slate-900 dark:text-slate-100 font-sans select-none overflow-hidden flex flex-col"
         style={{
-          backgroundColor: 'white',
+          backgroundColor: '#95DCFF',
           backgroundImage: `url(${getAssetPath('/bg.webp')})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
@@ -5574,7 +5573,7 @@ export default function App() {
                     <Birdhouse size={24} className="text-slate-950 dark:text-slate-50" />
                   )
                 ) : showChatPage ? (
-                  <MessageCircle size={24} className="text-slate-950 dark:text-slate-50" />
+                  <MessageSquareHeart size={24} className="text-slate-950 dark:text-slate-50" />
                 ) : showCreatePost ? (
                   <Plus size={24} className="text-slate-950 dark:text-slate-50" />
                 ) : showSortingResults ? (
@@ -6659,24 +6658,28 @@ export default function App() {
                             </div>
                           )}
                           {/* Play button */}
-                          <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: feedPodcastTooltip ? 10000 : 1 }}>
                             <button
-                              ref={(el) => { /* ref set on click */ }}
+                              onTouchStart={(e) => e.stopPropagation()}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 feedPlayButtonRef.current = e.currentTarget as HTMLButtonElement;
-                                setFeedPodcastTooltip({ url: episode?.url || '', audioUrl: episode?.audioUrl });
+                                if (feedPodcastTooltip) {
+                                  setFeedPodcastTooltip(null);
+                                } else {
+                                  setFeedPodcastTooltip({ url: episode?.url || '', audioUrl: episode?.audioUrl });
+                                }
                               }}
                               className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95"
                               style={{
-                                background: 'rgba(255, 255, 255, 0.25)',
+                                background: feedPodcastTooltip ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
                                 backdropFilter: 'blur(9.4px)',
                                 WebkitBackdropFilter: 'blur(9.4px)',
-                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                border: feedPodcastTooltip ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
                                 boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
                               }}
                             >
-                              <Play size={18} className="text-white ml-0.5" fill="white" />
+                              {feedPodcastTooltip ? <X size={16} className="text-white" /> : <Play size={18} className="text-white ml-0.5" fill="white" />}
                             </button>
                           </div>
                           {/* Bottom gradient */}
@@ -6977,10 +6980,13 @@ export default function App() {
                               {/* Play button — centered on album art */}
                               {(relatedWork?.itunes_url || relatedWork?.music_links) && (
                                 <button
+                                  onTouchStart={(e) => e.stopPropagation()}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     feedPlayButtonRef.current = e.currentTarget as HTMLButtonElement;
-                                    if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent) && relatedWork.itunes_url) {
+                                    if (feedMusicModalData) {
+                                      setFeedMusicModalData(null);
+                                    } else if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent) && relatedWork.itunes_url) {
                                       openDeepLink(relatedWork.itunes_url);
                                     } else if (relatedWork.music_links) {
                                       setFeedMusicModalData({ musicLinks: relatedWork.music_links, title: relatedWork.title || '', artist: relatedWork.director || '' });
@@ -6988,19 +6994,20 @@ export default function App() {
                                       window.open(`https://song.link/${relatedWork.itunes_url}`, '_blank');
                                     }
                                   }}
-                                  className="absolute z-30 w-10 h-10 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                                  className="absolute w-10 h-10 rounded-full flex items-center justify-center active:scale-95 transition-transform"
                                   style={{
+                                    zIndex: feedMusicModalData ? 10000 : 30,
                                     top: '50%',
                                     left: '50%',
                                     transform: 'translate(-50%, -50%)',
-                                    background: 'rgba(255, 255, 255, 0.25)',
+                                    background: feedMusicModalData ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
                                     backdropFilter: 'blur(9.4px)',
                                     WebkitBackdropFilter: 'blur(9.4px)',
-                                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                                    border: feedMusicModalData ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
                                     boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
                                   }}
                                 >
-                                  <Play size={16} className="text-white ml-0.5" fill="white" />
+                                  {feedMusicModalData ? <X size={16} className="text-white" /> : <Play size={16} className="text-white ml-0.5" fill="white" />}
                                 </button>
                               )}
                             </div>
@@ -7065,30 +7072,35 @@ export default function App() {
                           </div>
                           {/* Play button — centered on poster (feature-flagged for movies/shows) */}
                           {remoteFlags.related_work_play_buttons && (
-                          <div className="absolute inset-0 flex items-center justify-center z-30">
+                          <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: feedWatchModalData ? 10000 : 30 }}>
                             <button
+                              onTouchStart={(e) => e.stopPropagation()}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 feedPlayButtonRef.current = e.currentTarget as HTMLButtonElement;
-                                const wl = relatedWork?.watch_links;
-                                if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent) && wl?.apple) {
-                                  openSystemBrowser(wl.apple);
-                                } else if (wl && Object.keys(wl).some(k => k !== 'tmdb_url' && wl[k as keyof typeof wl])) {
-                                  setFeedWatchModalData({ watchLinks: wl, title: relatedWork?.title || '', year: relatedWork?.release_year });
-                                } else if (relatedWork?.itunes_url) {
-                                  window.open(relatedWork.itunes_url, '_blank');
+                                if (feedWatchModalData) {
+                                  setFeedWatchModalData(null);
+                                } else {
+                                  const wl = relatedWork?.watch_links;
+                                  if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent) && wl?.apple) {
+                                    openSystemBrowser(wl.apple);
+                                  } else if (wl && Object.keys(wl).some(k => k !== 'tmdb_url' && wl[k as keyof typeof wl])) {
+                                    setFeedWatchModalData({ watchLinks: wl, title: relatedWork?.title || '', year: relatedWork?.release_year });
+                                  } else if (relatedWork?.itunes_url) {
+                                    window.open(relatedWork.itunes_url, '_blank');
+                                  }
                                 }
                               }}
                               className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95"
                               style={{
-                                background: 'rgba(255, 255, 255, 0.25)',
+                                background: feedWatchModalData ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
                                 backdropFilter: 'blur(9.4px)',
                                 WebkitBackdropFilter: 'blur(9.4px)',
-                                border: '1px solid rgba(255, 255, 255, 0.3)',
+                                border: feedWatchModalData ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
                                 boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
                               }}
                             >
-                              <Play size={18} className="text-white ml-0.5" fill="white" />
+                              {feedWatchModalData ? <X size={18} className="text-white" /> : <Play size={18} className="text-white ml-0.5" fill="white" />}
                             </button>
                           </div>
                           )}
@@ -7966,13 +7978,21 @@ export default function App() {
                                           </div>
                                         )}
                                       </div>
-                                    ) : item.coverUrl ? (
-                                      <div className="w-12 h-12 rounded-full overflow-hidden shrink-0 bg-slate-200">
-                                        <img src={item.coverUrl} alt={item.title} className="w-full h-full object-cover" />
-                                      </div>
                                     ) : (
-                                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
-                                        <BookOpen size={18} className="text-white/60" />
+                                      /* Book chat: book cover behind, bookluver avatar on top offset right */
+                                      <div className="relative w-12 h-12 shrink-0">
+                                        {item.coverUrl ? (
+                                          <div className="w-10 h-10 rounded-full overflow-hidden absolute top-1 left-0 bg-slate-200">
+                                            <img src={item.coverUrl} alt={item.title} className="w-full h-full object-cover" />
+                                          </div>
+                                        ) : (
+                                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center absolute top-1 left-0">
+                                            <BookOpen size={14} className="text-white/60" />
+                                          </div>
+                                        )}
+                                        <div className="w-9 h-9 rounded-full overflow-hidden absolute bottom-0 right-0 bg-slate-200" style={{ border: '2px solid white', boxShadow: '0 1px 4px rgba(0,0,0,0.15)' }}>
+                                          <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
+                                        </div>
                                       </div>
                                     )}
                                     {/* Text content */}
@@ -8517,7 +8537,7 @@ export default function App() {
             }}
           >
             {/* Arrow Animation Overlay - only show on own bookshelf when grouped by status and no books in Reading */}
-            {!viewingUserId && bookshelfGrouping === 'reading_status' && books.filter(b => b.reading_status === 'reading').length === 0 && <ArrowAnimation isBookshelfEmpty={booksForBookshelf.length === 0} white playOnce opaque />}
+            {!viewingUserId && bookshelfGrouping === 'reading_status' && books.filter(b => b.reading_status === 'reading').length === 0 && <ArrowAnimation isBookshelfEmpty={booksForBookshelf.length === 0} playOnce opaque />}
 
             {/* Bookshelf Covers View */}
             <div
@@ -10071,8 +10091,8 @@ export default function App() {
 
               return (
                 <div className="w-full mt-3 px-2">
-                  <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-slate-500 mb-2 text-center">Chat about it with</p>
-                  <div className="flex items-center justify-center gap-3">
+                  <p className="text-[12px] uppercase tracking-[0.15em] font-bold text-slate-500 mb-2.5 text-center">Chat about it with</p>
+                  <div className="flex items-center justify-center gap-2.5">
                     {/* 1. General book chatbot */}
                     <button
                       onClick={() => {
@@ -10081,25 +10101,25 @@ export default function App() {
                         setShowChatPage(true);
                         setCharacterChatContext(null);
                       }}
-                      className="flex flex-col items-center gap-1 active:scale-95 transition-transform"
+                      className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
                     >
-                      <div className="w-12 h-12 rounded-full overflow-hidden" style={{ border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                      <div className="w-14 h-14 rounded-full overflow-hidden" style={{ border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
                         <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
                       </div>
-                      <span className="text-[9px] font-semibold text-slate-500 max-w-[56px] truncate">Book.luver</span>
+                      <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">Book.luver</span>
                     </button>
 
                     {/* 2-4. Character avatars (or loading skeletons) */}
                     {isLoadingAvatars ? (
                       [0, 1, 2].map(i => (
-                        <div key={`skel-${i}`} className="flex flex-col items-center gap-1">
+                        <div key={`skel-${i}`} className="flex flex-col items-center gap-1.5">
                           <motion.div
                             animate={{ opacity: [0.4, 0.7, 0.4] }}
                             transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut', delay: i * 0.2 }}
-                            className="w-12 h-12 rounded-full bg-slate-200/50"
+                            className="w-14 h-14 rounded-full bg-slate-200/50"
                             style={{ border: '2px solid rgba(148, 163, 184, 0.3)' }}
                           />
-                          <div className="w-8 h-2 rounded bg-slate-200/40 animate-pulse" />
+                          <div className="w-10 h-2.5 rounded bg-slate-200/40 animate-pulse" />
                         </div>
                       ))
                     ) : avatars.length > 0 ? (
@@ -10134,7 +10154,7 @@ export default function App() {
                               setLoadingCharacterChat(false);
                             }
                           }}
-                          className="flex flex-col items-center gap-1 active:scale-95 transition-transform"
+                          className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
                         >
                           <div className="relative">
                             {isThisLoading && (
@@ -10146,16 +10166,16 @@ export default function App() {
                               />
                             )}
                             <div
-                              className="w-12 h-12 rounded-full overflow-hidden"
+                              className="w-14 h-14 rounded-full overflow-hidden"
                               style={{
                                 border: isThisLoading ? '2px solid rgba(59, 130, 246, 0.4)' : '2px solid rgba(255, 255, 255, 0.5)',
                                 boxShadow: isThisLoading ? '0 0 12px rgba(59, 130, 246, 0.3)' : '0 2px 8px rgba(0,0,0,0.08)',
                               }}
                             >
-                              <img src={avatar.image_url} alt={avatar.character} className="w-full h-full object-cover" loading="lazy" />
+                              <img src={avatar.image_url} alt={avatar.character} className="w-full h-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).parentElement!.parentElement!.parentElement!.style.display = 'none'; }} />
                             </div>
                           </div>
-                          <span className="text-[9px] font-semibold text-slate-500 max-w-[56px] truncate">{avatar.character.split(' ')[0]}</span>
+                          <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">{avatar.character.split(' ')[0]}</span>
                         </motion.button>
                         );
                       })
@@ -10187,19 +10207,19 @@ export default function App() {
                         finally { setIsLoadingTelegramTopic(false); }
                       }}
                       disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
-                      className="flex flex-col items-center gap-1 active:scale-95 transition-transform disabled:opacity-50"
+                      className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform disabled:opacity-50"
                     >
                       <div
-                        className="w-12 h-12 rounded-full flex items-center justify-center"
+                        className="w-14 h-14 rounded-full flex items-center justify-center"
                         style={{ background: 'linear-gradient(135deg, #dbeafe, #c7d2fe)', border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
                       >
                         {isLoadingTelegramTopic ? (
-                          <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full" />
+                          <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-5 h-5 border-2 border-slate-500 border-t-transparent rounded-full" />
                         ) : (
-                          <MessagesSquare size={18} className="text-indigo-500" />
+                          <MessageSquareHeart size={22} className="text-indigo-500" />
                         )}
                       </div>
-                      <span className="text-[9px] font-semibold text-slate-500 max-w-[56px] truncate">Group</span>
+                      <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">Group</span>
                     </button>
                   </div>
                 </div>
@@ -10418,7 +10438,7 @@ export default function App() {
                               className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full"
                             />
                           ) : (
-                            <MessagesSquare size={16} className="text-slate-700 dark:text-slate-300" />
+                            <MessageSquareHeart size={16} className="text-slate-700 dark:text-slate-300" />
                           )}
                         </button>
                       )}
@@ -10517,7 +10537,7 @@ export default function App() {
                         {isLoadingTelegramTopic ? (
                           <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full" />
                         ) : (
-                          <MessagesSquare size={16} className="text-slate-700 dark:text-slate-300" />
+                          <MessageSquareHeart size={16} className="text-slate-700 dark:text-slate-300" />
                         )}
                       </button>
                     )}
@@ -13413,7 +13433,7 @@ export default function App() {
               }}
               onClick={(e) => e.stopPropagation()}
             >
-              <MessagesSquare size={32} className="text-blue-600 dark:text-blue-400 mx-auto mb-3" />
+              <MessageSquareHeart size={32} className="text-blue-600 dark:text-blue-400 mx-auto mb-3" />
               <h3 className="text-lg font-bold text-slate-950 dark:text-slate-50 mb-2">Join the Book Chat</h3>
               <p className="text-sm text-slate-600 dark:text-slate-400 mb-5">
                 To discuss this book with others, first join our Telegram group. Then come back and tap the chat button again to jump straight to the conversation.

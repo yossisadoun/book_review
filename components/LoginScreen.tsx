@@ -69,7 +69,7 @@ const [guestLoading, setGuestLoading] = useState(false);
     <div
       className="fixed inset-0 flex flex-col items-center justify-center p-4 overflow-y-auto"
       style={{
-        backgroundColor: 'white',
+        backgroundColor: '#95DCFF',
         backgroundImage: `url(${getAssetPath('/bg.webp')})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
@@ -213,7 +213,7 @@ const [guestLoading, setGuestLoading] = useState(false);
             {guestLoading ? (
               <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
             ) : (
-              <span className="text-gray-300 text-[14px] underline underline-offset-2">Start as guest</span>
+              <span className="text-[14px] underline underline-offset-2" style={{ color: '#FF007B' }}>Start as guest</span>
             )}
           </button>
         )}

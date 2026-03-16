@@ -256,7 +256,7 @@ export function BookLoading() {
       <div
         className="fixed inset-0 flex items-center justify-center z-50"
         style={{
-          backgroundColor: 'white',
+          backgroundColor: '#95DCFF',
           backgroundImage: `url(${getAssetPath('/bg.webp')})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',

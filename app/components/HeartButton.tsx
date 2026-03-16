@@ -24,11 +24,9 @@ function HeartButton({ contentHash, count, isHearted, onToggle, size = 14 }: Hea
         size={size}
         className={isHearted ? 'fill-pink-500 text-pink-500' : 'text-slate-600 dark:text-slate-400'}
       />
-      {count > 0 && (
-        <span className={`text-xs font-medium ${isHearted ? 'text-pink-500' : 'text-slate-400'}`}>
-          {count}
-        </span>
-      )}
+      <span className={`text-xs font-medium min-w-[12px] ${count > 0 ? (isHearted ? 'text-pink-500' : 'text-slate-400') : 'invisible'}`}>
+        {count || 1}
+      </span>
     </button>
   );
 }
