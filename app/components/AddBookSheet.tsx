@@ -131,15 +131,11 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
       const lowerQuery = query.toLowerCase().trim();
       const filtered = books.filter(book => {
         if (book.title.toLowerCase().includes(lowerQuery) || book.author.toLowerCase().includes(lowerQuery)) return true;
-        // In chat_picker mode, also match character names from both sources
-        if (mode === 'chat_picker') {
-          const avatars = characterAvatars?.get(book.id) || [];
-          if (avatars.some(a => a.character.toLowerCase().includes(lowerQuery))) return true;
-          if (characterChatList) {
-            const normalTitle = book.title.toLowerCase().trim();
-            const normalAuthor = book.author.toLowerCase().trim();
-            if (characterChatList.some(c => c.book_title.toLowerCase().trim() === normalTitle && c.book_author.toLowerCase().trim() === normalAuthor && c.character_name.toLowerCase().includes(lowerQuery))) return true;
-          }
+        // In chat_picker mode, also match character names with active chats
+        if (mode === 'chat_picker' && characterChatList) {
+          const normalTitle = book.title.toLowerCase().trim();
+          const normalAuthor = book.author.toLowerCase().trim();
+          if (characterChatList.some(c => c.book_title.toLowerCase().trim() === normalTitle && c.book_author.toLowerCase().trim() === normalAuthor && c.character_name.toLowerCase().includes(lowerQuery))) return true;
         }
         return false;
       });
@@ -537,7 +533,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
                         onClose();
                       }}
                       className="w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left active:opacity-80"
-                      style={{ border: '1px solid rgba(0, 0, 0, 0.08)' }}
+                      style={{ border: '1px solid rgba(0, 0, 0, 0.08)', background: 'rgba(255, 255, 255, 0.55)' }}
                     >
                       <div className="relative w-12 h-12 shrink-0">
                         <div className="w-10 h-10 rounded-full flex items-center justify-center absolute top-1 left-0"
@@ -565,28 +561,21 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
                       return a.title.localeCompare(b.title);
                     });
                     // Build flat list: book chat row + character chat rows per book
-                    // Merge characterAvatars (loaded on book view) with characterChatList (active chats from DB)
+                    // Only show characters with active chats (context already generated)
                     const rows: Array<{ type: 'book'; book: BookWithRatings; index: number } | { type: 'character'; book: BookWithRatings; character: string; avatarUrl: string; index: number }> = [];
                     let idx = 0;
                     for (const book of sorted) {
                       rows.push({ type: 'book', book, index: idx++ });
-                      // Collect characters from both sources, deduplicate by name
-                      const seen = new Set<string>();
-                      const loadedAvatars = characterAvatars?.get(book.id) || [];
-                      for (const avatar of loadedAvatars) {
-                        if (!seen.has(avatar.character)) {
-                          seen.add(avatar.character);
-                          rows.push({ type: 'character', book, character: avatar.character, avatarUrl: avatar.image_url, index: idx++ });
-                        }
-                      }
-                      // Add characters from active chat list that weren't in loaded avatars
                       if (characterChatList) {
                         const normalTitle = book.title.toLowerCase().trim();
                         const normalAuthor = book.author.toLowerCase().trim();
+                        const seen = new Set<string>();
                         for (const chat of characterChatList) {
                           if (chat.book_title.toLowerCase().trim() === normalTitle && chat.book_author.toLowerCase().trim() === normalAuthor && !seen.has(chat.character_name)) {
                             seen.add(chat.character_name);
-                            rows.push({ type: 'character', book, character: chat.character_name, avatarUrl: chat.avatar_url || '', index: idx++ });
+                            // Prefer avatar from characterAvatars if available (higher quality)
+                            const loadedAvatar = characterAvatars?.get(book.id)?.find(a => a.character === chat.character_name);
+                            rows.push({ type: 'character', book, character: chat.character_name, avatarUrl: loadedAvatar?.image_url || chat.avatar_url || '', index: idx++ });
                           }
                         }
                       }
@@ -607,7 +596,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
                         onClose();
                       }}
                       className="w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left active:opacity-80"
-                      style={{ border: '1px solid rgba(0, 0, 0, 0.05)' }}
+                      style={{ border: '1px solid rgba(0, 0, 0, 0.05)', background: 'rgba(255, 255, 255, 0.55)' }}
                     >
                       <div className="relative w-12 h-12 shrink-0">
                         {item.book.cover_url ? (
@@ -642,28 +631,54 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
                         }
                         onClose();
                       }}
-                      className="w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left active:opacity-80"
-                      style={{ border: '1px solid rgba(0, 0, 0, 0.08)' }}
+                      className={mode === 'chat_picker'
+                        ? "w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left active:opacity-80"
+                        : "w-full flex items-center gap-3 p-3 bg-blue-50/80 backdrop-blur-md hover:bg-blue-100/85 rounded-xl border border-blue-200/30 shadow-sm transition-all text-left"
+                      }
+                      style={mode === 'chat_picker' ? { border: '1px solid rgba(0, 0, 0, 0.08)', background: 'rgba(255, 255, 255, 0.55)' } : undefined}
                     >
-                      <div className="relative w-12 h-12 shrink-0">
-                        {item.book.cover_url ? (
-                          <div className="w-10 h-10 rounded-full overflow-hidden absolute top-1 left-0 bg-slate-200">
-                            <img src={item.book.cover_url} alt={item.book.title} className="w-full h-full object-cover" />
+                      {mode === 'chat_picker' ? (
+                        <div className="relative w-12 h-12 shrink-0">
+                          {item.book.cover_url ? (
+                            <div className="w-10 h-10 rounded-full overflow-hidden absolute top-1 left-0 bg-slate-200">
+                              <img src={item.book.cover_url} alt={item.book.title} className="w-full h-full object-cover" />
+                            </div>
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center absolute top-1 left-0">
+                              <BookOpen size={14} className="text-white/60" />
+                            </div>
+                          )}
+                          <div className="w-9 h-9 rounded-full overflow-hidden absolute bottom-0 right-0 bg-slate-200" style={{ border: '2px solid white', boxShadow: '0 1px 4px rgba(0,0,0,0.15)' }}>
+                            <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
                           </div>
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center absolute top-1 left-0">
-                            <BookOpen size={14} className="text-white/60" />
-                          </div>
-                        )}
-                        <div className="w-9 h-9 rounded-full overflow-hidden absolute bottom-0 right-0 bg-slate-200" style={{ border: '2px solid white', boxShadow: '0 1px 4px rgba(0,0,0,0.15)' }}>
-                          <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
                         </div>
-                      </div>
+                      ) : item.book.cover_url ? (
+                        <img src={item.book.cover_url} alt={item.book.title} className="w-12 h-16 object-cover rounded flex-shrink-0" />
+                      ) : (
+                        <div className="w-12 h-16 bg-blue-100 rounded flex-shrink-0 flex items-center justify-center">
+                          <BookOpen size={20} className="text-blue-600" />
+                        </div>
+                      )}
                       <div className="flex-1 min-w-0">
-                        <p className="text-[15px] font-semibold text-slate-800 truncate">{item.book.title}</p>
-                        <p className="text-[13px] text-slate-500 truncate">{item.book.author}</p>
+                        {mode === 'chat_picker' ? (
+                          <>
+                            <p className="text-[15px] font-semibold text-slate-800 truncate">{item.book.title}</p>
+                            <p className="text-[13px] text-slate-500 truncate">{item.book.author}</p>
+                          </>
+                        ) : (
+                          <>
+                            <h3 className="text-sm font-bold text-slate-950 truncate">{item.book.title}</h3>
+                            <p className="text-xs text-slate-800 truncate">{item.book.author}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              {item.book.publish_year && (
+                                <p className="text-[10px] text-slate-600">{item.book.publish_year}</p>
+                              )}
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-blue-700 bg-blue-100">Your Book</span>
+                            </div>
+                          </>
+                        )}
                       </div>
-                      <MessageSquareHeart size={16} className="text-slate-400 shrink-0" />
+                      {mode === 'chat_picker' && <MessageSquareHeart size={16} className="text-slate-400 shrink-0" />}
                     </motion.button>
                   ))}
                 </motion.div>

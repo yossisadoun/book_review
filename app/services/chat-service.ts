@@ -9,6 +9,7 @@ export interface ChatListItem {
   last_message: string;
   last_message_at: string;
   message_count: number;
+  cover_url?: string;
 }
 
 export async function getChatList(): Promise<ChatListItem[]> {
@@ -53,6 +54,45 @@ export async function deleteChatForBook(bookId: string): Promise<void> {
   if (error) {
     console.error('[deleteChatForBook] Error:', error);
   }
+}
+
+/** Look up cover URLs for orphaned chats (book deleted but chat remains) from feed_items cache */
+export async function lookupOrphanedChatCoverUrls(orphanedChats: ChatListItem[]): Promise<Map<string, string>> {
+  const coverMap = new Map<string, string>();
+  if (orphanedChats.length === 0) return coverMap;
+
+  // Try feed_items — has source_book_cover_url. Use original titles (stored as-is).
+  const titles = [...new Set(orphanedChats.map(c => c.book_title))];
+  const { data } = await supabase
+    .from('feed_items')
+    .select('source_book_title, source_book_cover_url')
+    .in('source_book_title', titles)
+    .not('source_book_cover_url', 'is', null)
+    .limit(100);
+
+  for (const row of data || []) {
+    if (row.source_book_cover_url) {
+      coverMap.set(row.source_book_title.toLowerCase().trim(), row.source_book_cover_url);
+    }
+  }
+  return coverMap;
+}
+
+/** Reassign orphaned book_chats to a newly added book (matching by title+author) */
+export async function reassignChatsToBook(newBookId: string, bookTitle: string, bookAuthor: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('book_chats')
+    .update({ book_id: newBookId })
+    .ilike('book_title', bookTitle.trim())
+    .ilike('book_author', bookAuthor.trim())
+    .neq('book_id', newBookId)
+    .select('id');
+
+  if (error) {
+    console.error('[reassignChatsToBook] Error:', error);
+    return 0;
+  }
+  return data?.length || 0;
 }
 
 export interface ChatMessage {

@@ -25,7 +25,7 @@ import {
 import type { BookWithRatings } from '../types';
 
 interface BookChatProps {
-  book: BookWithRatings;
+  book: { id: string; title: string; author: string; cover_url?: string | null; reading_status?: string | null; [key: string]: any };
   bookContext: BookChatContext;
   onBack: () => void;
   onAddBook?: (meta: any) => void;
@@ -70,7 +70,7 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
         'Tell me about yourself',
         'What was the hardest thing you went through?',
       ]
-    : getStarterPrompts(book.reading_status || null, bookContext.generalMode);
+    : getStarterPrompts((book.reading_status as any) || null, bookContext.generalMode);
 
   // Cleanup streaming timer on unmount
   useEffect(() => {

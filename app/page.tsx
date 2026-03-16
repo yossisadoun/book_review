@@ -142,7 +142,7 @@ import AddBookSheet from './components/AddBookSheet';
 import ConnectAccountModal from './components/ConnectAccountModal';
 import BookChat from './components/BookChat';
 import NotesEditorOverlay from './components/NotesEditorOverlay';
-import { getChatList, deleteChatForBook, getCharacterChatList, deleteCharacterChat, type ChatListItem, type CharacterChatListItem, type BookChatContext } from './services/chat-service';
+import { getChatList, deleteChatForBook, getCharacterChatList, deleteCharacterChat, lookupOrphanedChatCoverUrls, reassignChatsToBook, type ChatListItem, type CharacterChatListItem, type BookChatContext } from './services/chat-service';
 import { getCached, setCache, CACHE_KEYS } from './services/cache-service';
 import HeartButton from './components/HeartButton';
 import { getContentHash, toggleHeart, loadHearts } from './services/heart-service';
@@ -699,7 +699,10 @@ export default function App() {
   const [chatList, setChatList] = useState<ChatListItem[]>([]);
   const [characterChatList, setCharacterChatList] = useState<CharacterChatListItem[]>([]);
   const [chatListLoading, setChatListLoading] = useState(false);
+  const [orphanedChatBook, setOrphanedChatBook] = useState<{ id: string; title: string; author: string; cover_url?: string | null } | null>(null);
+  useEffect(() => { if (!chatBookSelected) setOrphanedChatBook(null); }, [chatBookSelected]);
   const [chatSwipeId, setChatSwipeId] = useState<string | null>(null);
+  const [deletingChatKey, setDeletingChatKey] = useState<string | null>(null);
   const chatSwipeRef = useRef<{ startX: number; currentX: number; bookId: string } | null>(null);
   const [chatPullDistance, setChatPullDistance] = useState(0);
   const [chatRefreshing, setChatRefreshing] = useState(false);
@@ -1946,11 +1949,20 @@ export default function App() {
     (async () => {
       setChatListLoading(true);
       const [list, charList] = await Promise.all([getChatList(), getCharacterChatList()]);
-      if (!cancelled) {
-        setChatList(list);
-        setCharacterChatList(charList);
-        setChatListLoading(false);
+      if (cancelled) return;
+      // Enrich orphaned chats (deleted books) with cover URLs from cache
+      const bookIds = new Set(books.map(b => b.id));
+      const orphaned = list.filter(c => c.book_id !== '00000000-0000-0000-0000-000000000000' && !bookIds.has(c.book_id));
+      if (orphaned.length > 0) {
+        const coverMap = await lookupOrphanedChatCoverUrls(orphaned);
+        for (const chat of orphaned) {
+          const cover = coverMap.get(chat.book_title.toLowerCase().trim());
+          if (cover) chat.cover_url = cover;
+        }
       }
+      setChatList(list);
+      setCharacterChatList(charList);
+      setChatListLoading(false);
     })();
     return () => { cancelled = true; };
   }, [showChatPage, chatBookSelected]);
@@ -4786,6 +4798,10 @@ export default function App() {
           
           // Success on retry - continue with retryData
           const newBook = convertBookToApp(retryData);
+          // Reconnect orphaned chats from a previously deleted copy of this book
+          reassignChatsToBook(newBook.id, newBook.title, newBook.author || '').then(count => {
+            if (count > 0) console.log(`[handleAddBook] Reconnected ${count} orphaned chat messages to new book`);
+          });
           // Trigger book page onboarding for first book
           if (books.length === 0 && !localStorage.getItem('hasSeenBookPageOnboarding')) {
             setTimeout(() => { setShowBookPageOnboarding(true); }, 800);
@@ -4846,6 +4862,10 @@ export default function App() {
 
       const newBook = convertBookToApp(data);
       triggerSuccessHaptic();
+      // Reconnect orphaned chats from a previously deleted copy of this book
+      reassignChatsToBook(newBook.id, newBook.title, newBook.author || '').then(count => {
+        if (count > 0) console.log(`[handleAddBook] Reconnected ${count} orphaned chat messages to new book`);
+      });
       // Trigger book page onboarding for first book
       if (books.length === 0 && !localStorage.getItem('hasSeenBookPageOnboarding')) {
         setTimeout(() => { setShowBookPageOnboarding(true); }, 800);
@@ -7533,6 +7553,27 @@ export default function App() {
                   if (chatOpenedFromBookPage.current) { chatOpenedFromBookPage.current = false; setShowChatPage(false); }
                 }}
               />
+            ) : chatBookSelected && orphanedChatBook ? (
+              <BookChat
+                book={orphanedChatBook}
+                bookContext={{
+                  title: orphanedChatBook.title,
+                  author: orphanedChatBook.author,
+                  readingStatus: null,
+                }}
+                onBack={() => {
+                  setChatBookSelected(false);
+                  setOrphanedChatBook(null);
+                  setScrollY(0);
+                  if (chatOpenedFromBookPage.current) { chatOpenedFromBookPage.current = false; setShowChatPage(false); }
+                }}
+                onAddBook={async (meta) => {
+                  setChatBookSelected(false);
+                  setOrphanedChatBook(null);
+                  setShowChatPage(false);
+                  await handleAddBook(meta);
+                }}
+              />
             ) : chatBookSelected && activeBook ? (
               <BookChat
                 book={activeBook}
@@ -7775,7 +7816,7 @@ export default function App() {
                         message_count: chat.message_count,
                         isReading: matchingBook?.reading_status === 'reading',
                         book_id: chat.book_id,
-                        coverUrl: matchingBook?.cover_url || undefined,
+                        coverUrl: matchingBook?.cover_url || chat.cover_url || undefined,
                         matchingBook,
                       });
                     }
@@ -7828,14 +7869,19 @@ export default function App() {
                     const sortedItems = [...withMessages, ...placeholders];
 
                     const handleDeleteChat = async (bookId: string) => {
-                      setChatList(prev => prev.filter(c => c.book_id !== bookId));
+                      setDeletingChatKey(bookId);
                       setChatSwipeId(null);
-                      setDismissedChatIds(prev => {
-                        const next = new Set(prev);
-                        next.add(bookId);
-                        localStorage.setItem('dismissedChatIds', JSON.stringify([...next]));
-                        return next;
-                      });
+                      // Wait for exit animation then remove from state
+                      setTimeout(() => {
+                        setChatList(prev => prev.filter(c => c.book_id !== bookId));
+                        setDismissedChatIds(prev => {
+                          const next = new Set(prev);
+                          next.add(bookId);
+                          localStorage.setItem('dismissedChatIds', JSON.stringify([...next]));
+                          return next;
+                        });
+                        setDeletingChatKey(null);
+                      }, 300);
                       await deleteChatForBook(bookId);
                     };
 
@@ -7877,8 +7923,16 @@ export default function App() {
                             {activeItems.map((item, i) => {
                               const isSwiped = chatSwipeId === item.key;
                               const showDivider = i < activeItems.length - 1;
+                              const isDeleting = deletingChatKey === item.key;
                               return (
-                                <div key={item.key} className="relative" {...swipeHandlers(item.key)}>
+                                <motion.div
+                                  key={item.key}
+                                  className="relative"
+                                  animate={{ opacity: isDeleting ? 0 : 1, height: isDeleting ? 0 : 'auto', marginBottom: isDeleting ? 0 : undefined }}
+                                  transition={{ duration: 0.3, ease: 'easeOut' }}
+                                  style={{ overflow: isDeleting ? 'hidden' : undefined }}
+                                  {...swipeHandlers(item.key)}
+                                >
                                   {/* Delete button behind */}
                                   <div
                                     className="absolute right-0 top-0 bottom-0 w-20 flex items-center justify-center bg-red-500/10 rounded-r-xl"
@@ -7887,8 +7941,12 @@ export default function App() {
                                     <button
                                       onClick={async () => {
                                         if (item.type === 'character') {
-                                          setCharacterChatList(prev => prev.filter(c => !(c.character_name === item.character_name && c.book_title === item.book_title)));
+                                          setDeletingChatKey(item.key);
                                           setChatSwipeId(null);
+                                          setTimeout(() => {
+                                            setCharacterChatList(prev => prev.filter(c => !(c.character_name === item.character_name && c.book_title === item.book_title)));
+                                            setDeletingChatKey(null);
+                                          }, 300);
                                           await deleteCharacterChat(item.character_name!, item.book_title!);
                                         } else {
                                           handleDeleteChat(item.book_id!);
@@ -7932,6 +7990,14 @@ export default function App() {
                                         } else if (item.matchingBook) {
                                           const idx = books.indexOf(item.matchingBook);
                                           if (idx >= 0) setSelectedIndex(idx);
+                                        } else if (item.book_id) {
+                                          // Orphaned chat — book was deleted, construct lightweight book object
+                                          setOrphanedChatBook({
+                                            id: item.book_id,
+                                            title: item.title,
+                                            author: item.subtitle || '',
+                                            cover_url: item.coverUrl || null,
+                                          });
                                         }
                                         if (dismissedChatIds.has(item.book_id!)) {
                                           setDismissedChatIds(prev => {
@@ -8017,10 +8083,10 @@ export default function App() {
                                       </div>
                                     </div>
                                   </button>
-                                  {showDivider && (
+                                  {showDivider && !isDeleting && (
                                     <div className="ml-[72px] mr-3 h-px bg-slate-200/60" />
                                   )}
-                                </div>
+                                </motion.div>
                               );
                             })}
                           </div>
