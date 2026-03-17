@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Headphones, Play, Pause, X, MessageCircle, Send } from 'lucide-react';
+import { Headphones, Play, Pause, X, MessageCircle, Send, StickyNote } from 'lucide-react';
 import { decodeHtmlEntities, useImageBrightness } from './utils';
 import { openSystemBrowser, openDeepLink, isNativePlatform } from '@/lib/capacitor';
+import { analytics } from '../services/analytics-service';
 import { createPortal } from 'react-dom';
 
 const ApplePodcastsIcon = () => (
@@ -31,11 +32,13 @@ interface PodcastEpisodesProps {
   bookId: string;
   isLoading?: boolean;
   renderAction?: (index: number) => React.ReactNode;
+  onPin?: (index: number) => void;
+  isPinned?: (index: number) => boolean;
   showComment?: boolean;
   showSend?: boolean;
 }
 
-function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, showComment = true, showSend = true }: PodcastEpisodesProps) {
+function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, onPin, isPinned, showComment = true, showSend = true }: PodcastEpisodesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
@@ -66,6 +69,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
   }, []);
 
   function handleNext() {
+    analytics.trackEvent('podcasts', 'next_card');
     stopAudio();
     setShowTooltips(false);
     setIsTransitioning(true);
@@ -108,7 +112,9 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
 
     if (audioPlaying) {
       stopAudio();
+      analytics.trackEvent('podcasts', 'pause', { podcast_name: episode.podcast_name, episode_title: episode.title });
     } else {
+      analytics.trackEvent('podcasts', 'play', { podcast_name: episode.podcast_name, episode_title: episode.title });
       const audio = new Audio(episode.audioUrl);
       audio.onended = () => setAudioPlaying(false);
       audio.onerror = () => {
@@ -128,6 +134,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
   const handleOpenPodcast = (e: React.MouseEvent) => {
     e.stopPropagation();
     setShowTooltips(false);
+    analytics.trackEvent('podcasts', 'open_external', { podcast_name: episodes[currentIndex].podcast_name, episode_title: episodes[currentIndex].title });
     if (isNativePlatform) {
       openDeepLink(episodes[currentIndex].url);
     } else {
@@ -335,6 +342,7 @@ function PodcastEpisodes({ episodes, bookId, isLoading = false, renderAction, sh
                 {/* Action bar */}
                 <div className="flex items-center gap-5 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
+                  {onPin && <button onClick={() => onPin(currentIndex)} className="active:scale-90 transition-transform"><StickyNote size={17} className={isPinned?.(currentIndex) ? 'fill-black dark:fill-white text-white dark:text-black' : 'text-slate-600 dark:text-slate-400'} /></button>}
                   {showComment && <span className="flex items-center gap-1"><MessageCircle size={17} className="text-slate-600 dark:text-slate-400" /><span className="text-xs font-medium min-w-[12px] invisible">0</span></span>}
                   {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>

@@ -3,9 +3,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, BookOpen, Headphones, Play, Pause, BookMarked, FileText, ExternalLink, X, CheckCircle2, Film, Disc3, Library, CornerDownRight } from 'lucide-react';
-import { openSystemBrowser, isNativePlatform } from '@/lib/capacitor';
+import { Send, BookOpen, Headphones, Play, Pause, BookMarked, FileText, ExternalLink, X, CheckCircle2, Film, Disc3, Library, CornerDownRight, Copy, Reply, Trash2, Check, ChevronDown } from 'lucide-react';
+import GifPicker from './GifPicker';
+import type { KlipyGif } from '../services/klipy-service';
+import { openSystemBrowser, isNativePlatform, triggerLightHaptic, triggerMediumHaptic } from '@/lib/capacitor';
 import { getAssetPath } from './utils';
+import { analytics } from '../services/analytics-service';
 import { getCached, setCache, CACHE_KEYS } from '../services/cache-service';
 import MusicModal from './MusicModal';
 import type { MusicLinks } from '../types';
@@ -13,11 +16,13 @@ import {
   sendChatMessage,
   loadChatHistory,
   saveChatMessages,
+  deleteChatMessage,
   getStarterPrompts,
   sendCharacterChatMessage,
   generateCharacterGreeting,
   loadCharacterChatHistory,
   saveCharacterChatMessages,
+  markProactiveReplied,
   type ChatMessage,
   type BookChatContext,
   type CharacterChatContext,
@@ -63,6 +68,17 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
   const [streamingCardLoading, setStreamingCardLoading] = useState(false);
   const streamingRef = useRef<{ timer: ReturnType<typeof setTimeout> | null }>({ timer: null });
   const [dynamicSuggestions, setDynamicSuggestions] = useState<string[]>([]);
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<{ msg: ChatMessage; index: number } | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
+  const menuOpenedAtRef = useRef<number>(0);
+  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set());
+  const [swipeState, setSwipeState] = useState<{ index: number; offsetX: number } | null>(null);
+  const swipeStartRef = useRef<{ x: number; y: number; index: number; msg: ChatMessage; decided: boolean; isSwipe: boolean } | null>(null);
 
   const starterPrompts = isCharacterChat
     ? [
@@ -162,8 +178,15 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
 
 
   const handleSend = useCallback(async (text?: string) => {
-    const messageText = (text || input).trim();
+    let messageText = (text || input).trim();
     if (!messageText || isLoading || streamingSegments !== null) return;
+
+    // Prepend reply quote if replying
+    if (replyingTo && !messageText.startsWith('[[gif:')) {
+      const quoteText = replyingTo.content.replace(/^\[\[gif:.*?\|(.*?)\]\]$/, '[GIF: $1]').slice(0, 80);
+      messageText = `> ${quoteText}${replyingTo.content.length > 80 ? '...' : ''}\n\n${messageText}`;
+    }
+    setReplyingTo(null);
 
     const now = new Date().toISOString();
     const userMessage: ChatMessage = { role: 'user', content: messageText, created_at: now };
@@ -171,16 +194,28 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
     setMessages(updatedMessages);
     setInput('');
     setIsLoading(true);
+    analytics.trackEvent('chat', 'send_message', { chat_type: isCharacterChat ? 'character' : 'book', message_length: messageText.length });
     setDynamicSuggestions([]);
 
+    // Reset textarea height after clearing input, then re-focus to keep keyboard open
     if (inputRef.current) {
-      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = '20px';
+      inputRef.current.focus();
     }
 
     try {
+      // Transform GIF markers to human-readable descriptions for the LLM
+      const messagesForAI = updatedMessages.map(m => {
+        const gm = m.content.match(/^\[\[gif:(.*?)\|(.*?)\]\]$/);
+        if (gm && m.role === 'user') {
+          return { ...m, content: `[User sent a GIF: "${gm[2]}"]` };
+        }
+        return m;
+      });
+
       let response = isCharacterChat
-        ? await sendCharacterChatMessage(updatedMessages.slice(-20), characterContext!)
-        : await sendChatMessage(updatedMessages, bookContext);
+        ? await sendCharacterChatMessage(messagesForAI.slice(-20), characterContext!)
+        : await sendChatMessage(messagesForAI, bookContext);
 
       // Parse dynamic suggestions from response
       const suggestionsMatch = response.split('|||SUGGESTIONS|||');
@@ -217,7 +252,18 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
           if (isCharacterChat) {
             saveCharacterChatMessages(characterContext!.bookTitle, characterContext!.bookAuthor, characterContext!.characterName, [userMessage, assistantMessage]);
           } else {
-            saveChatMessages(book.id, book.title, book.author, [userMessage, assistantMessage]);
+            saveChatMessages(book.id, book.title, book.author, [userMessage, assistantMessage]).then(ids => {
+              if (ids.length === 2) {
+                setMessages(prev => prev.map(m => {
+                  if (m === userMessage) return { ...m, id: ids[0] };
+                  if (m === assistantMessage) return { ...m, id: ids[1] };
+                  return m;
+                }));
+              }
+            });
+            // Mark any pending proactive messages as replied
+            const chatKey = bookContext.generalMode ? 'general' : book.id;
+            markProactiveReplied(chatKey);
           }
           return;
         }
@@ -281,7 +327,150 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
         inputRef.current?.focus();
       }
     }
-  }, [input, isLoading, messages, bookContext, book.id, book.title, book.author, isCharacterChat, characterContext]);
+  }, [input, isLoading, messages, bookContext, book.id, book.title, book.author, isCharacterChat, characterContext, replyingTo]);
+
+  const handleGifSelect = useCallback((gif: KlipyGif) => {
+    setShowGifPicker(false);
+    // Send GIF as a special message: [[gif:url|title]]
+    const gifContent = `[[gif:${gif.full_url}|${gif.title || 'GIF'}]]`;
+    handleSend(gifContent);
+  }, [handleSend]);
+
+  // Long press (mobile) + right-click (web) + swipe-to-reply handlers
+  const handleMessageTouchStart = useCallback((e: React.TouchEvent, msg: ChatMessage, index: number) => {
+    const touch = e.touches[0];
+    const y = touch.clientY;
+    const x = touch.clientX;
+    swipeStartRef.current = { x, y, index, msg, decided: false, isSwipe: false };
+    longPressTimerRef.current = setTimeout(() => {
+      if (swipeStartRef.current && !swipeStartRef.current.isSwipe) {
+        triggerMediumHaptic();
+        menuOpenedAtRef.current = Date.now();
+        setSelectedMessage({ msg, index });
+        setMenuPosition({ x, y });
+      }
+      swipeStartRef.current = null;
+    }, 500);
+  }, []);
+
+  const handleMessageContextMenu = useCallback((e: React.MouseEvent, msg: ChatMessage, index: number) => {
+    e.preventDefault();
+    setSelectedMessage({ msg, index });
+    setMenuPosition({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handleMessageTouchEnd = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    // If swiped far enough, trigger reply
+    if (swipeState && swipeState.offsetX > 60 && swipeStartRef.current) {
+      triggerLightHaptic();
+      setReplyingTo(swipeStartRef.current.msg);
+      inputRef.current?.focus();
+    }
+    setSwipeState(null);
+    swipeStartRef.current = null;
+  }, [swipeState]);
+
+  // Native non-passive touchmove listener to allow preventDefault (blocks scroll during swipe)
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const handler = (e: TouchEvent) => {
+      if (!swipeStartRef.current) return;
+      const touch = e.touches[0];
+      const dx = touch.clientX - swipeStartRef.current.x;
+      const dy = touch.clientY - swipeStartRef.current.y;
+
+      if (!swipeStartRef.current.decided && (Math.abs(dx) > 12 || Math.abs(dy) > 12)) {
+        swipeStartRef.current.decided = true;
+        swipeStartRef.current.isSwipe = Math.abs(dx) > Math.abs(dy) && dx > 0;
+        // Only cancel long-press if it's a confirmed swipe — vertical scroll is handled by the browser
+        if (swipeStartRef.current.isSwipe && longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      }
+      // Cancel long-press on large vertical movement (user is scrolling)
+      if (Math.abs(dy) > 25 && longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+
+      if (swipeStartRef.current.isSwipe) {
+        e.preventDefault();
+        const clamped = Math.max(0, Math.min(dx, 80));
+        setSwipeState({ index: swipeStartRef.current.index, offsetX: clamped });
+      }
+    };
+    el.addEventListener('touchmove', handler, { passive: false });
+    return () => el.removeEventListener('touchmove', handler);
+  }, []);
+
+  const handleCopyMessage = useCallback(() => {
+    if (!selectedMessage) return;
+    triggerLightHaptic();
+    const content = selectedMessage.msg.content;
+    const gifMatch = content.match(/^\[\[gif:(.*?)\|(.*?)\]\]$/);
+    const textToCopy = gifMatch ? gifMatch[1] : content;
+    navigator.clipboard.writeText(textToCopy);
+    setSelectedMessage(null);
+    setMenuPosition(null);
+  }, [selectedMessage]);
+
+  const handleReplyMessage = useCallback(() => {
+    if (!selectedMessage) return;
+    triggerLightHaptic();
+    setReplyingTo(selectedMessage.msg);
+    setSelectedMessage(null);
+    setMenuPosition(null);
+    inputRef.current?.focus();
+  }, [selectedMessage]);
+
+  const handleDeleteMessage = useCallback(() => {
+    if (!selectedMessage) return;
+    triggerLightHaptic();
+    const { index } = selectedMessage;
+    setSelectedMessage(null);
+    setMenuPosition(null);
+    // Enter selection mode with this message pre-selected
+    setSelectMode(true);
+    setSelectedIds(new Set([index]));
+  }, [selectedMessage]);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    triggerMediumHaptic();
+    // Animate out
+    setDeletingIds(new Set(selectedIds));
+    // Wait for exit animation
+    await new Promise(r => setTimeout(r, 300));
+    const idsToDelete = new Set(selectedIds);
+    const msgsToDelete = messages.filter((_, i) => idsToDelete.has(i));
+    setMessages(prev => {
+      const updated = prev.filter((_, i) => !idsToDelete.has(i));
+      setCache(chatCacheKey, updated);
+      return updated;
+    });
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setDeletingIds(new Set());
+    // Delete from DB
+    for (const msg of msgsToDelete) {
+      if (msg.id) deleteChatMessage(msg.id);
+    }
+  }, [selectedIds, messages, chatCacheKey]);
+
+  const toggleSelectMessage = useCallback((index: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }, []);
 
   const handleKeyDown = (_e: React.KeyboardEvent) => {
     // Enter inserts a newline (default textarea behavior) — send only via button
@@ -300,7 +489,7 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
   const [showDebugButton, setShowDebugButton] = useState(false);
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col" style={{ paddingTop: 'var(--safe-area-top, 0px)', paddingBottom: `${keyboardHeight}px`, transition: 'padding-bottom 0.25s ease-out' }}>
+    <div className="fixed inset-0 z-[60] flex flex-col" style={{ paddingTop: 'var(--safe-area-top, 0px)', paddingBottom: `${keyboardHeight}px`, transition: 'padding-bottom 0.3s cubic-bezier(0.33, 1, 0.68, 1)' }}>
       {/* Header bar — X button + bot avatar + book info */}
       <div
         className="shrink-0 flex flex-col justify-end px-3 pb-3"
@@ -477,27 +666,125 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
                 const isUser = msg.role === 'user';
                 const isFirst = i === 0 || messages[i - 1].role !== msg.role;
                 const isLast = i === messages.length - 1 || messages[i + 1]?.role !== msg.role;
+                const isDeleting = deletingIds.has(i);
+                const isSelected = selectedIds.has(i);
+
+                // Selection checkbox (shown in select mode)
+                const selectCheckbox = selectMode ? (
+                  <button
+                    onClick={() => toggleSelectMessage(i)}
+                    className="shrink-0 self-center mr-1"
+                  >
+                    <div className={`w-[22px] h-[22px] rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-slate-300'}`}>
+                      {isSelected && <Check size={13} className="text-white" strokeWidth={3} />}
+                    </div>
+                  </button>
+                ) : null;
 
                 if (isUser) {
+                  // Check if this is a GIF message
+                  const gifMatch = msg.content.match(/^\[\[gif:(.*?)\|(.*?)\]\]$/);
+                  if (gifMatch) {
+                    const [, gifUrl, gifAlt] = gifMatch;
+                    const gifSwipeOffset = swipeState?.index === i ? swipeState.offsetX : 0;
+                    return (
+                      <motion.div
+                        key={`msg-${i}`}
+                        initial={!msg.id ? { opacity: 0, scale: 0.95 } : false}
+                        animate={isDeleting ? { opacity: 0, height: 0, scale: 0.8 } : { opacity: 1, scale: 1 }}
+
+                        transition={{ duration: 0.25 }}
+                        className="flex justify-end items-center relative"
+                        style={{ marginTop: isFirst && i > 0 ? '6px' : undefined }}
+                        onTouchStart={selectMode ? undefined : (e) => handleMessageTouchStart(e, msg, i)}
+                        onTouchEnd={selectMode ? undefined : handleMessageTouchEnd}
+
+                        onContextMenu={selectMode ? undefined : (e) => handleMessageContextMenu(e, msg, i)}
+                        onClick={selectMode ? () => toggleSelectMessage(i) : undefined}
+                      >
+                        {gifSwipeOffset > 0 && (
+                          <div className="absolute left-2 top-1/2 -translate-y-1/2" style={{ opacity: Math.min(gifSwipeOffset / 60, 1) }}>
+                            <Reply size={18} className="text-slate-400" />
+                          </div>
+                        )}
+                        {selectCheckbox}
+                        <div className="group/msg relative max-w-[65%] overflow-hidden" style={{ borderRadius: '12px 12px 4px 12px', transform: gifSwipeOffset > 0 ? `translateX(${gifSwipeOffset}px)` : undefined, transition: gifSwipeOffset > 0 ? 'none' : 'transform 0.2s ease-out' }}>
+                          {!selectMode && !isNativePlatform && (
+                            <button
+                              onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setSelectedMessage({ msg, index: i }); setMenuPosition({ x: r.left, y: r.bottom + 4 }); }}
+                              className="absolute top-1.5 right-1.5 z-10 w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover/msg:opacity-100 transition-opacity"
+                              style={{ background: 'rgba(0,0,0,0.35)' }}
+                            >
+                              <ChevronDown size={13} className="text-white/90" />
+                            </button>
+                          )}
+                          <img
+                            src={gifUrl}
+                            alt={gifAlt}
+                            className="w-full h-auto block"
+                            style={{ minHeight: '80px', maxHeight: '240px', objectFit: 'cover' }}
+                          />
+                          <span className="absolute bottom-1.5 right-2 text-[10px] leading-none select-none px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(0,0,0,0.45)', color: 'rgba(255,255,255,0.85)' }}>
+                            {formatTime(msg.created_at)}
+                          </span>
+                        </div>
+                      </motion.div>
+                    );
+                  }
+
+                  // Render reply quote if message starts with "> "
+                  const replyMatch = msg.content.match(/^> (.+?)(?:\.\.\.)?\n\n([\s\S]*)$/);
+                  const quoteText = replyMatch ? replyMatch[1] : null;
+                  const mainText = replyMatch ? replyMatch[2] : msg.content;
+
+                  const userSwipeOffset = swipeState?.index === i ? swipeState.offsetX : 0;
                   return (
                     <motion.div
-                      key={msg.id || `msg-${i}`}
+                      key={`msg-${i}`}
                       initial={!msg.id ? { opacity: 0, scale: 0.95 } : false}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.15 }}
-                      className="flex justify-end"
+                      animate={isDeleting ? { opacity: 0, height: 0, scale: 0.8 } : { opacity: 1, scale: 1 }}
+
+                      transition={{ duration: 0.25 }}
+                      className="flex justify-end items-center relative"
                       style={{ marginTop: isFirst && i > 0 ? '6px' : undefined }}
+                      onTouchStart={selectMode ? undefined : (e) => handleMessageTouchStart(e, msg, i)}
+                      onTouchEnd={selectMode ? undefined : handleMessageTouchEnd}
+
+                      onClick={selectMode ? () => toggleSelectMessage(i) : undefined}
                     >
+                      {userSwipeOffset > 0 && (
+                        <div className="absolute left-2 top-1/2 -translate-y-1/2" style={{ opacity: Math.min(userSwipeOffset / 60, 1) }}>
+                          <Reply size={18} className="text-slate-400" />
+                        </div>
+                      )}
+                      {selectCheckbox}
                       <div
-                        className="relative max-w-[82%] px-[10px] py-[7px] text-[15px] leading-[20px]"
+                        className="group/msg relative max-w-[82%] px-[10px] py-[7px] text-[15px] leading-[20px]"
                         style={{
                           background: 'rgba(59, 130, 246, 0.82)',
                           color: '#fff',
                           borderRadius: '10px 10px 4px 10px',
                           boxShadow: '0 1px 2px rgba(0, 0, 0, 0.06)',
+                          transform: userSwipeOffset > 0 ? `translateX(${userSwipeOffset}px)` : undefined,
+                          transition: userSwipeOffset > 0 ? 'none' : 'transform 0.2s ease-out',
                         }}
                       >
-                        <span className="whitespace-pre-wrap break-words">{msg.content}</span>
+                        {!selectMode && !isNativePlatform && (
+                          <button
+                            onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setSelectedMessage({ msg, index: i }); setMenuPosition({ x: r.left, y: r.bottom + 4 }); }}
+                            className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover/msg:opacity-100 transition-opacity"
+                            style={{ background: 'rgba(255,255,255,0.2)' }}
+                          >
+                            <ChevronDown size={13} className="text-white/80" />
+                          </button>
+                        )}
+                        {quoteText && (
+                          <div className="flex items-stretch mb-1.5 rounded-md overflow-hidden" style={{ background: 'rgba(255,255,255,0.15)' }}>
+                            <div className="w-[3px] shrink-0" style={{ background: 'rgba(255,255,255,0.5)' }} />
+                            <p className="text-[12px] px-2 py-1 opacity-80">{quoteText}</p>
+                          </div>
+                        )}
+                        <span className="whitespace-pre-wrap break-words">{mainText}</span>
                         <span className="float-right ml-2 mt-1 text-[10px] leading-none select-none" style={{ color: 'rgba(255,255,255,0.65)' }}>
                           {formatTime(msg.created_at)}
                         </span>
@@ -508,23 +795,34 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
 
                 // Assistant message — split into text segments and card segments
                 const segments = splitAssistantMessage(msg.content);
+                const asstSwipeOffset = swipeState?.index === i ? swipeState.offsetX : 0;
 
                 return (
-                  <React.Fragment key={msg.id || `msg-${i}`}>
+                  <motion.div
+                    key={`msg-${i}`}
+                    animate={isDeleting ? { opacity: 0, height: 0, scale: 0.8 } : { opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.25 }}
+                    className={`relative ${selectMode ? 'flex items-start' : ''}`}
+                    onClick={selectMode ? () => toggleSelectMessage(i) : undefined}
+                  >
+                    {asstSwipeOffset > 0 && (
+                      <div className="absolute left-2 top-1/2 -translate-y-1/2" style={{ opacity: Math.min(asstSwipeOffset / 60, 1) }}>
+                        <Reply size={18} className="text-slate-400" />
+                      </div>
+                    )}
+                    {selectCheckbox}
+                    <div className="flex-1 min-w-0 flex flex-col gap-[3px]" style={{ transform: asstSwipeOffset > 0 ? `translateX(${asstSwipeOffset}px)` : undefined, transition: asstSwipeOffset > 0 ? 'none' : 'transform 0.2s ease-out' }}>
                     {segments.map((seg, si) => {
                       if (seg.type === 'card') {
                         return (
-                          <motion.div
+                          <div
                             key={`${msg.id || i}-card-${si}`}
-                            initial={!msg.id ? { opacity: 0, scale: 0.95 } : false}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ duration: 0.15 }}
                             className="flex justify-start"
                           >
                             <div className="w-[82%]">
                               <InlineChatCard type={seg.cardType!} index={seg.cardIndex!} ctx={bookContext} onAddBook={onAddBook} onPlayAlbum={(ml, t, a) => setMusicModalData({ musicLinks: ml, title: t, artist: a })} />
                             </div>
-                          </motion.div>
+                          </div>
                         );
                       }
                       // Text segment
@@ -532,16 +830,17 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
                       if (!textContent) return null;
                       const isLastTextSeg = si === segments.length - 1 || segments.slice(si + 1).every(s => s.type === 'card');
                       return (
-                        <motion.div
+                        <div
                           key={`${msg.id || i}-text-${si}`}
-                          initial={!msg.id ? { opacity: 0, scale: 0.95 } : false}
-                          animate={{ opacity: 1, scale: 1 }}
-                          transition={{ duration: 0.15 }}
                           className="flex justify-start"
                           style={{ marginTop: isFirst && si === 0 && i > 0 ? '6px' : undefined }}
+                          onTouchStart={selectMode ? undefined : (e) => handleMessageTouchStart(e, msg, i)}
+                          onTouchEnd={selectMode ? undefined : handleMessageTouchEnd}
+  
+                          onContextMenu={selectMode ? undefined : (e) => handleMessageContextMenu(e, msg, i)}
                         >
                           <div
-                            className="relative max-w-[82%] px-[10px] py-[7px] text-[15px] leading-[20px]"
+                            className="group/msg relative max-w-[82%] px-[10px] py-[7px] text-[15px] leading-[20px]"
                             style={{
                               background: 'rgba(255, 255, 255, 0.6)',
                               backdropFilter: 'blur(8px)',
@@ -552,6 +851,15 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
                               border: '0.5px solid rgba(255, 255, 255, 0.3)',
                             }}
                           >
+                            {!selectMode && !isNativePlatform && (
+                              <button
+                                onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setSelectedMessage({ msg, index: i }); setMenuPosition({ x: r.left, y: r.bottom + 4 }); }}
+                                className="absolute top-1 right-1 w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover/msg:opacity-100 transition-opacity"
+                                style={{ background: 'rgba(0,0,0,0.06)' }}
+                              >
+                                <ChevronDown size={13} className="text-slate-400" />
+                              </button>
+                            )}
                             <div className="whitespace-pre-wrap break-words">{formatTextWithMarkdown(textContent)}</div>
                             {isLastTextSeg && isLast && (
                               <span className="float-right ml-2 mt-1 text-[10px] leading-none select-none" style={{ color: 'rgba(100,116,139,0.7)' }}>
@@ -559,10 +867,11 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
                               </span>
                             )}
                           </div>
-                        </motion.div>
+                        </div>
                       );
                     })}
-                  </React.Fragment>
+                    </div>
+                  </motion.div>
                 );
               })}
 
@@ -811,6 +1120,35 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
         )}
       </AnimatePresence>
 
+      {/* Reply bar — WhatsApp-style with accent left border */}
+      <AnimatePresence>
+        {replyingTo && !selectMode && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mx-4 mb-1 flex items-stretch rounded-xl overflow-hidden"
+            style={{
+              background: 'rgba(255, 255, 255, 0.6)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              border: '0.5px solid rgba(255, 255, 255, 0.3)',
+            }}
+          >
+            <div className="w-[3px] shrink-0" style={{ background: 'rgba(59, 130, 246, 0.7)' }} />
+            <div className="flex-1 min-w-0 px-3 py-2">
+              <p className="text-[11px] font-semibold text-blue-500">{replyingTo.role === 'user' ? 'You' : isCharacterChat ? characterContext!.characterName : 'Book.luver'}</p>
+              <p className="text-[12px] text-slate-500 truncate">
+                {replyingTo.content.replace(/^\[\[gif:.*?\|(.*?)\]\]$/, 'GIF: $1').slice(0, 60)}
+              </p>
+            </div>
+            <button onClick={() => setReplyingTo(null)} className="shrink-0 px-3 active:scale-90 self-center">
+              <X size={16} className="text-slate-400" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Input bar — glassmorphic */}
       <div
         className="shrink-0 pt-1.5 flex justify-center"
@@ -818,7 +1156,7 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
       >
         <motion.div className="flex items-end gap-2" animate={{ width: inputFocused ? '96%' : '80%' }} transition={{ type: 'spring', stiffness: 300, damping: 25 }}>
           <div
-            className="flex-1 flex items-center gap-1.5 rounded-[24px] pl-4 pr-3 py-1.5"
+            className="flex-1 flex items-end gap-1.5 rounded-[24px] pl-4 pr-3 py-1.5"
             style={{
               background: 'rgba(255, 255, 255, 0.55)',
               backdropFilter: 'blur(12px)',
@@ -847,13 +1185,21 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
               onFocus={() => setInputFocused(true)}
               onBlur={() => setInputFocused(false)}
               onTouchStart={(e) => { if (e.touches.length === 2) setShowDebugButton(v => !v); }}
-              placeholder={isCharacterChat ? `Message ${characterContext!.characterName.split(' ')[0]}...` : 'Message'}
+              placeholder={isCharacterChat ? `${characterContext!.characterName.split(' ')[0]}...` : ''}
               rows={1}
-              className="flex-1 resize-none bg-transparent text-[15px] text-slate-800 placeholder:text-slate-400 outline-none leading-[20px]"
+              className="flex-1 resize-none bg-transparent text-[15px] text-slate-800 placeholder:text-slate-400 outline-none leading-[20px] self-center"
               style={{ maxHeight: '120px', height: '20px' }}
             />
+            <button
+              onClick={() => setShowGifPicker(v => !v)}
+              className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+              style={{ color: showGifPicker ? 'rgba(59,130,246,0.8)' : 'rgba(0,0,0,0.25)' }}
+            >
+              <span className="text-[11px] font-bold">GIF</span>
+            </button>
           </div>
           <button
+            onTouchStart={(e) => { e.preventDefault(); }}
             onTouchEnd={(e) => { e.preventDefault(); handleSend(); }}
             onClick={() => handleSend()}
             disabled={isLoading || streamingSegments !== null || !hasText}
@@ -867,12 +1213,105 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
           </button>
         </motion.div>
       </div>
+      <GifPicker
+        open={showGifPicker}
+        onClose={() => setShowGifPicker(false)}
+        onSelect={handleGifSelect}
+        keyboardHeight={keyboardHeight}
+      />
       <MusicModal
         musicLinks={musicModalData?.musicLinks ?? null}
         albumTitle={musicModalData?.title}
         albumArtist={musicModalData?.artist}
         onClose={() => setMusicModalData(null)}
       />
+
+      {/* Message context menu (long press) — compact glassmorphic */}
+      <AnimatePresence>
+      {selectedMessage && menuPosition && typeof document !== 'undefined' && createPortal(
+        <div
+          className="fixed inset-0 z-[9999]"
+          onMouseDown={() => { setSelectedMessage(null); setMenuPosition(null); }}
+          onTouchStart={() => { setSelectedMessage(null); setMenuPosition(null); }}
+        >
+          <motion.div
+            initial={{ opacity: 0, y: 6, scale: 0.92 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.92 }}
+            transition={{ duration: 0.15 }}
+            className="absolute overflow-hidden rounded-xl"
+            style={{
+              left: Math.min(menuPosition.x - 50, window.innerWidth - 160),
+              top: menuPosition.y > window.innerHeight * 0.5 ? menuPosition.y - 44 : menuPosition.y + 8,
+              background: 'rgba(255, 255, 255, 0.55)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.12)',
+              border: '0.5px solid rgba(255, 255, 255, 0.4)',
+              minWidth: '130px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={handleReplyMessage}
+              className="flex items-center gap-3 px-3.5 py-2.5 w-full text-left active:bg-black/5 transition-colors"
+            >
+              <Reply size={15} className="text-slate-600" />
+              <span className="text-[13px] font-medium text-slate-700">Reply</span>
+            </button>
+            <div className="h-px bg-slate-200/50 mx-2" />
+            <button
+              onClick={handleCopyMessage}
+              className="flex items-center gap-3 px-3.5 py-2.5 w-full text-left active:bg-black/5 transition-colors"
+            >
+              <Copy size={15} className="text-slate-600" />
+              <span className="text-[13px] font-medium text-slate-700">Copy</span>
+            </button>
+            <div className="h-px bg-slate-200/50 mx-2" />
+            <button
+              onClick={handleDeleteMessage}
+              className="flex items-center gap-3 px-3.5 py-2.5 w-full text-left active:bg-black/5 transition-colors"
+            >
+              <Trash2 size={15} className="text-red-400" />
+              <span className="text-[13px] font-medium text-red-400">Delete</span>
+            </button>
+          </motion.div>
+        </div>,
+        document.body
+      )}
+      </AnimatePresence>
+
+      {/* Selection mode bottom bar (WhatsApp-style) */}
+      <AnimatePresence>
+        {selectMode && (
+          <motion.div
+            initial={{ opacity: 0, y: 60 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 60 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+            className="absolute bottom-0 left-0 right-0 z-50 flex items-center justify-between px-5"
+            style={{
+              paddingBottom: 'calc(18px + var(--safe-area-bottom, 0px))',
+              paddingTop: '14px',
+              background: 'rgba(255, 255, 255, 0.7)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              borderTop: '0.5px solid rgba(255, 255, 255, 0.4)',
+              boxShadow: '0 -2px 16px rgba(0, 0, 0, 0.06)',
+            }}
+          >
+            <button onClick={handleBulkDelete} className={`flex items-center gap-2 active:scale-95 transition-all ${selectedIds.size === 0 ? 'opacity-30' : ''}`} disabled={selectedIds.size === 0}>
+              <Trash2 size={20} className="text-red-500" />
+            </button>
+            <span className="text-[14px] font-semibold text-slate-700">{selectedIds.size} Selected</span>
+            <button onClick={() => { setSelectMode(false); setSelectedIds(new Set()); }} className="active:scale-95 transition-all">
+              <X size={20} className="text-slate-500" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

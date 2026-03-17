@@ -15,7 +15,7 @@ function buildSystemPrompt(bookContext: any): string {
 
   let statusLine = ''
   if (readingStatus === 'reading') {
-    statusLine = 'Currently reading. Avoid spoilers beyond where they might be.'
+    statusLine = 'Currently reading. Avoid spoilers beyond where they might be. If they mention where they are in the book (chapter, page, percentage), remember it and tailor your responses accordingly. If they haven\'t mentioned their progress yet, you can casually ask early in the conversation.'
   } else if (readingStatus === 'read_it') {
     statusLine = 'Finished the book. Everything including the ending is fair game.'
   } else if (readingStatus === 'want_to_read') {
@@ -217,6 +217,12 @@ ${timeNote}
     }
   } else {
     timeNote = 'First time opening this chat.'
+  }
+
+  if (readingStatus === 'reading' && !lastMessageAt) {
+    return `Say hi to someone who just opened a chat about "${title}" by ${author}. They're currently reading it — this is their first time chatting about it.
+
+2-3 sentences. Casual, like a text from a friend. Naturally ask where they're at in the book (chapter, percentage, beginning/middle/end — whatever feels right). Mention you can help them keep track and avoid spoilers as they go. Don't be pushy. No facts, no hype. No [[resource]] markers. No markdown.`
   }
 
   return `Say hi to someone who just opened a chat about "${title}" by ${author}.
@@ -446,7 +452,81 @@ These are 3 short (under 8 words each) contextual follow-up prompts the user mig
 
     let grokMessages: any[]
 
-    if (mode === 'greeting') {
+    if (mode === 'proactive') {
+      // Generate an unprompted check-in message
+      const { title, author, readingStatus, generalMode } = bookContext
+
+      const resourceHints: string[] = []
+      if (bookContext.podcasts?.length) {
+        resourceHints.push(...bookContext.podcasts.slice(0, 3).map((p: any, i: number) =>
+          `[[podcast:${i}]] "${p.title}" on ${p.podcast_name || 'podcast'}`))
+      }
+      if (bookContext.videos?.length) {
+        resourceHints.push(...bookContext.videos.slice(0, 3).map((v: any, i: number) =>
+          `[[video:${i}]] "${v.title}" by ${v.channelTitle}`))
+      }
+      if (bookContext.relatedWorks?.length) {
+        const albums = bookContext.relatedWorks.filter((w: any) => w.type === 'album').slice(0, 2)
+        albums.forEach((w: any) => {
+          const origIdx = bookContext.relatedWorks.indexOf(w)
+          resourceHints.push(`[[related_work:${origIdx}]] album: "${w.title}" by ${w.director}`)
+        })
+      }
+
+      let proactivePrompt: string
+      if (generalMode) {
+        proactivePrompt = `You are a relaxed reading companion who knows the user's bookshelf.
+Send them ONE short, unprompted message — like a friend texting out of the blue.
+
+Pick ONE of these approaches (vary each time):
+- Recommend a specific book from their shelf they haven't read yet
+- Share a fun fact about an author on their shelf
+- Suggest music that fits the vibe of a book they're reading
+- Ask casually what they've been reading lately
+
+BOOKSHELF
+${bookContext.summary || 'No details available.'}
+
+RULES
+- 1-2 sentences MAX. Like a text message.
+- No greetings ("hey!", "hi there!")
+- No excitement or hype
+- Be specific — mention a real book/author from their shelf
+- No markdown, no bullets
+- No [[resource]] markers
+- Do NOT add |||SUGGESTIONS||| section`
+      } else {
+        proactivePrompt = `You are a relaxed reading companion. The user is currently reading "${title}" by ${author}.
+
+Send them ONE short, unprompted check-in message — like a friend texting about a book you're both into.
+
+Pick ONE approach (vary — don't always ask the same thing):
+- Ask where they're at in the book — casually, like "how far along are you?" or "still in the early chapters?"
+- Check in on their reading progress — "making any headway with ${title}?"
+${resourceHints.length ? `- Suggest a specific podcast, video, or album related to the book (use the marker so it renders as a card)` : ''}
+- Share one interesting non-spoiler thing about the book or author
+- Mention something thematic ("perfect rainy day book" etc)
+
+The MOST IMPORTANT thing is keeping track of where they are so you can avoid spoilers and have relevant conversations. Asking about progress should be your go-to if you haven't checked in recently.
+
+${resourceHints.length ? `RESOURCES YOU CAN SUGGEST
+Place the marker on its own line after your text. Pick at most ONE.
+${resourceHints.map(r => `- ${r}`).join('\n')}` : ''}
+
+RULES
+- 1-2 sentences MAX. Like a text message.
+- No greetings ("hey!", "hi there!")
+- No excitement or hype
+- Be specific to THIS book
+- No markdown formatting
+- Do NOT add |||SUGGESTIONS||| section`
+      }
+
+      grokMessages = [
+        { role: 'system', content: proactivePrompt },
+        { role: 'user', content: 'Generate the proactive message.' },
+      ]
+    } else if (mode === 'greeting') {
       const greetingPrompt = buildGreetingPrompt(bookContext, lastMessageAt)
       grokMessages = [
         { role: 'system', content: greetingPrompt },

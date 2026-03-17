@@ -2,13 +2,61 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Trash2 } from 'lucide-react';
-import { isAndroid } from '@/lib/capacitor';
+import { Plus, Trash2, Lightbulb, Headphones, Play, FileText, BookMarked, Film, StickyNote, Disc3, Tv } from 'lucide-react';
+import { isAndroid, openSystemBrowser } from '@/lib/capacitor';
 
 interface NoteSection {
   timestamp: string;
   content: string;
 }
+
+interface PinInfo {
+  type: string;
+  text: string;
+  url?: string;
+  imageUrl?: string;
+}
+
+const PIN_REGEX = /^\{\{pin:(\w+)\|([\s\S]+)\}\}$/;
+
+function parsePinContent(content: string): PinInfo | null {
+  const trimmed = content.trim();
+  const match = trimmed.match(PIN_REGEX);
+  if (!match) return null;
+  // Format: {{pin:type|text|url|imageUrl}}
+  const inner = match[2];
+  const parts = inner.split('|');
+  return {
+    type: match[1],
+    text: parts[0],
+    url: parts[1] || undefined,
+    imageUrl: parts[2] || undefined,
+  };
+}
+
+const PIN_ICONS: Record<string, React.ReactNode> = {
+  insight: <Lightbulb size={18} />,
+  podcast: <Headphones size={18} />,
+  youtube: <Play size={18} />,
+  article: <FileText size={18} />,
+  book: <BookMarked size={18} />,
+  movie: <Film size={18} />,
+  show: <Tv size={18} />,
+  album: <Disc3 size={18} />,
+  note: <StickyNote size={18} />,
+};
+
+const PIN_LABELS: Record<string, string> = {
+  insight: 'Insight',
+  podcast: 'Podcast',
+  youtube: 'Video',
+  article: 'Article',
+  book: 'Book',
+  movie: 'Movie',
+  show: 'Show',
+  album: 'Album',
+  note: 'Saved',
+};
 
 interface NotesEditorOverlayProps {
   bookId: string;
@@ -256,25 +304,74 @@ export default function NotesEditorOverlay({ bookId, bookTitle, initialNotes, on
                   </button>
                 </div>
 
-                {/* Content textarea */}
-                <textarea
-                  ref={idx === 0 && newlyAddedTimestamp ? newNoteRef : undefined}
-                  value={section.content}
-                  onChange={(e) => {
-                    handleContentChange(idx, e.target.value);
-                    autoResize(e.target);
-                  }}
-                  onFocus={(e) => {
-                    autoResize(e.target);
-                    // Scroll into view after keyboard animation
-                    setTimeout(() => {
-                      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }, 300);
-                  }}
-                  placeholder="Write your note..."
-                  className="w-full bg-transparent text-sm text-slate-500 dark:text-slate-400 placeholder:text-slate-300 dark:placeholder:text-slate-600 resize-none outline-none overflow-hidden min-h-[24px]"
-                  rows={1}
-                />
+                {/* Content: rich pin card or editable textarea */}
+                {(() => {
+                  const pin = parsePinContent(section.content);
+                  if (pin) {
+                    const handleOpen = pin.url ? (e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      openSystemBrowser(pin.url!);
+                    } : undefined;
+                    return (
+                      <div
+                        className={`flex items-start gap-2.5 px-1 py-0.5 ${handleOpen ? 'cursor-pointer active:opacity-70' : ''}`}
+                        onClick={handleOpen}
+                      >
+                        {/* Thumbnail with play overlay for media types */}
+                        {pin.imageUrl ? (
+                          <div className="relative flex-shrink-0 rounded-lg overflow-hidden">
+                            <img src={pin.imageUrl} alt="" className="w-12 h-12 object-cover" />
+                            {(pin.type === 'podcast' || pin.type === 'youtube' || pin.type === 'album') && (
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                                <Play size={16} className="text-white" fill="white" />
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="w-12 h-12 flex-shrink-0 rounded-lg bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center text-amber-500">
+                            {PIN_ICONS[pin.type] || <StickyNote size={18} />}
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <span className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide">
+                            {PIN_LABELS[pin.type] || 'Saved'}
+                          </span>
+                          <p className="text-sm text-slate-600 dark:text-slate-300 leading-snug mt-0.5 break-words">
+                            {(() => {
+                              if (pin.type === 'article' && pin.text.includes(' — http')) {
+                                const idx = pin.text.indexOf(' — http');
+                                const title = pin.text.substring(0, idx);
+                                const url = pin.text.substring(idx + 3);
+                                return <>{title}<span className="block text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5">{url}</span></>;
+                              }
+                              return pin.text;
+                            })()}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <textarea
+                      ref={idx === 0 && newlyAddedTimestamp ? newNoteRef : undefined}
+                      value={section.content}
+                      onChange={(e) => {
+                        handleContentChange(idx, e.target.value);
+                        autoResize(e.target);
+                      }}
+                      onFocus={(e) => {
+                        autoResize(e.target);
+                        // Scroll into view after keyboard animation
+                        setTimeout(() => {
+                          e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }, 300);
+                      }}
+                      placeholder="Write your note..."
+                      className="w-full bg-transparent text-sm text-slate-500 dark:text-slate-400 placeholder:text-slate-300 dark:placeholder:text-slate-600 resize-none outline-none overflow-hidden min-h-[24px]"
+                      rows={1}
+                    />
+                  );
+                })()}
               </motion.div>
             ))}
           </AnimatePresence>

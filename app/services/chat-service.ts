@@ -213,9 +213,9 @@ export async function saveChatMessages(
   bookTitle: string,
   bookAuthor: string,
   messages: ChatMessage[]
-): Promise<void> {
+): Promise<string[]> {
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
+  if (!user) return [];
 
   const rows = messages.map(m => ({
     user_id: user.id,
@@ -226,10 +226,21 @@ export async function saveChatMessages(
     content: m.content,
   }));
 
-  const { error } = await supabase.from('book_chats').insert(rows);
+  const { data, error } = await supabase.from('book_chats').insert(rows).select('id');
   if (error) {
     console.error('[saveChatMessages] Error:', error);
+    return [];
   }
+  return (data || []).map(r => r.id);
+}
+
+export async function deleteChatMessage(messageId: string): Promise<boolean> {
+  const { error } = await supabase.from('book_chats').delete().eq('id', messageId);
+  if (error) {
+    console.error('[deleteChatMessage] Error:', error);
+    return false;
+  }
+  return true;
 }
 
 // --- Character Chat Functions ---
@@ -403,6 +414,177 @@ export async function deleteCharacterChat(characterName: string, bookTitle: stri
   if (error) {
     console.error('[deleteCharacterChat] Error:', error);
   }
+}
+
+// --- Proactive Message Functions ---
+
+interface ProactiveCandidate {
+  chatType: 'book' | 'general';
+  chatKey: string;  // book_id or 'general'
+  bookContext: BookChatContext;
+  bookId: string;
+  bookTitle: string;
+  bookAuthor: string;
+}
+
+/** Check which chats qualify for a proactive message */
+export async function getProactiveCandidates(
+  bookChats: ChatListItem[],
+  books: Array<{ id: string; title: string; author: string; reading_status?: string | null }>,
+): Promise<{ chatKey: string; chatType: 'book' | 'general'; lastMessageAt: string | null; bookId: string; bookTitle: string; bookAuthor: string }[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  // Time-of-day guard: only send between 7am-10pm local time
+  const hour = new Date().getHours();
+  if (hour < 7 || hour >= 22) return [];
+
+  // Load proactive log
+  const { data: logs, error: logError } = await supabase
+    .from('proactive_message_log')
+    .select('chat_key, sent_at, was_replied')
+    .eq('user_id', user.id)
+    .order('sent_at', { ascending: false });
+
+  if (logError) {
+    console.error('[proactive] Log query error:', logError);
+    return [];
+  }
+
+  const logMap = new Map<string, { sent_at: string; was_replied: boolean }>();
+  for (const log of logs || []) {
+    if (!logMap.has(log.chat_key)) {
+      logMap.set(log.chat_key, { sent_at: log.sent_at, was_replied: log.was_replied });
+    }
+  }
+
+  // Count proactive messages sent today (global cap)
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayCount = (logs || []).filter(l => new Date(l.sent_at) >= todayStart).length;
+  if (todayCount >= 3) return [];
+
+  const candidates: { chatKey: string; chatType: 'book' | 'general'; lastMessageAt: string | null; bookId: string; bookTitle: string; bookAuthor: string }[] = [];
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+
+  // Check "currently reading" books — daily cooldown (not weekly)
+  const readingBooks = books.filter(b => b.reading_status === 'reading');
+  for (const book of readingBooks) {
+    const lastLog = logMap.get(book.id);
+    // Skip if last proactive was < 1 day ago (daily for reading books)
+    if (lastLog && new Date(lastLog.sent_at).getTime() > oneDayAgo) continue;
+    // Skip if last proactive wasn't replied to
+    if (lastLog && !lastLog.was_replied) continue;
+
+    const chat = bookChats.find(c => c.book_id === book.id);
+    candidates.push({
+      chatKey: book.id,
+      chatType: 'book',
+      lastMessageAt: chat?.last_message_at || null,
+      bookId: book.id,
+      bookTitle: book.title,
+      bookAuthor: book.author,
+    });
+  }
+
+  // Check general/bookshelf chat
+  const GENERAL_KEY = 'general';
+  const BOOKSHELF_ID = '00000000-0000-0000-0000-000000000000';
+  const lastGeneralLog = logMap.get(GENERAL_KEY);
+  if (
+    (!lastGeneralLog || (new Date(lastGeneralLog.sent_at).getTime() <= sevenDaysAgo && lastGeneralLog.was_replied))
+    && books.length > 0
+  ) {
+    const generalChat = bookChats.find(c => c.book_id === BOOKSHELF_ID);
+    candidates.push({
+      chatKey: GENERAL_KEY,
+      chatType: 'general',
+      lastMessageAt: generalChat?.last_message_at || null,
+      bookId: BOOKSHELF_ID,
+      bookTitle: 'My Bookshelf',
+      bookAuthor: '',
+    });
+  }
+
+  return candidates;
+}
+
+/** Generate and save a proactive message */
+export async function generateProactiveMessage(
+  bookContext: BookChatContext,
+  chatKey: string,
+  bookId: string,
+  bookTitle: string,
+  bookAuthor: string,
+): Promise<ChatMessage | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  try {
+    const { data, error } = await supabase.functions.invoke('quick-processor', {
+      body: {
+        bookContext,
+        mode: 'proactive',
+      },
+    });
+
+    if (error) {
+      console.error('[generateProactiveMessage] Error:', error);
+      return null;
+    }
+
+    logGrokUsage('proactive_message', data?.usage);
+
+    const content = data?.content || '';
+    if (!content) return null;
+
+    // Backdate by 5-30 minutes to feel like it arrived while away
+    const backdateMinutes = 5 + Math.floor(Math.random() * 25);
+    const backdatedTime = new Date(Date.now() - backdateMinutes * 60 * 1000).toISOString();
+
+    // Save message to book_chats
+    const { error: insertError } = await supabase.from('book_chats').insert({
+      user_id: user.id,
+      book_id: bookId,
+      book_title: bookTitle,
+      book_author: bookAuthor,
+      role: 'assistant',
+      content,
+      is_proactive: true,
+      created_at: backdatedTime,
+    });
+
+    if (insertError) {
+      console.error('[generateProactiveMessage] Insert error:', insertError);
+      return null;
+    }
+
+    // Log the proactive message
+    await supabase.from('proactive_message_log').insert({
+      user_id: user.id,
+      chat_type: bookContext.generalMode ? 'general' : 'book',
+      chat_key: chatKey,
+    });
+
+    return { role: 'assistant', content, created_at: backdatedTime };
+  } catch (err) {
+    console.error('[generateProactiveMessage] Error:', err);
+    return null;
+  }
+}
+
+/** Mark that user replied after a proactive message (call when user sends a message) */
+export async function markProactiveReplied(chatKey: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  await supabase
+    .from('proactive_message_log')
+    .update({ was_replied: true })
+    .eq('user_id', user.id)
+    .eq('chat_key', chatKey)
+    .eq('was_replied', false);
 }
 
 export function getStarterPrompts(readingStatus: ReadingStatus, generalMode?: boolean): string[] {

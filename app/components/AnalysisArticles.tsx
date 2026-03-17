@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, MessageCircle, Send } from 'lucide-react';
+import { FileText, MessageCircle, Send, StickyNote } from 'lucide-react';
 import { decodeHtmlEntities } from './utils';
 import { openSystemBrowser } from '@/lib/capacitor';
+import { analytics } from '../services/analytics-service';
 
 const frostedGlassStyle: React.CSSProperties = {
   background: 'rgba(255, 255, 255, 0.25)',
@@ -27,11 +28,13 @@ interface AnalysisArticlesProps {
   bookId: string;
   isLoading?: boolean;
   renderAction?: (index: number) => React.ReactNode;
+  onPin?: (index: number) => void;
+  isPinned?: (index: number) => boolean;
   showComment?: boolean;
   showSend?: boolean;
 }
 
-function AnalysisArticles({ articles, bookId, isLoading = false, renderAction, showComment = true, showSend = true }: AnalysisArticlesProps) {
+function AnalysisArticles({ articles, bookId, isLoading = false, renderAction, onPin, isPinned, showComment = true, showSend = true }: AnalysisArticlesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const isSingleItem = articles.length === 1;
   const [isVisible, setIsVisible] = useState(isSingleItem);
@@ -67,6 +70,7 @@ function AnalysisArticles({ articles, bookId, isLoading = false, renderAction, s
   }, [articlesKey, bookId]);
 
   function handleNext() {
+    analytics.trackEvent('articles', 'next_card');
     setIsVisible(false);
     setTimeout(() => {
       setCurrentIndex(prev => (prev + 1) % articles.length);
@@ -189,7 +193,7 @@ function AnalysisArticles({ articles, bookId, isLoading = false, renderAction, s
                 <div
                   className="w-full rounded-xl overflow-hidden"
                   style={{ background: 'rgba(255, 255, 255, 0.25)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 255, 255, 0.3)' }}
-                  onClick={(e) => { e.stopPropagation(); openSystemBrowser(currentArticle.url); }}
+                  onClick={(e) => { e.stopPropagation(); analytics.trackEvent('articles', 'tap', { article_title: currentArticle.title }); openSystemBrowser(currentArticle.url); }}
                 >
                   <div className="px-3.5 py-3">
                     {articleDomain && (
@@ -226,6 +230,7 @@ function AnalysisArticles({ articles, bookId, isLoading = false, renderAction, s
                 {/* Action bar */}
                 <div className="flex items-center gap-5 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
+                  {onPin && <button onClick={() => onPin(currentIndex)} className="active:scale-90 transition-transform"><StickyNote size={17} className={isPinned?.(currentIndex) ? 'fill-black dark:fill-white text-white dark:text-black' : 'text-slate-600 dark:text-slate-400'} /></button>}
                   {showComment && <span className="flex items-center gap-1"><MessageCircle size={17} className="text-slate-600 dark:text-slate-400" /><span className="text-xs font-medium min-w-[12px] invisible">0</span></span>}
                   {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>

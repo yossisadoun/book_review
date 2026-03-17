@@ -2,8 +2,9 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lightbulb, Link, MessageCircle, Send } from 'lucide-react';
+import { Lightbulb, Link, MessageCircle, Send, StickyNote } from 'lucide-react';
 import { openSystemBrowser } from '@/lib/capacitor';
+import { analytics } from '../services/analytics-service';
 const frostedGlassStyle: React.CSSProperties = {
   background: 'rgba(255, 255, 255, 0.25)',
   backdropFilter: 'blur(9.4px)',
@@ -25,11 +26,13 @@ export interface InsightsCardsProps {
   bookId: string;
   isLoading?: boolean;
   renderAction?: (index: number) => React.ReactNode;
+  onPin?: (index: number) => void;
+  isPinned?: (index: number) => boolean;
   showComment?: boolean;
   showSend?: boolean;
 }
 
-function InsightsCards({ insights, bookId, isLoading = false, renderAction, showComment = true, showSend = true }: InsightsCardsProps) {
+function InsightsCards({ insights, bookId, isLoading = false, renderAction, onPin, isPinned, showComment = true, showSend = true }: InsightsCardsProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
@@ -60,6 +63,7 @@ function InsightsCards({ insights, bookId, isLoading = false, renderAction, show
   }, [actualBookId]);
 
   function handleNext() {
+    analytics.trackEvent('insights', 'next_card', { category: insights[currentIndex]?.label });
     setIsVisible(false);
     setTimeout(() => {
       setCurrentIndex(prev => (prev + 1) % insights.length);
@@ -205,6 +209,7 @@ function InsightsCards({ insights, bookId, isLoading = false, renderAction, show
                 {/* Action bar */}
                 <div className="flex items-center gap-5 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
+                  {onPin && <button onClick={() => onPin(currentIndex)} className="active:scale-90 transition-transform"><StickyNote size={17} className={isPinned?.(currentIndex) ? 'fill-black dark:fill-white text-white dark:text-black' : 'text-slate-600 dark:text-slate-400'} /></button>}
                   {showComment && <span className="flex items-center gap-1"><MessageCircle size={17} className="text-slate-600 dark:text-slate-400" /><span className="text-xs font-medium min-w-[12px] invisible">0</span></span>}
                   {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Share as CapacitorShare } from '@capacitor/share';
 import {
   Search,
@@ -106,6 +107,7 @@ import {
   Image as ImageIcon,
   Quote,
   type LucideIcon,
+  StickyNote,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Lottie from 'lottie-react';
@@ -142,7 +144,7 @@ import AddBookSheet from './components/AddBookSheet';
 import ConnectAccountModal from './components/ConnectAccountModal';
 import BookChat from './components/BookChat';
 import NotesEditorOverlay from './components/NotesEditorOverlay';
-import { getChatList, deleteChatForBook, getCharacterChatList, deleteCharacterChat, lookupOrphanedChatCoverUrls, reassignChatsToBook, type ChatListItem, type CharacterChatListItem, type BookChatContext } from './services/chat-service';
+import { getChatList, deleteChatForBook, getCharacterChatList, deleteCharacterChat, lookupOrphanedChatCoverUrls, reassignChatsToBook, getProactiveCandidates, generateProactiveMessage, markProactiveReplied, type ChatListItem, type CharacterChatListItem, type BookChatContext } from './services/chat-service';
 import { getCached, setCache, CACHE_KEYS } from './services/cache-service';
 import HeartButton from './components/HeartButton';
 import { getContentHash, toggleHeart, loadHearts } from './services/heart-service';
@@ -206,6 +208,7 @@ import { getPodcastEpisodes } from './services/podcast-service';
 import { getRelatedBooks } from './services/related-books-service';
 import { getRelatedMovies } from './services/related-movies-service';
 import { createFriendBookFeedItem, generateFeedItemsForBook, getPersonalizedFeed, markFeedItemsAsShown, getReadFeedItems, setFeedItemReadStatus, getSpoilerRevealedFromStorage, loadSpoilerRevealedFromStorage, saveSpoilerRevealedToStorage } from './services/feed-service';
+import { analytics } from './services/analytics-service';
 
 const AVATAR_GRADIENTS = [
   'linear-gradient(135deg, #667eea, #764ba2)',
@@ -278,6 +281,8 @@ const SpotlightSection = React.memo(function SpotlightSection({
   showMoviePlayButtons,
   showComment,
   showSend,
+  onPin,
+  isContentPinned,
 }: {
   spotlightRecommendation: { item: { type: string; icon: any; label: string; title: string; subtitle: string; url?: string; imageUrl?: string; itemIndex: number }; next: { type: string; icon: any; label: string; title: string; subtitle: string; url?: string; imageUrl?: string; itemIndex: number } | null; total: number; bookId: string };
   didYouKnow: Map<string, any[]>;
@@ -301,6 +306,8 @@ const SpotlightSection = React.memo(function SpotlightSection({
   showMoviePlayButtons?: boolean;
   showComment?: boolean;
   showSend?: boolean;
+  onPin?: (content: string, type: string, url?: string, imageUrl?: string) => void;
+  isContentPinned?: (content: string) => boolean;
 }) {
   const [isVisible, setIsVisible] = useState(true);
   const outerRef = useRef<HTMLDivElement>(null);
@@ -344,7 +351,13 @@ const SpotlightSection = React.memo(function SpotlightSection({
         return <InsightsCards insights={insights} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} showSend={showSend} renderAction={() => {
           const hash = getContentHash('insight', dyk.notes[0]?.substring(0, 50) || '');
           return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
-        }} />;
+        }} onPin={onPin ? () => {
+          const text = dyk.notes.join('\n\n');
+          onPin(text, 'insight');
+        } : undefined} isPinned={isContentPinned ? () => {
+          const text = dyk.notes.join('\n\n');
+          return isContentPinned(text);
+        } : undefined} />;
       }
       case 'podcast': {
         const pods = podcastEpisodes.get(spotBookId);
@@ -353,7 +366,13 @@ const SpotlightSection = React.memo(function SpotlightSection({
         return <PodcastEpisodes episodes={[allPods[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} showSend={showSend} renderAction={() => {
           const hash = getContentHash('podcast', allPods[idx]?.url || '');
           return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
-        }} />;
+        }} onPin={onPin ? () => {
+          const pod = allPods[idx];
+          if (pod) onPin(`${pod.podcast_name || 'Podcast'} — ${pod.title}`, 'podcast', pod.url || pod.audioUrl, pod.thumbnail);
+        } : undefined} isPinned={isContentPinned ? () => {
+          const pod = allPods[idx];
+          return pod ? isContentPinned(`${pod.podcast_name || 'Podcast'} — ${pod.title}`) : false;
+        } : undefined} />;
       }
       case 'video': {
         const vids = youtubeVideos.get(spotBookId);
@@ -361,7 +380,13 @@ const SpotlightSection = React.memo(function SpotlightSection({
         return <YouTubeVideos videos={[vids[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} showSend={showSend} renderAction={() => {
           const hash = getContentHash('youtube', vids[idx]?.videoId || '');
           return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
-        }} />;
+        }} onPin={onPin ? () => {
+          const vid = vids[idx];
+          if (vid) onPin(`${vid.title} — ${vid.channelTitle || 'YouTube'}`, 'youtube', vid.videoId ? `https://www.youtube.com/watch?v=${vid.videoId}` : undefined, vid.thumbnail);
+        } : undefined} isPinned={isContentPinned ? () => {
+          const vid = vids[idx];
+          return vid ? isContentPinned(`${vid.title} — ${vid.channelTitle || 'YouTube'}`) : false;
+        } : undefined} />;
       }
       case 'article': {
         const arts = analysisArticles.get(spotBookId);
@@ -371,7 +396,13 @@ const SpotlightSection = React.memo(function SpotlightSection({
         return <AnalysisArticles articles={[realArts[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} showSend={showSend} renderAction={() => {
           const hash = getContentHash('article', realArts[idx]?.url || '');
           return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
-        }} />;
+        }} onPin={onPin ? () => {
+          const art = realArts[idx];
+          if (art) onPin(`${art.title}${art.url ? ` — ${art.url}` : ''}`, 'article', art.url);
+        } : undefined} isPinned={isContentPinned ? () => {
+          const art = realArts[idx];
+          return art ? isContentPinned(`${art.title}${art.url ? ` — ${art.url}` : ''}`) : false;
+        } : undefined} />;
       }
       case 'movie': {
         const movies = relatedMovies.get(spotBookId);
@@ -379,7 +410,13 @@ const SpotlightSection = React.memo(function SpotlightSection({
         return <RelatedMovies movies={[movies[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showPlayButtons={showMoviePlayButtons} showComment={showComment} showSend={showSend} renderAction={() => {
           const hash = getContentHash('movie', movies[idx]?.title || '');
           return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
-        }} />;
+        }} onPin={onPin ? () => {
+          const movie = movies[idx];
+          if (movie) onPin(`${movie.title} (${movie.type}) — ${movie.director}`, movie.type, movie.itunes_url, movie.poster_url || movie.itunes_artwork);
+        } : undefined} isPinned={isContentPinned ? () => {
+          const movie = movies[idx];
+          return movie ? isContentPinned(`${movie.title} (${movie.type}) — ${movie.director}`) : false;
+        } : undefined} />;
       }
       default:
         return null;
@@ -457,7 +494,7 @@ const SpotlightSection = React.memo(function SpotlightSection({
               </div>
             </div>
           )}
-          <div className={shouldBlur ? '[&_p]:blur-[5px] [&_span]:blur-[5px] [&_button]:blur-[5px] select-none pointer-events-none' : ''}>
+          <div className={shouldBlur ? '[&_p]:blur-[5px] [&_span]:blur-[5px] [&_button]:blur-[5px] [&_svg]:blur-[5px] select-none pointer-events-none' : ''}>
             {content}
           </div>
         </div>
@@ -686,6 +723,7 @@ export default function App() {
   const [showFeedPage, setShowFeedPage] = useState(() => getLastPageState().showFeedPage);
   const [showChatPage, setShowChatPage] = useState(false);
   const [chatComingSoon, setChatComingSoon] = useState(false);
+  const chatNavButtonRef = useRef<HTMLButtonElement>(null);
   const [showTriviaTooltip, setShowTriviaTooltip] = useState(false);
   const triviaButtonMountRef = useRef(0);
   // Reset trivia button delay when leaving bookshelf
@@ -699,6 +737,7 @@ export default function App() {
   const [chatList, setChatList] = useState<ChatListItem[]>([]);
   const [characterChatList, setCharacterChatList] = useState<CharacterChatListItem[]>([]);
   const [chatListLoading, setChatListLoading] = useState(false);
+  const [unreadChatCounts, setUnreadChatCounts] = useState<Map<string, number>>(new Map());
   const [orphanedChatBook, setOrphanedChatBook] = useState<{ id: string; title: string; author: string; cover_url?: string | null } | null>(null);
   useEffect(() => { if (!chatBookSelected) setOrphanedChatBook(null); }, [chatBookSelected]);
   const [chatSwipeId, setChatSwipeId] = useState<string | null>(null);
@@ -769,10 +808,10 @@ export default function App() {
   const [feedPlayingAudioUrl, setFeedPlayingAudioUrl] = useState<string | null>(null);
   const feedAudioRef = useRef<HTMLAudioElement | null>(null);
   const [feedPlayingVideoId, setFeedPlayingVideoId] = useState<string | null>(null);
-  const [feedMusicModalData, setFeedMusicModalData] = useState<{ musicLinks: MusicLinks; title: string; artist: string } | null>(null);
-  const [feedWatchModalData, setFeedWatchModalData] = useState<{ watchLinks: WatchLinks; title: string; year?: number } | null>(null);
+  const [feedMusicModalData, setFeedMusicModalData] = useState<{ id: string; musicLinks: MusicLinks; title: string; artist: string } | null>(null);
+  const [feedWatchModalData, setFeedWatchModalData] = useState<{ id: string; watchLinks: WatchLinks; title: string; year?: number } | null>(null);
   const feedPlayButtonRef = useRef<HTMLButtonElement | null>(null);
-  const [feedPodcastTooltip, setFeedPodcastTooltip] = useState<{ url: string; audioUrl?: string } | null>(null);
+  const [feedPodcastTooltip, setFeedPodcastTooltip] = useState<{ id: string; url: string; audioUrl?: string } | null>(null);
   const [feedPodcastAudioPlaying, setFeedPodcastAudioPlaying] = useState(false);
   const [expandedFeedDescriptions, setExpandedFeedDescriptions] = useState<Set<string>>(new Set());
   const [feedCoverBrightness, setFeedCoverBrightness] = useState<Map<string, 'light' | 'dark'>>(new Map());
@@ -1892,6 +1931,23 @@ export default function App() {
     }
   }, [isLoaded, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage, showFollowingPage, showFeedPage]);
 
+  // Analytics: track view changes
+  useEffect(() => {
+    if (showBookshelfCovers) analytics.trackEvent('bookshelf', 'view', { view_type: 'covers', book_count: books.length });
+    else if (showBookshelf) analytics.trackEvent('bookshelf', 'view', { view_type: 'spines', book_count: books.length });
+  }, [showBookshelfCovers, showBookshelf]);
+
+  useEffect(() => {
+    if (showFeedPage) analytics.trackView('feed');
+  }, [showFeedPage]);
+
+  useEffect(() => {
+    if (!showBookshelf && !showBookshelfCovers && !showFeedPage && !showAccountPage && !showFollowingPage && !showNotesView && !showChatPage && books.length > 0 && selectedIndex >= 0 && selectedIndex < books.length) {
+      const book = books[selectedIndex];
+      if (book) analytics.trackEvent('book', 'view', { book_title: book.title, book_author: book.author });
+    }
+  }, [selectedIndex, showBookshelf, showBookshelfCovers, showFeedPage, showAccountPage, showFollowingPage, showNotesView, showChatPage]);
+
   // Android hardware back button
   const backButtonStateRef = useRef({
     isPlayingTrivia, showAboutScreen, isAdding, showShareDialog, showBookMenu,
@@ -1966,6 +2022,101 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, [showChatPage, chatBookSelected]);
+
+  // Proactive messages — check on app mount and resume from background
+  const proactiveCheckedRef = useRef(false);
+  const proactiveRunningRef = useRef(false);
+
+  useEffect(() => {
+    if (!user || books.length === 0) return;
+
+    async function checkProactive() {
+      if (proactiveRunningRef.current) return;
+      proactiveRunningRef.current = true;
+      try {
+        const list = await getChatList();
+        const candidates = await getProactiveCandidates(list, books);
+        if (candidates.length === 0) return;
+
+        // Prioritize currently-reading, then general — process up to 2
+        const sorted = [...candidates.filter(c => c.chatType === 'book'), ...candidates.filter(c => c.chatType === 'general')];
+        let generated = 0;
+
+        for (const candidate of sorted) {
+          if (generated >= 2) break;
+          let ctx: BookChatContext;
+          if (candidate.chatType === 'general') {
+            ctx = {
+              title: 'My Bookshelf',
+              author: '',
+              readingStatus: null,
+              generalMode: true,
+              summary: `The user's bookshelf contains ${books.length} books:\n${books.map(b => {
+                const parts = [`- "${b.title}" by ${b.author}`];
+                if (b.reading_status) parts.push(`(${b.reading_status.replace('_', ' ')})`);
+                return parts.join(' ');
+              }).join('\n')}`,
+            };
+          } else {
+            const book = books.find(b => b.id === candidate.bookId);
+            ctx = {
+              title: candidate.bookTitle,
+              author: candidate.bookAuthor,
+              readingStatus: book?.reading_status || null,
+            };
+            if (book) {
+              const cached = podcastEpisodes.get(book.id);
+              const pods = [...(cached?.curated || []), ...(cached?.apple || [])];
+              if (pods.length) ctx.podcasts = pods.map(p => ({ title: p.title, podcast_name: p.podcast_name, url: p.url, thumbnail: p.thumbnail, length: p.length, audioUrl: p.audioUrl }));
+              const vids = youtubeVideos.get(book.id);
+              if (vids?.length) ctx.videos = vids.map(v => ({ title: v.title, channelTitle: v.channelTitle, videoId: v.videoId }));
+              const movies = relatedMovies.get(book.id);
+              if (movies?.length) ctx.relatedWorks = movies.map(m => ({ title: m.title, director: m.director, reason: m.reason, type: m.type, poster_url: m.poster_url, release_year: m.release_year, wikipedia_url: m.wikipedia_url, itunes_url: m.itunes_url, itunes_artwork: m.itunes_artwork, music_links: m.music_links }));
+            }
+          }
+          const proactiveMsg = await generateProactiveMessage(ctx, candidate.chatKey, candidate.bookId, candidate.bookTitle, candidate.bookAuthor);
+          if (proactiveMsg) {
+            generated++;
+            const key = candidate.chatType === 'general' ? '00000000-0000-0000-0000-000000000000' : candidate.bookId;
+            setUnreadChatCounts(prev => { const next = new Map(prev); next.set(key, (next.get(key) || 0) + 1); return next; });
+          }
+        }
+        if (generated > 0) {
+          const refreshed = await getChatList();
+          setChatList(refreshed);
+        }
+      } catch (err) {
+        console.error('[proactive] Error:', err);
+      } finally {
+        proactiveRunningRef.current = false;
+      }
+    }
+
+    // Run once on mount (after books load)
+    if (!proactiveCheckedRef.current) {
+      proactiveCheckedRef.current = true;
+      checkProactive();
+    }
+
+    // Run on app resume from background
+    const handleVisibilityChange = () => {
+      if (!document.hidden) checkProactive();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    let resumeListener: any;
+    (async () => {
+      try {
+        const { App: CapApp } = await import('@capacitor/app');
+        resumeListener = await CapApp.addListener('resume', () => checkProactive());
+      } catch {}
+    })();
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      resumeListener?.remove();
+    };
+  }, [user, books.length > 0]);
 
   // Load Grok usage logs when account page is shown
   useEffect(() => {
@@ -2120,6 +2271,7 @@ export default function App() {
   useEffect(() => {
     // Only fire confetti when game transitions from incomplete to complete
     if (triviaGameComplete && !prevTriviaGameCompleteRef.current) {
+      analytics.trackEvent('trivia', 'complete', { score: triviaScore, total: triviaQuestions.length });
       // Play confetti sound
       const confettiSound = new Audio(getAssetPath('/confetti-pop-sound.mp3'));
       confettiSound.volume = 0.5; // Set volume to 50%
@@ -4268,6 +4420,8 @@ export default function App() {
       return;
     }
 
+    analytics.trackEvent('discussion', 'view', { book_title: activeBook.title });
+
     // Don't fetch if we already have questions for this book
     if (discussionQuestions.length > 0) {
       return;
@@ -4444,8 +4598,9 @@ export default function App() {
   // Handle toggling a heart
   const handleToggleHeart = async (contentHash: string) => {
     if (!user?.id) return;
-    // Optimistic update
     const wasHearted = userHearted.has(contentHash);
+    analytics.trackEvent('feed', 'heart', { is_hearted: !wasHearted });
+    // Optimistic update
     setUserHearted(prev => {
       const next = new Set(prev);
       if (wasHearted) next.delete(contentHash);
@@ -4798,6 +4953,7 @@ export default function App() {
           
           // Success on retry - continue with retryData
           const newBook = convertBookToApp(retryData);
+          analytics.trackEvent('add_book', 'confirm', { book_title: newBook.title, book_author: newBook.author, reading_status: readingStatus });
           // Reconnect orphaned chats from a previously deleted copy of this book
           reassignChatsToBook(newBook.id, newBook.title, newBook.author || '').then(count => {
             if (count > 0) console.log(`[handleAddBook] Reconnected ${count} orphaned chat messages to new book`);
@@ -4861,6 +5017,7 @@ export default function App() {
       }
 
       const newBook = convertBookToApp(data);
+      analytics.trackEvent('add_book', 'confirm', { book_title: newBook.title, book_author: newBook.author, reading_status: readingStatus });
       triggerSuccessHaptic();
       // Reconnect orphaned chats from a previously deleted copy of this book
       reassignChatsToBook(newBook.id, newBook.title, newBook.author || '').then(count => {
@@ -4986,7 +5143,8 @@ export default function App() {
       }
       
       console.log(`[handleRate] ✅ Successfully updated ${ratingField} to ${value}`);
-      
+      analytics.trackEvent('rating', 'rate', { book_title: activeBook?.title, dimension, value });
+
       // After rating, move to next dimension or close if all done
       if (value !== null && activeBook) {
         const currentIndex = RATING_DIMENSIONS.indexOf(dimension as typeof RATING_DIMENSIONS[number]);
@@ -5136,6 +5294,50 @@ export default function App() {
     } catch (err) {
       console.error('Error saving note:', err);
     }
+  }
+
+  // Pin content as a new note on the active book
+  const [pinConfirmText, setPinConfirmText] = useState<string | null>(null);
+  const pinConfirmTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function makePinMarker(type: string, content: string, url?: string, imageUrl?: string): string {
+    return `{{pin:${type}|${content}|${url || ''}|${imageUrl || ''}}}`;
+  }
+
+  function isContentPinned(content: string): boolean {
+    if (!activeBook?.notes) return false;
+    return activeBook.notes.includes(content);
+  }
+
+  async function handlePinForLater(content: string, type: string = 'note', url?: string, imageUrl?: string) {
+    if (!activeBook || !user) return;
+    const bookId = activeBook.id;
+    const existingNotes = activeBook.notes || '';
+    const marker = makePinMarker(type, content, url, imageUrl);
+
+    if (isContentPinned(content)) {
+      // Unpin: remove the note section containing this content
+      const sections = existingNotes.split(/(?=\{\d{4}-\d{2}-\d{2} \d{2}:\d{2}\})/).filter(s => s.trim());
+      const filtered = sections.filter(s => !s.includes(content));
+      const newNotes = filtered.join('\n\n').trim() || null;
+      await handleSaveNote(newNotes || '', bookId);
+      return;
+    }
+
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const ts = `{${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}}`;
+
+    // Each pin creates a new note section with rich marker
+    const newSection = `${ts}\n${marker}`;
+    const newNotes = existingNotes ? `${newSection}\n\n${existingNotes}` : newSection;
+
+    await handleSaveNote(newNotes, bookId);
+
+    // Show brief confirmation
+    setPinConfirmText(content.length > 40 ? content.substring(0, 40) + '...' : content);
+    if (pinConfirmTimeoutRef.current) clearTimeout(pinConfirmTimeoutRef.current);
+    pinConfirmTimeoutRef.current = setTimeout(() => setPinConfirmText(null), 1500);
   }
 
   // Toggle follow/unfollow for the currently viewed user
@@ -5535,6 +5737,7 @@ export default function App() {
                     setViewingUserFullName(null);
                     setViewingUserAvatar(null);
                     setIsFadingOutViewingUser(false);
+                    restorePreviousView();
                   }, 300);
                 }}
                 className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
@@ -6600,7 +6803,7 @@ export default function App() {
                   <motion.div key={item.id} initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }} className={`w-full ${cardOpacity}`}>
                     <div className="flex gap-3 px-4 pt-3 pb-2">
                       {/* Avatar */}
-                      <button onClick={openSourceBookOverlay} className="flex-shrink-0 active:scale-95 transition-transform self-start mt-1">
+                      <button onClick={openSourceBookOverlay} className="flex-shrink-0 active:scale-95 transition-transform self-start mt-1 relative">
                         {item.source_book_cover_url ? (
                           <img src={item.source_book_cover_url} alt="" className="w-11 h-11 rounded-full object-cover" />
                         ) : (
@@ -6608,13 +6811,14 @@ export default function App() {
                             <BookOpen size={18} className="text-slate-400" />
                           </div>
                         )}
+                        <img src={getAssetPath('/avatars/bookluver.webp')} alt="" className="absolute -bottom-1.5 -right-1.5 w-[24px] h-[24px] rounded-full border-2 border-white dark:border-slate-900 object-cover" />
                       </button>
                       {/* Content column */}
                       <div className="flex-1 min-w-0 break-words">
                         {/* Header: book title + time */}
                         <div className="flex items-baseline gap-2 mb-2">
-                          <button onClick={openSourceBookOverlay} className="active:opacity-70 min-w-0">
-                            <span className="font-bold text-[15px] text-slate-900 dark:text-slate-100 line-clamp-1">{item.source_book_title}</span>
+                          <button onClick={openSourceBookOverlay} className="active:opacity-70 min-w-0 flex-1">
+                            <span className="font-bold text-[15px] text-slate-900 dark:text-slate-100 line-clamp-1 text-left">{item.source_book_title}</span>
                           </button>
                           <span className="text-[13px] text-slate-600 dark:text-slate-500 flex-shrink-0">{timeAgo(item.created_at)}</span>
                         </div>
@@ -6679,30 +6883,36 @@ export default function App() {
                             </div>
                           )}
                           {/* Play button */}
-                          <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: feedPodcastTooltip ? 10000 : 1 }}>
+                          {(() => { const isThisTooltipOpen = feedPodcastTooltip?.id === item.id; return (
+                          <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: isThisTooltipOpen ? 10000 : 1 }}>
                             <button
                               onTouchStart={(e) => e.stopPropagation()}
                               onClick={(e) => {
                                 e.stopPropagation();
+                                if (isNativePlatform && episode?.url) {
+                                  openDeepLink(episode.url);
+                                  return;
+                                }
                                 feedPlayButtonRef.current = e.currentTarget as HTMLButtonElement;
-                                if (feedPodcastTooltip) {
+                                if (isThisTooltipOpen) {
                                   setFeedPodcastTooltip(null);
                                 } else {
-                                  setFeedPodcastTooltip({ url: episode?.url || '', audioUrl: episode?.audioUrl });
+                                  setFeedPodcastTooltip({ id: item.id, url: episode?.url || '', audioUrl: episode?.audioUrl });
                                 }
                               }}
                               className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95"
                               style={{
-                                background: feedPodcastTooltip ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
+                                background: isThisTooltipOpen ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
                                 backdropFilter: 'blur(9.4px)',
                                 WebkitBackdropFilter: 'blur(9.4px)',
-                                border: feedPodcastTooltip ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
+                                border: isThisTooltipOpen ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
                                 boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
                               }}
                             >
-                              {feedPodcastTooltip ? <X size={16} className="text-white" /> : <Play size={18} className="text-white ml-0.5" fill="white" />}
+                              {isThisTooltipOpen ? <X size={16} className="text-white" /> : <Play size={18} className="text-white ml-0.5" fill="white" />}
                             </button>
                           </div>
+                          ); })()}
                           {/* Bottom gradient */}
                           <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
                           {/* Overlay info */}
@@ -6999,38 +7209,38 @@ export default function App() {
                               </div>
 
                               {/* Play button — centered on album art */}
-                              {(relatedWork?.itunes_url || relatedWork?.music_links) && (
+                              {(relatedWork?.itunes_url || relatedWork?.music_links) && (() => { const isThisMusicOpen = feedMusicModalData?.id === item.id; return (
                                 <button
                                   onTouchStart={(e) => e.stopPropagation()}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     feedPlayButtonRef.current = e.currentTarget as HTMLButtonElement;
-                                    if (feedMusicModalData) {
+                                    if (isThisMusicOpen) {
                                       setFeedMusicModalData(null);
                                     } else if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent) && relatedWork.itunes_url) {
                                       openDeepLink(relatedWork.itunes_url);
                                     } else if (relatedWork.music_links) {
-                                      setFeedMusicModalData({ musicLinks: relatedWork.music_links, title: relatedWork.title || '', artist: relatedWork.director || '' });
+                                      setFeedMusicModalData({ id: item.id, musicLinks: relatedWork.music_links, title: relatedWork.title || '', artist: relatedWork.director || '' });
                                     } else if (relatedWork.itunes_url) {
                                       window.open(`https://song.link/${relatedWork.itunes_url}`, '_blank');
                                     }
                                   }}
                                   className="absolute w-10 h-10 rounded-full flex items-center justify-center active:scale-95 transition-transform"
                                   style={{
-                                    zIndex: feedMusicModalData ? 10000 : 30,
+                                    zIndex: isThisMusicOpen ? 10000 : 30,
                                     top: '50%',
                                     left: '50%',
                                     transform: 'translate(-50%, -50%)',
-                                    background: feedMusicModalData ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
+                                    background: isThisMusicOpen ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
                                     backdropFilter: 'blur(9.4px)',
                                     WebkitBackdropFilter: 'blur(9.4px)',
-                                    border: feedMusicModalData ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
+                                    border: isThisMusicOpen ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
                                     boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
                                   }}
                                 >
-                                  {feedMusicModalData ? <X size={16} className="text-white" /> : <Play size={16} className="text-white ml-0.5" fill="white" />}
+                                  {isThisMusicOpen ? <X size={16} className="text-white" /> : <Play size={16} className="text-white ml-0.5" fill="white" />}
                                 </button>
-                              )}
+                              ); })()}
                             </div>
                           </div>
                           {/* Text info */}
@@ -7092,21 +7302,21 @@ export default function App() {
                             <div className="absolute inset-0 pointer-events-none" style={{ boxShadow: 'inset 0 0 50px rgba(0,0,0,0.35)' }} />
                           </div>
                           {/* Play button — centered on poster (feature-flagged for movies/shows) */}
-                          {remoteFlags.related_work_play_buttons && (
-                          <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: feedWatchModalData ? 10000 : 30 }}>
+                          {remoteFlags.related_work_play_buttons && (() => { const isThisWatchOpen = feedWatchModalData?.id === item.id; return (
+                          <div className="absolute inset-0 flex items-center justify-center" style={{ zIndex: isThisWatchOpen ? 10000 : 30 }}>
                             <button
                               onTouchStart={(e) => e.stopPropagation()}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 feedPlayButtonRef.current = e.currentTarget as HTMLButtonElement;
-                                if (feedWatchModalData) {
+                                if (isThisWatchOpen) {
                                   setFeedWatchModalData(null);
                                 } else {
                                   const wl = relatedWork?.watch_links;
                                   if (isNativePlatform && /iPhone|iPad|iPod/.test(navigator.userAgent) && wl?.apple) {
-                                    openSystemBrowser(wl.apple);
+                                    openDeepLink(wl.apple);
                                   } else if (wl && Object.keys(wl).some(k => k !== 'tmdb_url' && wl[k as keyof typeof wl])) {
-                                    setFeedWatchModalData({ watchLinks: wl, title: relatedWork?.title || '', year: relatedWork?.release_year });
+                                    setFeedWatchModalData({ id: item.id, watchLinks: wl, title: relatedWork?.title || '', year: relatedWork?.release_year });
                                   } else if (relatedWork?.itunes_url) {
                                     window.open(relatedWork.itunes_url, '_blank');
                                   }
@@ -7114,17 +7324,17 @@ export default function App() {
                               }}
                               className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-95"
                               style={{
-                                background: feedWatchModalData ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
+                                background: isThisWatchOpen ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.25)',
                                 backdropFilter: 'blur(9.4px)',
                                 WebkitBackdropFilter: 'blur(9.4px)',
-                                border: feedWatchModalData ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
+                                border: isThisWatchOpen ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.3)',
                                 boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
                               }}
                             >
-                              {feedWatchModalData ? <X size={18} className="text-white" /> : <Play size={18} className="text-white ml-0.5" fill="white" />}
+                              {isThisWatchOpen ? <X size={18} className="text-white" /> : <Play size={18} className="text-white ml-0.5" fill="white" />}
                             </button>
                           </div>
-                          )}
+                          ); })()}
                         </div>
                         <div>
                           <span className="inline-flex items-center gap-1 py-0.5 px-1.5 text-[10px] font-bold rounded-full uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 mb-1">
@@ -7237,7 +7447,7 @@ export default function App() {
                       <motion.div key={item.id} initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }} className={`w-full ${cardOpacity}`}>
                         <div className="flex gap-3 px-4 pt-3 pb-2">
                           {/* Friend's avatar */}
-                          <div className="flex-shrink-0 self-start mt-1">
+                          <button onClick={() => { if (item.user_id) { capturePreviousView(); setScrollY(0); setViewingUserId(item.user_id); setShowFeedPage(false); setShowBookshelfCovers(true); }}} className="flex-shrink-0 self-start mt-1 active:scale-95 transition-transform">
                             {friendAvatarUrl ? (
                               <img src={friendAvatarUrl} alt="" className="w-11 h-11 rounded-full object-cover" referrerPolicy="no-referrer" />
                             ) : (
@@ -7245,11 +7455,13 @@ export default function App() {
                                 <Users size={18} className="text-slate-400" />
                               </div>
                             )}
-                          </div>
+                          </button>
                           {/* Content column */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-baseline gap-2 mb-2">
-                              <span className="font-bold text-[15px] text-slate-900 dark:text-slate-100 line-clamp-1">{friendName}</span>
+                              <button onClick={() => { if (item.user_id) { capturePreviousView(); setScrollY(0); setViewingUserId(item.user_id); setShowFeedPage(false); setShowBookshelfCovers(true); }}} className="active:opacity-70 min-w-0 flex-1">
+                                <span className="font-bold text-[15px] text-slate-900 dark:text-slate-100 line-clamp-1 text-left">{friendName}</span>
+                              </button>
                               <span className="text-[13px] text-slate-600 dark:text-slate-500 flex-shrink-0">{timeAgo(item.created_at)}</span>
                             </div>
                             <p className="text-[15px] text-slate-800 dark:text-slate-200 mb-2">{item.content.action || 'added'} a book</p>
@@ -8007,6 +8219,10 @@ export default function App() {
                                             return next;
                                           });
                                         }
+                                        // Clear unread badge for this chat
+                                        if (item.book_id && unreadChatCounts.has(item.book_id)) {
+                                          setUnreadChatCounts(prev => { const next = new Map(prev); next.delete(item.book_id!); return next; });
+                                        }
                                         setChatBookSelected(true);
                                       }
                                     }}
@@ -8071,15 +8287,20 @@ export default function App() {
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-center justify-between gap-2">
                                         <div className="flex items-center gap-1.5 min-w-0">
-                                          <p className="text-[15px] font-semibold text-slate-800 truncate">{item.title}</p>
+                                          <p className={`text-[15px] font-semibold truncate ${item.book_id && unreadChatCounts.has(item.book_id) ? 'text-slate-900' : 'text-slate-800'}`}>{item.title}</p>
                                           {item.isReading && (
                                             <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full shrink-0 leading-none">Reading</span>
                                           )}
                                         </div>
-                                        <span className="text-[11px] text-slate-400 shrink-0">{timeAgo(item.last_message_at)}</span>
+                                        <span className={`text-[11px] shrink-0 ${item.book_id && unreadChatCounts.has(item.book_id) ? 'text-blue-500 font-semibold' : 'text-slate-400'}`}>{timeAgo(item.last_message_at)}</span>
                                       </div>
                                       <div className="flex items-center justify-between gap-2 mt-0.5">
-                                        <p className="text-[13px] text-slate-500 truncate">{item.last_message}</p>
+                                        <p className={`text-[13px] truncate ${item.book_id && unreadChatCounts.has(item.book_id) ? 'text-slate-700 font-medium' : 'text-slate-500'}`}>{item.last_message}</p>
+                                        {item.book_id && unreadChatCounts.has(item.book_id) && (
+                                          <div className="min-w-[20px] h-[20px] rounded-full bg-blue-500 flex items-center justify-center px-1.5 shrink-0">
+                                            <span className="text-[11px] font-bold text-white leading-none">{unreadChatCounts.get(item.book_id)}</span>
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   </button>
@@ -8740,14 +8961,14 @@ export default function App() {
                           <p className="text-sm text-slate-600 dark:text-slate-400">Books</p>
                         </div>
                         <button
-                          onClick={() => setShowNotesView(true)}
+                          onClick={() => { analytics.trackEvent('nav', 'tap', { destination: 'notes' }); setShowNotesView(true); }}
                           className="text-center hover:opacity-70 active:scale-95 transition-all"
                         >
                           <p className="text-2xl font-bold text-slate-950 dark:text-slate-50">{books.filter(b => b.notes && b.notes.trim()).length}</p>
                           <p className="text-sm text-slate-600 dark:text-slate-400">Notes</p>
                         </button>
                         <button
-                          onClick={() => setShowFollowingPage(true)}
+                          onClick={() => { analytics.trackEvent('nav', 'tap', { destination: 'following' }); setShowFollowingPage(true); }}
                           className="text-center hover:opacity-70 active:scale-95 transition-all"
                         >
                           <p className="text-2xl font-bold text-slate-950 dark:text-slate-50">{myFollowingCount}</p>
@@ -10080,7 +10301,7 @@ export default function App() {
                               }}
                               className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-900 dark:text-slate-100 font-medium text-sm hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
                             >
-                              <Pencil size={18} />
+                              <StickyNote size={18} />
                               Notes
                             </button>
                             <div className="h-px bg-slate-200/50" />
@@ -10268,7 +10489,7 @@ export default function App() {
                       })
                     ) : null}
 
-                    {/* 5. Telegram group */}
+                    {/* 5. Readers count with overlapping avatars */}
                     <button
                       onClick={async () => {
                         if (!activeBook?.canonical_book_id) return;
@@ -10296,17 +10517,41 @@ export default function App() {
                       disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
                       className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform disabled:opacity-50"
                     >
-                      <div
-                        className="w-14 h-14 rounded-full flex items-center justify-center"
-                        style={{ background: 'linear-gradient(135deg, #dbeafe, #c7d2fe)', border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
-                      >
-                        {isLoadingTelegramTopic ? (
-                          <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} className="w-5 h-5 border-2 border-slate-500 border-t-transparent rounded-full" />
-                        ) : (
-                          <MessagesSquare size={22} className="text-indigo-500" />
-                        )}
+                      <div className="h-14 flex items-center">
+                        <div className="flex items-center">
+                          {bookReaders.slice(0, 3).map((reader, index) => (
+                            reader.avatar ? (
+                              <img
+                                key={reader.id}
+                                src={reader.avatar}
+                                alt={reader.name}
+                                className="w-14 h-14 shrink-0 rounded-full border-2 border-white object-cover"
+                                style={{ zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0 }}
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div
+                                key={reader.id}
+                                className="w-14 h-14 shrink-0 rounded-full border-2 border-white flex items-center justify-center text-sm font-bold text-white"
+                                style={{ zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0, background: avatarGradient(reader.id) }}
+                              >
+                                {reader.name.charAt(0).toUpperCase()}
+                              </div>
+                            )
+                          ))}
+                          {bookReaders.length === 0 && (
+                            <div
+                              className="w-14 h-14 shrink-0 rounded-full flex items-center justify-center"
+                              style={{ background: 'linear-gradient(135deg, #dbeafe, #c7d2fe)', border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
+                            >
+                              <MessagesSquare size={22} className="text-indigo-500" />
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">Group</span>
+                      <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">
+                        {bookReaders.length + 1} {bookReaders.length === 0 ? 'reader' : 'readers'}
+                      </span>
                     </button>
                   </div>
                 </div>
@@ -10638,7 +10883,7 @@ export default function App() {
                       bookId={activeBook.id}
                       isLoading={isLoadingSummary}
                       firstIssueYear={activeBook.first_issue_year}
-                      readersSection={readersContent}
+                      readersSection={undefined}
                     />
                   </div>
                 );
@@ -10686,8 +10931,10 @@ export default function App() {
                 userHearted={userHearted}
                 handleToggleHeart={handleToggleHeart}
                 showMoviePlayButtons={remoteFlags.related_work_play_buttons}
-                showComment={remoteFlags.commenting_enabled}
+                showComment={false}
                 showSend={remoteFlags.send_enabled}
+                onPin={(content, type, url, imageUrl) => handlePinForLater(content, type, url, imageUrl)}
+                isContentPinned={isContentPinned}
               />
             )}
 
@@ -10866,6 +11113,7 @@ export default function App() {
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             setSelectedInsightCategory(cat.id);
+                                            analytics.trackEvent('insights', 'view', { category: cat.id, book_title: activeBook?.title });
                                             setIsInsightCategoryDropdownOpen(false);
                                           }}
                                           className={`w-full text-left text-[10px] font-bold px-3 py-2 transition-colors ${
@@ -10935,11 +11183,19 @@ export default function App() {
                               insights={currentInsights}
                               bookId={`${activeBook.id}-${selectedInsightCategory}`}
                               isLoading={false}
-                              showComment={remoteFlags.commenting_enabled}
+                              showComment={false}
                               showSend={remoteFlags.send_enabled}
                               renderAction={(idx) => {
                                 const hash = getContentHash('insight', currentInsights[idx]?.text?.substring(0, 50) || '');
                                 return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
+                              }}
+                              onPin={(idx) => {
+                                const insight = currentInsights[idx];
+                                if (insight) handlePinForLater(insight.text, 'insight');
+                              }}
+                              isPinned={(idx) => {
+                                const insight = currentInsights[idx];
+                                return insight ? isContentPinned(insight.text) : false;
                               }}
                             />
                           ) : null}
@@ -10998,11 +11254,19 @@ export default function App() {
                               episodes={episodes}
                               bookId={activeBook?.id || ''}
                               isLoading={false}
-                              showComment={remoteFlags.commenting_enabled}
+                              showComment={false}
                               showSend={remoteFlags.send_enabled}
                               renderAction={(idx) => {
                                 const hash = getContentHash('podcast', episodes[idx]?.url || '');
                                 return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
+                              }}
+                              onPin={(idx) => {
+                                const ep = episodes[idx];
+                                if (ep) handlePinForLater(`${ep.podcast_name || 'Podcast'} — ${ep.title}`, 'podcast', ep.url || ep.audioUrl, ep.thumbnail);
+                              }}
+                              isPinned={(idx) => {
+                                const ep = episodes[idx];
+                                return ep ? isContentPinned(`${ep.podcast_name || 'Podcast'} — ${ep.title}`) : false;
                               }}
                             />
                           )}
@@ -11058,11 +11322,19 @@ export default function App() {
                               videos={videos}
                               bookId={activeBook.id}
                               isLoading={false}
-                              showComment={remoteFlags.commenting_enabled}
+                              showComment={false}
                               showSend={remoteFlags.send_enabled}
                               renderAction={(idx) => {
                                 const hash = getContentHash('youtube', videos[idx]?.videoId || '');
                                 return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
+                              }}
+                              onPin={(idx) => {
+                                const v = videos[idx];
+                                if (v) handlePinForLater(`${v.title} — ${v.channelTitle}`, 'youtube', v.videoId ? `https://www.youtube.com/watch?v=${v.videoId}` : undefined, v.thumbnail);
+                              }}
+                              isPinned={(idx) => {
+                                const v = videos[idx];
+                                return v ? isContentPinned(`${v.title} — ${v.channelTitle}`) : false;
                               }}
                             />
                           )}
@@ -11124,11 +11396,19 @@ export default function App() {
                               articles={articles}
                               bookId={activeBook.id}
                               isLoading={false}
-                              showComment={remoteFlags.commenting_enabled}
+                              showComment={false}
                               showSend={remoteFlags.send_enabled}
                               renderAction={(idx) => {
                                 const hash = getContentHash('article', articles[idx]?.url || '');
                                 return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
+                              }}
+                              onPin={(idx) => {
+                                const a = articles[idx];
+                                if (a) handlePinForLater(`${a.title}${a.url ? ` — ${a.url}` : ''}`, 'article', a.url);
+                              }}
+                              isPinned={(idx) => {
+                                const a = articles[idx];
+                                return a ? isContentPinned(`${a.title}${a.url ? ` — ${a.url}` : ''}`) : false;
                               }}
                             />
                           )}
@@ -11184,12 +11464,20 @@ export default function App() {
                           bookId={activeBook.id}
                           isLoading={false}
                           showPlayButtons={remoteFlags.related_work_play_buttons}
-                          showComment={remoteFlags.commenting_enabled}
+                          showComment={false}
                           showSend={remoteFlags.send_enabled}
                           renderAction={(idx) => {
                             const m = (movies || [])[idx];
                             const hash = getContentHash('related_work', m?.title || '');
                             return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
+                          }}
+                          onPin={(idx) => {
+                            const m = (movies || [])[idx];
+                            if (m) handlePinForLater(`${m.title} (${m.type}) — ${m.director}`, m.type, m.itunes_url, m.poster_url || m.itunes_artwork);
+                          }}
+                          isPinned={(idx) => {
+                            const m = (movies || [])[idx];
+                            return m ? isContentPinned(`${m.title} (${m.type}) — ${m.director}`) : false;
                           }}
                         />
                       )}
@@ -11275,7 +11563,7 @@ export default function App() {
                           bookId={activeBook.id}
                           isLoading={false}
                           onAddBook={handleAddBook}
-                          showComment={remoteFlags.commenting_enabled}
+                          showComment={false}
                           showSend={remoteFlags.send_enabled}
                           sourceBookCoverUrl={activeBook.cover_url}
                           sourceBookTitle={activeBook.title}
@@ -11283,6 +11571,14 @@ export default function App() {
                             const b = (related || [])[idx];
                             const hash = getContentHash('related_book', b?.title || '');
                             return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
+                          }}
+                          onPin={(idx) => {
+                            const b = (related || [])[idx];
+                            if (b) handlePinForLater(`${b.title} by ${b.author}`, 'book', b.wikipedia_url || b.google_books_url, b.cover_url || b.thumbnail);
+                          }}
+                          isPinned={(idx) => {
+                            const b = (related || [])[idx];
+                            return b ? isContentPinned(`${b.title} by ${b.author}`) : false;
                           }}
                         />
                       )}
@@ -11299,6 +11595,22 @@ export default function App() {
         )}
 
           </motion.main>
+        )}
+      </AnimatePresence>
+
+      {/* Pin confirmation toast */}
+      <AnimatePresence>
+        {pinConfirmText && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 rounded-full shadow-lg flex items-center gap-2"
+            style={{ background: 'rgba(30, 30, 30, 0.85)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
+          >
+            <StickyNote size={14} className="text-amber-400 flex-shrink-0" />
+            <span className="text-xs text-white font-medium">Saved to For later</span>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -11358,6 +11670,7 @@ export default function App() {
               setTimeout(() => setShowTriviaTooltip(false), 2000);
               return;
             }
+            analytics.trackEvent('trivia', 'start', { question_count: triviaQuestions.length });
             setIsPlayingTrivia(true);
             setIsTriviaReady(true);
             setCurrentTriviaQuestionIndex(0);
@@ -11463,6 +11776,7 @@ export default function App() {
               ) {
                 return; // Already on bookshelf, do nothing
               }
+              analytics.trackEvent('nav', 'tap', { destination: 'bookshelf' });
               setScrollY(0); // Reset scroll when switching views
               setViewingUserId(null);
               setViewingUserBooks([]);
@@ -11496,9 +11810,11 @@ export default function App() {
           {/* Chat button */}
           {!isReviewer && featureFlags.chat_enabled && remoteFlags.chat_enabled && (
               <button
+                ref={chatNavButtonRef}
                 onClick={() => {
                   triggerLightHaptic();
                   if (showChatPage) return;
+                  analytics.trackEvent('nav', 'tap', { destination: 'chat_list' });
                   setScrollY(0);
                   setChatBookSelected(false);
                   setShowChatPage(true);
@@ -11538,6 +11854,7 @@ export default function App() {
             onClick={() => {
               triggerLightHaptic();
               if (showCreatePost) return;
+              analytics.trackEvent('nav', 'tap', { destination: 'create_post' });
               setScrollY(0);
               setCreatePostText('');
               setShowCreatePost(true);
@@ -11564,6 +11881,7 @@ export default function App() {
             onClick={() => {
               triggerLightHaptic();
               if (showFeedPage) return; // Already on feed, do nothing
+              analytics.trackEvent('nav', 'tap', { destination: 'feed' });
               setScrollY(0);
               setViewingUserId(null);
               setViewingUserBooks([]);
@@ -11595,7 +11913,7 @@ export default function App() {
 
           {/* Search button - right (circular) */}
           <button
-            onClick={() => { triggerLightHaptic(); openAddBookSheet(); }}
+            onClick={() => { triggerLightHaptic(); analytics.trackEvent('nav', 'tap', { destination: 'search' }); openAddBookSheet(); }}
             className="relative ml-auto w-11 h-11 rounded-full bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all flex items-center justify-center"
           >
             {featureFlags.hand_drawn_icons ? (
@@ -11622,6 +11940,22 @@ export default function App() {
         )}
         </AnimatePresence>
       </div>
+      )}
+
+      {/* Unread chat badge — rendered outside glassmorphic nav to avoid blur */}
+      {unreadChatCounts.size > 0 && !(showChatPage && chatBookSelected) && chatNavButtonRef.current && createPortal(
+        <div
+          className="pointer-events-none"
+          style={{
+            position: 'fixed',
+            zIndex: 60,
+            left: chatNavButtonRef.current.getBoundingClientRect().left + chatNavButtonRef.current.getBoundingClientRect().width * 0.55 + 2,
+            top: chatNavButtonRef.current.getBoundingClientRect().top + chatNavButtonRef.current.getBoundingClientRect().height * 0.05 + 8,
+          }}
+        >
+          <div className="w-[9px] h-[9px] rounded-full bg-blue-500" />
+        </div>,
+        document.body
       )}
 
       {/* Game Overlay */}
@@ -13622,6 +13956,7 @@ export default function App() {
               {!isReviewer && (
               <button
                 onClick={() => {
+                  analytics.trackEvent('nav', 'tap', { destination: 'account' });
                   capturePreviousView();
                   setScrollY(0);
                   setShowAccountPage(true);

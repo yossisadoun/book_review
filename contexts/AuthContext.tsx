@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useRef, useState, useCallb
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { closeSystemBrowser, isNativePlatform, listenForAppUrlOpen, openSystemBrowser, registerForPushNotifications } from '@/lib/capacitor';
+import { analytics, setAnalyticsUser } from '@/app/services/analytics-service';
 // @capacitor-community/apple-sign-in is dynamically imported in signInWithApple()
 // Static imports break CI where the native module can't resolve.
 
@@ -63,6 +64,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }, 10000);
 
+    // Initialize analytics session once
+    analytics.initSession();
+
     // Get initial session
     supabase.auth.getSession()
       .then(({ data: { session }, error }) => {
@@ -74,6 +78,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
+
+        // Set analytics user from initial session and fire session_start
+        if (session?.user) {
+          const provider = session.user.app_metadata?.provider;
+          const type = session.user.is_anonymous ? 'guest' : (provider === 'apple' ? 'apple' : provider === 'google' ? 'google' : 'guest');
+          setAnalyticsUser(session.user.id, type as 'guest' | 'apple' | 'google');
+          analytics.trackEvent('app', 'session_start');
+        }
       })
       .catch((error) => {
         clearTimeout(timeoutId);
@@ -91,8 +103,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(session?.user ?? null);
       setLoading(false);
 
-      // Reset migration guard when user signs out or becomes anonymous
+      // Update analytics user on auth changes
       const newUser = session?.user;
+      if (newUser) {
+        const provider = newUser.app_metadata?.provider;
+        const type = newUser.is_anonymous ? 'guest' : (provider === 'apple' ? 'apple' : provider === 'google' ? 'google' : 'guest');
+        setAnalyticsUser(newUser.id, type as 'guest' | 'apple' | 'google');
+        if (_event === 'SIGNED_IN') {
+          analytics.trackEvent('auth', 'sign_in', { method: type });
+        }
+      } else {
+        setAnalyticsUser(null, 'guest');
+      }
+
+      // Reset migration guard when user signs out or becomes anonymous
       if (!newUser || newUser.is_anonymous) {
         migrationRunRef.current = false;
       }
@@ -315,6 +339,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function signOut() {
     try {
+      analytics.trackEvent('auth', 'sign_out');
       // Try local signout first (signs out from this device only)
       const { error } = await supabase.auth.signOut({ scope: 'local' });
       if (error) {

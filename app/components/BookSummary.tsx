@@ -7,7 +7,9 @@ import {
   CheckCircle2, Circle,
   Target, Zap, ArrowRight, Globe, Sparkles, Eye, Brain, Flame,
   Tag,
+  StickyNote,
 } from 'lucide-react';
+import { analytics } from '../services/analytics-service';
 const frostedGlassStyle: React.CSSProperties = {
   background: 'rgba(255, 255, 255, 0.25)',
   backdropFilter: 'blur(9.4px)',
@@ -67,18 +69,19 @@ function buildCards(summary: BookSummaryType): SummaryCard[] {
       accentLight: 'rgba(245, 158, 11, 0.08)',
     });
   }
-  if (summary.tasks?.length > 0) {
-    cards.push({
-      id: 'actions',
-      label: summary.actionTitle,
-      subtitle: `${summary.tasks.length} items`,
-      icon: <BookHeart size={20} className="text-slate-600 dark:text-slate-300" />,
-      iconBg: 'rgba(16, 185, 129, 0.85)',
-      iconBorder: 'rgba(16, 185, 129, 0.3)',
-      accent: 'emerald',
-      accentLight: 'rgba(16, 185, 129, 0.08)',
-    });
-  }
+  // Action plan page hidden for now
+  // if (summary.tasks?.length > 0) {
+  //   cards.push({
+  //     id: 'actions',
+  //     label: summary.actionTitle,
+  //     subtitle: `${summary.tasks.length} items`,
+  //     icon: <BookHeart size={20} className="text-slate-600 dark:text-slate-300" />,
+  //     iconBg: 'rgba(16, 185, 129, 0.85)',
+  //     iconBorder: 'rgba(16, 185, 129, 0.3)',
+  //     accent: 'emerald',
+  //     accentLight: 'rgba(16, 185, 129, 0.08)',
+  //   });
+  // }
   if (summary.glossary?.length > 0) {
     cards.push({
       id: 'glossary',
@@ -101,9 +104,11 @@ interface BookSummaryProps {
   infoCard?: React.ReactNode;
   firstIssueYear?: number | null;
   readersSection?: React.ReactNode;
+  onPin?: (content: string) => void;
+  isContentPinned?: (content: string) => boolean;
 }
 
-function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, firstIssueYear, readersSection }: BookSummaryProps) {
+function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, firstIssueYear, readersSection, onPin, isContentPinned }: BookSummaryProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
   const [summaryExpanded, setSummaryExpanded] = useState(false);
@@ -123,6 +128,7 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
       prevBookId.current = bookId;
       setCurrentIndex(0);
       setIsVisible(true);
+      analytics.trackEvent('summary', 'view', { book_id: bookId });
       try {
         const saved = localStorage.getItem(`book-summary-tasks-${bookId}`);
         setCompletedTasks(saved ? JSON.parse(saved) : {});
@@ -167,6 +173,7 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
   const totalCards = summaryCards.length + (hasInfoCard ? 1 : 0);
 
   function handleNext() {
+    analytics.trackEvent('summary', 'next_card');
     setIsVisible(false);
     setTimeout(() => {
       setCurrentIndex(prev => (prev + 1) % totalCards);
@@ -451,6 +458,28 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
                     {currentIndex + 1}/{totalCards}
                   </span>
                 )}
+                {onPin && (() => {
+                  let pinContent = '';
+                  if (card.id === 'quote_and_summary') {
+                    pinContent = `"${summary.quote}" — ${summary.title}`;
+                  } else if (card.id === 'cards') {
+                    pinContent = summary.cards.map(c => `${c.step}: ${c.name} — ${c.desc}`).join('\n');
+                  } else if (card.id === 'glossary') {
+                    pinContent = summary.glossary.map(g => `${g.term}: ${g.def}`).join('\n');
+                  }
+                  const pinned = pinContent && isContentPinned?.(pinContent);
+                  return (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (pinContent) onPin(pinContent);
+                      }}
+                      className="active:scale-90 transition-transform flex-shrink-0"
+                    >
+                      <StickyNote size={17} className={pinned ? 'text-amber-500 fill-amber-500' : 'text-slate-600 dark:text-slate-400'} />
+                    </button>
+                  );
+                })()}
               </div>
 
               {/* Content */}
