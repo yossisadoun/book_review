@@ -10,34 +10,64 @@ export default function AuthCallback() {
 
   useEffect(() => {
     async function handleAuthCallback() {
-      // Wait a moment for Supabase to process the OAuth callback
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const { data: { session }, error } = await supabase.auth.getSession();
-      
-      if (error) {
-        console.error('Auth callback error:', error);
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+
+      // Check for error from linkIdentity (e.g. identity_already_exists)
+      const errorCode = params.get('error_code') || hashParams.get('error_code');
+      if (errorCode === 'identity_already_exists') {
+        // linkIdentity failed because Google account belongs to another user.
+        // Fall back to regular sign-in — migration key is already in localStorage.
+        console.log('🔗 identity_already_exists on web — falling back to regular Google sign-in');
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const basePath = isLocalhost ? '' : (window.location.pathname.split('/auth/callback')[0] || '');
+        const redirectTo = `${window.location.origin}${basePath}/auth/callback`;
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: { redirectTo },
+        });
+        if (error) {
+          console.error('Fallback sign-in error:', error);
+          redirectHome();
+        }
+        // signInWithOAuth will redirect the page to Google again
+        return;
+      } else if (errorCode) {
+        console.warn('Auth callback error_code:', errorCode);
+        redirectHome();
         return;
       }
 
-      if (session) {
-        // Detect if we're on localhost
-        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        const isCapacitor = window.location.protocol === 'capacitor:' || window.location.protocol === 'ionic:';
-        const basePath = isLocalhost || isCapacitor ? '' : (window.location.pathname.split('/auth/callback')[0] || '');
-        
-        // Redirect to the root of the current origin (stay on same domain)
-        const redirectUrl = `${window.location.origin}${basePath}/`;
-        console.log('Redirecting to:', redirectUrl);
-        window.location.href = redirectUrl;
-      } else {
-        // If no session yet, try again after a short delay
-        setTimeout(() => {
-          handleAuthCallback();
-        }, 500);
+      // Exchange authorization code for session (required for OAuth + PKCE)
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) {
+          console.error('Code exchange error:', error);
+        }
       }
+
+      // Also check for tokens in hash fragment (implicit flow)
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+      if (accessToken && refreshToken) {
+        await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      }
+
+      // Wait briefly for session to settle, then redirect
+      await new Promise(resolve => setTimeout(resolve, 300));
+      redirectHome();
     }
-    
+
+    function redirectHome() {
+      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const isCapacitor = window.location.protocol === 'capacitor:' || window.location.protocol === 'ionic:';
+      const basePath = isLocalhost || isCapacitor ? '' : (window.location.pathname.split('/auth/callback')[0] || '');
+      const redirectUrl = `${window.location.origin}${basePath}/`;
+      console.log('Redirecting to:', redirectUrl);
+      window.location.href = redirectUrl;
+    }
+
     handleAuthCallback();
   }, []);
 

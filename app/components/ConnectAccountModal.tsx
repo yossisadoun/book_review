@@ -10,7 +10,7 @@ import { isNativePlatform } from '@/lib/capacitor';
 interface ConnectAccountModalProps {
   isOpen: boolean;
   onClose: () => void;
-  reason: 'book_limit' | 'follow' | 'feed';
+  reason: 'book_limit' | 'follow' | 'feed' | 'account';
   bookCount?: number;
 }
 
@@ -26,6 +26,10 @@ const MESSAGES: Record<ConnectAccountModalProps['reason'], { title: string; desc
   feed: {
     title: 'Unlock your feed',
     description: 'Connect an account to get a personalized feed with insights, podcasts, and more for your books.',
+  },
+  account: {
+    title: 'Connect your account',
+    description: 'Sign in to unlock unlimited books, sync across devices, and keep your library safe.',
   },
 };
 

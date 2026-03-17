@@ -12,7 +12,6 @@ serve(async (req) => {
   }
 
   try {
-    // Get the user's JWT from the Authorization header
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
@@ -24,75 +23,82 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || ''
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
 
-    // Create a client with the user's JWT to verify identity
-    const userClient = createClient(supabaseUrl, supabaseServiceKey, {
-      global: { headers: { Authorization: authHeader } },
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { persistSession: false },
     })
 
-    // Get the authenticated user
-    const { data: { user }, error: userError } = await userClient.auth.getUser(authHeader.replace('Bearer ', ''))
+    // Verify the user's JWT
+    const token = authHeader.replace('Bearer ', '')
+    const { data: { user }, error: userError } = await adminClient.auth.getUser(token)
     if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Invalid or expired token' }), {
+      console.error('[delete-account] Auth error:', userError?.message || 'No user')
+      return new Response(JSON.stringify({ error: 'Invalid or expired token', detail: userError?.message }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
     const userId = user.id
+    console.log(`[delete-account] Deleting user ${userId}`)
 
-    // Create admin client with service role key
-    const adminClient = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false },
-    })
-
-    // Delete user data from all tables (cascade should handle most, but be explicit)
-    const tables = [
-      'book_chats',
-      'feed_items',
-      'author_facts_cache',
-      'book_context_cache',
-      'book_domain_cache',
-      'book_influences_cache',
-      'did_you_know_cache',
-      'discussion_questions_cache',
-      'podcast_cache',
-      'youtube_cache',
-      'analysis_articles_cache',
-      'related_books_cache',
-      'related_movies_cache',
-      'trivia_cache',
-      'books',
-      'follows',
-      'users',
+    // Only delete from tables that have user_id and won't cascade automatically.
+    // Tables with ON DELETE CASCADE (book_chats, character_chats, content_hearts, feed_items)
+    // will be cleaned up when auth user is deleted.
+    // But proactive_message_log has NO CASCADE, so must be deleted explicitly.
+    // analytics_events has no FK at all, so must be deleted explicitly.
+    const tablesToDelete: Array<{ table: string; column: string }> = [
+      // No CASCADE — must delete before auth user
+      { table: 'proactive_message_log', column: 'user_id' },
+      { table: 'analytics_events', column: 'user_id' },
+      // These CASCADE but delete explicitly to be safe
+      { table: 'book_chats', column: 'user_id' },
+      { table: 'character_chats', column: 'user_id' },
+      { table: 'content_hearts', column: 'user_id' },
+      { table: 'feed_items', column: 'user_id' },
+      { table: 'books', column: 'user_id' },
+      { table: 'follows', column: 'follower_id' },
+      { table: 'follows', column: 'following_id' },
+      { table: 'users', column: 'id' },
     ]
 
-    for (const table of tables) {
-      // Try user_id first, then id for the users table
-      const column = table === 'users' ? 'id' : table === 'follows' ? 'follower_id' : 'user_id'
-      const { error } = await adminClient.from(table).delete().eq(column, userId)
-      if (error) {
-        console.log(`[delete-account] Warning: could not delete from ${table}: ${error.message}`)
+    const warnings: string[] = []
+    for (const { table, column } of tablesToDelete) {
+      try {
+        const { error } = await adminClient.from(table).delete().eq(column, userId)
+        if (error) {
+          const msg = `${table}.${column}: ${error.message}`
+          console.log(`[delete-account] Warning: ${msg}`)
+          warnings.push(msg)
+        }
+      } catch (e) {
+        const msg = `${table}.${column}: ${e?.message || e}`
+        console.log(`[delete-account] Warning (exception): ${msg}`)
+        warnings.push(msg)
       }
     }
 
-    // Delete the auth user
+    // Delete the auth user (cascades to book_chats, character_chats, content_hearts, feed_items)
     const { error: deleteError } = await adminClient.auth.admin.deleteUser(userId)
     if (deleteError) {
-      console.error('[delete-account] Error deleting auth user:', deleteError)
-      return new Response(JSON.stringify({ error: 'Failed to delete account' }), {
+      console.error('[delete-account] Error deleting auth user:', deleteError.message)
+      return new Response(JSON.stringify({
+        error: 'Failed to delete auth user',
+        detail: deleteError.message,
+        warnings,
+      }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    return new Response(JSON.stringify({ success: true }), {
+    console.log(`[delete-account] Successfully deleted user ${userId}`)
+    return new Response(JSON.stringify({ success: true, warnings }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (err) {
-    console.error('[delete-account] Unexpected error:', err)
-    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+    console.error('[delete-account] Unexpected error:', err?.message || err)
+    return new Response(JSON.stringify({ error: 'Internal server error', detail: err?.message || String(err) }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })

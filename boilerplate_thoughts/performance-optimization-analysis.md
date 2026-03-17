@@ -4,9 +4,9 @@
 
 ## Executive Summary
 
-The app is a **~14.3k-line monolithic Next.js component** (`app/page.tsx`) with significant performance debt:
+The app is a **~13.8k-line monolithic Next.js component** (`app/page.tsx`) with significant performance debt:
 
-- **66 useEffect hooks** and **199 useState declarations** in a single component
+- **64 useEffect hooks** and **192 useState declarations** in a single component
 - **~105 Lucide icon imports** in page.tsx alone (~50-80KB uncompressed)
 - **No code splitting** — entire component loaded for every "route"
 - **Heavy libraries loaded upfront**: Framer Motion (~100KB), Lottie (~80KB), Supabase, AI SDK
@@ -20,6 +20,7 @@ The app is a **~14.3k-line monolithic Next.js component** (`app/page.tsx`) with 
 - useMemo count improved from 1 → 8 (feed filtering, bookshelf grouping, spotlight, podcast combine, section headers)
 - SpotlightSection wrapped in React.memo (still the only memoized component in page.tsx)
 - Audio stops on episode/book change (partial fix — still no unmount cleanup)
+- **AccountPage extracted** — removed ~540 lines, 7 useState, 2 useEffect, 3 refs from page.tsx (with 19 component + 8 wiring tests)
 
 ---
 
@@ -30,24 +31,25 @@ All pages (bookshelf, feed, chat, account, following, book detail, trivia, notes
 
 ### Current Structure
 ```
-App() [~14,350 lines]
-├── 199 useState declarations (lines 508-799)
-├── 66 useEffect hooks
+App() [~13,809 lines]
+├── 192 useState declarations
+├── 64 useEffect hooks
 ├── 8 useMemo hooks
 ├── 0 useCallback hooks
+├── 51 useRef hooks
 └── All UI rendering
-    ├── Account page (~420 lines, 5902-6325)
-    ├── Following page (~120 lines, 6326-6445)
-    ├── Feed page (~1,960 lines, 6446-8411)
-    ├── Chat page (~800 lines, 7610-8411)
-    ├── Sorting results (~110 lines, 8544-8655)
-    ├── Notes view (~175 lines, 8656-8831)
-    ├── Bookshelf covers (~630 lines, 8832-9460)
-    ├── Bookshelf spines (~420 lines, 9461-9879)
-    ├── Book detail page (~1,720 lines, 9880-11597)
-    ├── Bottom navigation (~750 lines, 11722-12471)
-    ├── Trivia modal (~360 lines, 12472-12833)
-    └── About screen (~16 lines, 13920-13936)
+    ├── Account page → EXTRACTED to app/components/AccountPage.tsx (~520 lines)
+    ├── Following page (~120 lines)
+    ├── Feed page (~1,960 lines)
+    ├── Chat page (~800 lines)
+    ├── Sorting results (~110 lines)
+    ├── Notes view (~175 lines)
+    ├── Bookshelf covers (~630 lines)
+    ├── Bookshelf spines (~420 lines)
+    ├── Book detail page (~1,720 lines)
+    ├── Bottom navigation (~750 lines)
+    ├── Trivia modal (~360 lines)
+    └── About screen (~16 lines)
 ```
 
 ### Refactoring Strategy
@@ -57,7 +59,7 @@ Each page becomes its own file with its own state. Only shared state (books, use
 
 | Target Component | Lines to Extract | State Variables to Move |
 |-----------------|-----------------|----------------------|
-| `AccountPage` | 5902-6325 | grokUsageLogs, isProfilePublic, showDeleteConfirm |
+| `AccountPage` | ~~5902-6325~~ | **DONE** — extracted to `app/components/AccountPage.tsx` |
 | `FollowingPage` | 6326-6445 | followingUsers, followersCount |
 | `FeedPage` | 6446-8411 | personalizedFeedItems, feedTypeFilter, feedPullDistance |
 | `ChatPage` | 7610-8411 | chatList, characterChatList, chatPullDistance |
@@ -201,7 +203,7 @@ const { data: followsData } = await supabase.from('follows')...
 const { data: usersData } = await supabase.from('users').in('id', followingIds)...
 ```
 
-**Account page:** Grok logs + privacy setting fetched sequentially.
+**Account page:** Grok logs + privacy setting fetched sequentially (now in AccountPage.tsx, isolated from main render).
 
 ### No Request Deduplication
 If multiple components request data for the same book simultaneously (e.g., podcasts + videos + articles all fire on book select), each makes independent API calls. No in-flight request deduplication.
@@ -209,8 +211,8 @@ If multiple components request data for the same book simultaneously (e.g., podc
 ### Redundant Refetches
 | Data | Trigger | Cached? | Issue |
 |------|---------|---------|-------|
-| Grok usage logs | Every account page open | No | Fetches every time |
-| Privacy setting | Every account page open | No | Fetches every time |
+| Grok usage logs | Every account page open | No | Fetches every time (now scoped to AccountPage) |
+| Privacy setting | Every account page open | No | Fetches every time (now scoped to AccountPage) |
 | Following users | Every following page open | No | No change detection |
 | Book readers | Every book detail view | Unclear | May duplicate for same book |
 
@@ -266,10 +268,10 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 
 ### Sequence
 1. Load JS bundle (~300-500KB gzip estimated)
-2. Hydrate — initialize 199 useState hooks, read localStorage ~10-50ms
+2. Hydrate — initialize 192 useState hooks, read localStorage ~10-50ms
 3. Auth check — 100-500ms network
 4. Load books from Supabase — 100-300ms network
-5. Fire 66 useEffect hooks (most are conditional, but all evaluated)
+5. Fire 64 useEffect hooks (most are conditional, but all evaluated)
 6. First render of bookshelf
 
 **Estimated time to interactive:** 2-4 seconds on 4G
@@ -321,7 +323,7 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 7. **Parallelize waterfall API calls** — save 200-500ms per page
 
 ### Short-term (Refactoring Required)
-8. **Extract page components** — AccountPage, FeedPage, ChatPage as separate files with own state
+8. **Extract page components** — ~~AccountPage~~ ✓, FeedPage, ChatPage as separate files with own state
 9. **Add code splitting** — lazy-load modals, sheets, chat, trivia
 10. **Memoize chat context building** — sorts entire bookshelf on every render
 11. **Implement request deduplication** — prevent simultaneous identical API calls
@@ -331,7 +333,7 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 13. **State management** — Context API or Zustand for shared state, local state per page
 14. **Enable Next.js image optimization** — responsive images, lazy loading, AVIF/WebP
 15. **Cache invalidation with TTL** — replace naive localStorage caching
-16. **Reduce useEffect count** — consolidate into service hooks, from 66 to ~15
+16. **Reduce useEffect count** — consolidate into service hooks, from 64 to ~15
 17. **Audit Lottie/framer-motion usage** — lazy-load animation libraries per page
 
 ### Metrics to Track
@@ -340,3 +342,85 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 - **Re-renders per interaction** (use React DevTools Profiler)
 - **Memory growth** (Chrome DevTools heap snapshots over 10-min session)
 - **Frame rate during scroll** (target: 60fps, measure on low-end device)
+
+---
+
+## 9. Component Extraction Process
+
+*Lessons learned from AccountPage extraction (2026-03-17). Follow this checklist for every future extraction.*
+
+### Extraction Checklist
+
+#### Before Starting
+1. **Inventory all symbols** — grep for every useState, useEffect, useRef, handler function, and JSX block that belongs to the target component. Include things that aren't in the main render block:
+   - Modals/dialogs rendered elsewhere (e.g., delete confirmation dialog was at line 13098, far from the account page render at 5902)
+   - Profile menu buttons or nav items that trigger the component's state
+   - Other useEffects that read/write the component's state
+2. **Map callback semantics** — for each callback prop the parent will pass, document what value/behavior the parent should provide. Don't assume the obvious (e.g., "connect account" should use `reason: 'account'`, not `'book_limit'`)
+3. **Check for scroll/touch interactions** — if the component has touch handlers (drag, pull-to-refresh), verify they won't block parent scrolling after extraction
+
+#### During Extraction
+4. **Create component file** with own state, effects, refs
+5. **Replace render block** in page.tsx with `<ComponentName ... />`
+6. **Grep for every moved symbol** in page.tsx — do this BEFORE deleting anything:
+   ```bash
+   grep -n 'symbolName' app/page.tsx
+   ```
+   Every hit must be either removed (if moved to component) or updated (if it's a callsite that now uses a different API)
+7. **Delete moved state/effects/refs** from page.tsx
+8. **Clean up imports** — remove types and functions that are no longer used in page.tsx
+
+#### After Extraction
+9. **Type-check** — `npx tsc --noEmit`
+10. **Run existing tests** — `npx vitest run`
+11. **Manual smoke test** — open the app and test the happy path on the extracted page. This catches wiring bugs that unit tests miss (wrong callback args, scroll blocking, missing dialogs). ~30 seconds, catches the majority of extraction bugs.
+12. **Write two layers of tests:**
+    - **Component tests** (`tests/ComponentName.test.tsx`) — render in isolation, verify UI states, callback invocations, and regression guards
+    - **Wiring tests** (`tests/page-wiring.test.ts`) — source-level checks that page.tsx doesn't contain orphaned state, passes correct prop values, and doesn't duplicate moved code
+
+### Wiring Test Pattern
+
+Wiring tests read page.tsx as a string and assert on patterns. They catch:
+- Orphaned useState/useRef declarations (state moved to component but declaration left behind)
+- Wrong callback argument values (e.g., `'book_limit'` instead of `'account'`)
+- Orphaned imports (types/functions no longer used)
+- Duplicated UI (dialog exists in both page.tsx and component)
+
+```typescript
+// Example: verify moved state is gone
+const movedState = ['grokUsageLogs', 'isLoadingGrokLogs', ...];
+for (const name of movedState) {
+  expect(pageSource).not.toMatch(new RegExp(`\\[${name},\\s*set`));
+}
+
+// Example: verify correct prop value
+const block = pageSource.slice(pageSource.indexOf('<AccountPage'), ...);
+expect(block).toContain("'account'");
+```
+
+### Regression Guards
+
+For each bug found during extraction, add a targeted test:
+
+| Bug | Test |
+|-----|------|
+| Touch handlers blocked scroll | Assert no `touchAction: none` or `.cursor-grab` in rendered output |
+| Wrong connect reason | Assert `<AccountPage` block contains `'account'`, not `'book_limit'` |
+| Orphaned delete dialog | Assert page.tsx has zero occurrences of `"Delete Account?"` |
+| Orphaned state | Assert page.tsx has no `useState` for moved variable names |
+
+### Completed Extractions
+
+| Component | Lines Removed | State Moved | Tests |
+|-----------|--------------|-------------|-------|
+| AccountPage | ~540 | 7 useState, 2 useEffect, 3 refs | 19 component + 8 wiring |
+
+### Next Targets
+
+| Component | Est. Lines | Key Risk |
+|-----------|-----------|----------|
+| FollowingPage | ~120 | followingUsers state, API waterfall |
+| FeedPage | ~1,960 | feedTypeFilter, pull-to-refresh touch handlers, feed generation |
+| ChatPage | ~800 | chatList state, proactive messages, keyboard listeners |
+| BookDetail | ~1,720 | Largest — insights/podcasts/videos/articles state Maps, many card component integrations |
+| TriviaGame | ~360 | Modal overlay, trivia state, timer refs |
