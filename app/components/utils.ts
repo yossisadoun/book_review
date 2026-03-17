@@ -43,12 +43,23 @@ export function isHebrew(text: string): boolean {
  * Returns 'light' when the overlay area has a bright background (needs dark glass),
  * or 'dark' (default, keeps current white glass).
  */
+// Module-level cache: avoids redundant canvas operations for the same URL
+const brightnessCache = new Map<string, 'light' | 'dark'>();
+
 export function useImageBrightness(imageUrl: string | undefined): 'light' | 'dark' {
-  const [brightness, setBrightness] = useState<'light' | 'dark'>('dark');
+  const [brightness, setBrightness] = useState<'light' | 'dark'>(
+    imageUrl ? brightnessCache.get(imageUrl) ?? 'dark' : 'dark'
+  );
 
   useEffect(() => {
     if (!imageUrl) {
       setBrightness('dark');
+      return;
+    }
+
+    const cached = brightnessCache.get(imageUrl);
+    if (cached) {
+      setBrightness(cached);
       return;
     }
 
@@ -76,7 +87,9 @@ export function useImageBrightness(imageUrl: string | undefined): 'light' | 'dar
         }
 
         const avgBrightness = totalLuminance / pixelCount;
-        setBrightness(avgBrightness > 150 ? 'light' : 'dark');
+        const result = avgBrightness > 150 ? 'light' : 'dark';
+        brightnessCache.set(imageUrl, result);
+        setBrightness(result);
       } catch {
         // CORS or other error — keep default
       }

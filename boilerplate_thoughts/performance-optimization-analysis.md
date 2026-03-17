@@ -224,7 +224,7 @@ Proactive chat message generation now runs on app mount + resume (visibilitychan
 ## 5. Memory Leaks (MEDIUM)
 
 ### Audio Leak in PodcastEpisodes (Partially Fixed)
-`PodcastEpisodes.tsx` calls `stopAudio()` when episode/book changes (via useEffect on `episodesKey`). However, there is **no cleanup return** in the useEffect — if the component unmounts entirely (e.g., navigating away from book detail), the Audio object is not cleaned up. Audio may continue playing.
+`PodcastEpisodes.tsx` calls `stopAudio()` when episode/book changes (via useEffect on `episodesKey`). ✅ FIXED — useEffect now has `return () => { stopAudio(); }` cleanup that runs on both dependency change and unmount. `stopAudio()` nullifies onended/onerror, pauses, clears src, and sets audioRef to null.
 
 ### Unbounded Map Growth
 State Maps grow without bound:
@@ -315,9 +315,9 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 2. ~~**Add `useCallback` for handleToggleHeart**~~ ✅ DONE — stable via useCallback + userHeartedRef pattern. HeartButton memo is the biggest win (each card renders multiple HeartButtons; only the affected one re-renders on heart change)
 3. ~~**Fix `|| []` anti-pattern**~~ ✅ DONE — EMPTY_ARRAY constant for RelatedMovies/RelatedBooks props
 4. **Stabilize remaining inline callbacks** (renderAction, onPin, isPinned per section) — would make card memo fully effective, but requires refs for section data. Lower priority since HeartButton memo already handles the hot path.
-5. **Fix audio unmount leak** — add cleanup return in PodcastEpisodes useEffect
+5. ~~**Fix audio unmount leak**~~ ✅ ALREADY FIXED — useEffect cleanup calls stopAudio() on unmount
 6. **Move pull-to-refresh to useRef** — eliminates 60 re-renders/sec ✅ FIXED
-6. **Cache useImageBrightness by URL** — eliminate redundant canvas operations (module-level Map cache)
+6. ~~**Cache useImageBrightness by URL**~~ ✅ DONE — module-level `brightnessCache` Map in utils.ts; skips canvas work for previously seen URLs, initializes state from cache
 7. **Parallelize waterfall API calls** — save 200-500ms per page
 
 ### Short-term (Refactoring Required)
