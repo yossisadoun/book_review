@@ -34,7 +34,7 @@ interface AnalysisArticlesProps {
   showSend?: boolean;
 }
 
-function AnalysisArticles({ articles, bookId, isLoading = false, renderAction, onPin, isPinned, showComment = true, showSend = true }: AnalysisArticlesProps) {
+const AnalysisArticles = React.memo(function AnalysisArticles({ articles, bookId, isLoading = false, renderAction, onPin, isPinned, showComment = true, showSend = true }: AnalysisArticlesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const isSingleItem = articles.length === 1;
   const [isVisible, setIsVisible] = useState(isSingleItem);
@@ -230,7 +230,7 @@ function AnalysisArticles({ articles, bookId, isLoading = false, renderAction, o
                 {/* Action bar */}
                 <div className="flex items-center gap-5 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
-                  {onPin && <button onClick={() => onPin(currentIndex)} className="active:scale-90 transition-transform"><StickyNote size={17} className={isPinned?.(currentIndex) ? 'fill-black dark:fill-white text-white dark:text-black' : 'text-slate-600 dark:text-slate-400'} /></button>}
+                  {onPin && <button onClick={() => onPin(currentIndex)} className="active:scale-90 transition-transform"><StickyNote size={17} fill={isPinned?.(currentIndex) ? '#fbbf24' : 'none'} className="text-slate-600 dark:text-slate-400" /></button>}
                   {showComment && <span className="flex items-center gap-1"><MessageCircle size={17} className="text-slate-600 dark:text-slate-400" /><span className="text-xs font-medium min-w-[12px] invisible">0</span></span>}
                   {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>
@@ -241,6 +241,6 @@ function AnalysisArticles({ articles, bookId, isLoading = false, renderAction, o
       </div>
     </div>
   );
-}
+});
 
 export default AnalysisArticles;

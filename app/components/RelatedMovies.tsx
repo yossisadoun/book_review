@@ -46,7 +46,7 @@ interface RelatedMoviesProps {
   showSend?: boolean;
 }
 
-function RelatedMovies({ movies, bookId, isLoading = false, renderAction, onPin, isPinned, showPlayButtons = true, showComment = true, showSend = true }: RelatedMoviesProps) {
+const RelatedMovies = React.memo(function RelatedMovies({ movies, bookId, isLoading = false, renderAction, onPin, isPinned, showPlayButtons = true, showComment = true, showSend = true }: RelatedMoviesProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const isSingleItem = movies.length === 1;
   const [isVisible, setIsVisible] = useState(isSingleItem);
@@ -413,7 +413,7 @@ function RelatedMovies({ movies, bookId, isLoading = false, renderAction, onPin,
                 {/* Action bar */}
                 <div className="flex items-center gap-5 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
-                  {onPin && <button onClick={() => onPin(currentIndex)} className="active:scale-90 transition-transform"><StickyNote size={17} className={isPinned?.(currentIndex) ? 'fill-black dark:fill-white text-white dark:text-black' : 'text-slate-600 dark:text-slate-400'} /></button>}
+                  {onPin && <button onClick={() => onPin(currentIndex)} className="active:scale-90 transition-transform"><StickyNote size={17} fill={isPinned?.(currentIndex) ? '#fbbf24' : 'none'} className="text-slate-600 dark:text-slate-400" /></button>}
                   {showComment && <span className="flex items-center gap-1"><MessageCircle size={17} className="text-slate-600 dark:text-slate-400" /><span className="text-xs font-medium min-w-[12px] invisible">0</span></span>}
                   {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>
@@ -444,6 +444,6 @@ function RelatedMovies({ movies, bookId, isLoading = false, renderAction, onPin,
       />
     </div>
   );
-}
+});
 
 export default RelatedMovies;

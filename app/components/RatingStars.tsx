@@ -23,7 +23,7 @@ export const RATING_FEEDBACK: Record<number, string> = {
   5: "A GREAAAAAT BOOK!",
 };
 
-function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
+const RatingStars = React.memo(function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
   const [localValue, setLocalValue] = useState(value || 0);
   const [isLocked, setIsLocked] = useState(false);
   const [ratingFeedback, setRatingFeedback] = useState<string | null>(
@@ -141,6 +141,6 @@ function RatingStars({ value, onRate, dimension }: RatingStarsProps) {
       </button>
     </div>
   );
-}
+});
 
 export default RatingStars;

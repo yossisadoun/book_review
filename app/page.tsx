@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Share as CapacitorShare } from '@capacitor/share';
 import {
@@ -116,7 +116,8 @@ import refreshAnimation from '@/public/refresh.json';
 import OnboardingScreen from './components/OnboardingScreen';
 import bookPageOnboardingAnimation from '@/public/onboarding_anim_book_page_new.json';
 import dailySpotAnimation from '@/public/daily_spot.json';
-import triviaAnimation from '@/public/trivia.json';
+import TriviaGame from './components/TriviaGame';
+import type { TriviaGameHandle } from './components/TriviaGame';
 import nextReadsAnimation from '@/public/next_reads.json';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginScreen } from '@/components/LoginScreen';
@@ -145,6 +146,7 @@ import ConnectAccountModal from './components/ConnectAccountModal';
 import BookChat from './components/BookChat';
 import NotesEditorOverlay from './components/NotesEditorOverlay';
 import AccountPage from './components/AccountPage';
+import FollowingPage from './components/FollowingPage';
 import { getChatList, deleteChatForBook, getCharacterChatList, deleteCharacterChat, lookupOrphanedChatCoverUrls, reassignChatsToBook, getProactiveCandidates, generateProactiveMessage, markProactiveReplied, type ChatListItem, type CharacterChatListItem, type BookChatContext } from './services/chat-service';
 import { getCached, setCache, CACHE_KEYS } from './services/cache-service';
 import HeartButton from './components/HeartButton';
@@ -202,13 +204,16 @@ import { getYouTubeVideos } from './services/youtube-service';
 import { getTelegramTopic, getOrCreateTelegramTopic } from './services/telegram-service';
 import { getDiscussionQuestions } from './services/discussion-service';
 import { getGrokBookInfographicWithSearch } from './services/infographic-service';
-import { setTriviaQuestionsCountRefreshCallback, ensureTriviaQuestionsForBook, countBooksWithTriviaQuestions, loadRandomTriviaQuestions } from './services/trivia-service';
+import { ensureTriviaQuestionsForBook } from './services/trivia-service';
 import { getAuthorFacts, getBookInfluences, getBookDomain, getBookContext, getDidYouKnow, getFirstIssueYear } from './services/insights-service';
 import { getPodcastEpisodes } from './services/podcast-service';
 import { getRelatedBooks } from './services/related-books-service';
 import { getRelatedMovies } from './services/related-movies-service';
 import { createFriendBookFeedItem, generateFeedItemsForBook, getPersonalizedFeed, markFeedItemsAsShown, getReadFeedItems, setFeedItemReadStatus, getSpoilerRevealedFromStorage, loadSpoilerRevealedFromStorage, saveSpoilerRevealedToStorage } from './services/feed-service';
 import { analytics } from './services/analytics-service';
+
+// Stable empty array to avoid creating new references on every render (for React.memo)
+const EMPTY_ARRAY: never[] = [];
 
 const AVATAR_GRADIENTS = [
   'linear-gradient(135deg, #667eea, #764ba2)',
@@ -225,37 +230,6 @@ function avatarGradient(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
   return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
-}
-
-function TriviaCover({ src, alt, index, coverW, coverH, overlapPx }: {
-  src: string; alt: string; index: number; coverW: number; coverH: number; overlapPx: number;
-}) {
-  const [loaded, setLoaded] = useState(false);
-  return (
-    <div
-      className="absolute top-0"
-      style={{ left: index * (coverW - overlapPx), zIndex: index, width: coverW, height: coverH }}
-    >
-      {/* Skeleton */}
-      <motion.div
-        animate={{ opacity: loaded ? 0 : [0.5, 0.8, 0.5] }}
-        transition={loaded ? { duration: 0.2 } : { duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-        className="absolute inset-0 rounded-md bg-slate-300/50"
-        style={{ border: '2px solid rgba(255,255,255,0.8)' }}
-      />
-      {/* Cover image */}
-      <motion.img
-        src={src}
-        alt={alt}
-        onLoad={() => setLoaded(true)}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: loaded ? 1 : 0 }}
-        transition={{ duration: 0.35, delay: loaded ? index * 0.07 : 0, ease: 'easeOut' }}
-        className="absolute inset-0 rounded-md object-cover shadow-md"
-        style={{ width: coverW, height: coverH, border: '2px solid rgba(255,255,255,0.8)' }}
-      />
-    </div>
-  );
 }
 
 const SpotlightSection = React.memo(function SpotlightSection({
@@ -673,10 +647,11 @@ export default function App() {
   };
 
   // Track where user came from for sub-page back navigation
-  type ViewOrigin = 'book-detail' | 'bookshelf-covers' | 'bookshelf-spines' | 'feed' | 'chat' | 'notes';
+  type ViewOrigin = 'book-detail' | 'bookshelf-covers' | 'bookshelf-spines' | 'feed' | 'chat' | 'notes' | 'following';
   const previousViewRef = useRef<ViewOrigin>('bookshelf-covers');
   const capturePreviousView = (): void => {
-    if (showFeedPage) previousViewRef.current = 'feed';
+    if (showFollowingPage) previousViewRef.current = 'following';
+    else if (showFeedPage) previousViewRef.current = 'feed';
     else if (showChatPage) previousViewRef.current = 'chat';
     else if (showNotesView) previousViewRef.current = 'notes';
     else if (showBookshelfCovers) previousViewRef.current = 'bookshelf-covers';
@@ -696,6 +671,8 @@ export default function App() {
       setShowFeedPage(true);
     } else if (target === 'chat') {
       setShowChatPage(true);
+    } else if (target === 'following') {
+      setShowFollowingPage(true);
     } else if (target === 'notes') {
       setShowNotesView(true);
     } else if (target === 'bookshelf-spines') {
@@ -716,11 +693,7 @@ export default function App() {
   const [showChatPage, setShowChatPage] = useState(false);
   const [chatComingSoon, setChatComingSoon] = useState(false);
   const chatNavButtonRef = useRef<HTMLButtonElement>(null);
-  const [showTriviaTooltip, setShowTriviaTooltip] = useState(false);
-  const triviaButtonMountRef = useRef(0);
-  // Reset trivia button delay when leaving bookshelf
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  if (!showBookshelfCovers) triviaButtonMountRef.current = 0;
+  const triviaGameRef = useRef<TriviaGameHandle>(null);
   const [chatBookSelected, setChatBookSelected] = useState(false);
   const [chatGeneralMode, setChatGeneralMode] = useState(false);
   const chatOpenedFromBookPage = useRef(false);
@@ -735,10 +708,56 @@ export default function App() {
   const [chatSwipeId, setChatSwipeId] = useState<string | null>(null);
   const [deletingChatKey, setDeletingChatKey] = useState<string | null>(null);
   const chatSwipeRef = useRef<{ startX: number; currentX: number; bookId: string } | null>(null);
-  const [chatPullDistance, setChatPullDistance] = useState(0);
+  const chatPullDistance = useRef(0);
   const [chatRefreshing, setChatRefreshing] = useState(false);
   const chatPullStartY = useRef<number | null>(null);
-  const [feedPullDistance, setFeedPullDistance] = useState(0);
+  const feedPullDistance = useRef(0);
+  const feedPullIndicatorRef = useRef<HTMLDivElement>(null);
+  const feedPullContentRef = useRef<HTMLDivElement>(null);
+  const feedPullLottieRef = useRef<HTMLDivElement>(null);
+  const chatPullIndicatorRef = useRef<HTMLDivElement>(null);
+  const chatPullContentRef = useRef<HTMLDivElement>(null);
+  const chatPullLottieRef = useRef<HTMLDivElement>(null);
+  const headerPullRef = useRef<HTMLDivElement>(null);
+
+  const updateFeedPullDOM = (dist: number) => {
+    feedPullDistance.current = dist;
+    if (feedPullIndicatorRef.current) {
+      feedPullIndicatorRef.current.style.top = `${60 + dist}px`;
+      feedPullIndicatorRef.current.style.transition = feedPullStartY.current !== null ? 'none' : 'top 0.3s ease-out';
+      feedPullIndicatorRef.current.style.display = dist > 0 ? '' : '';
+    }
+    if (feedPullLottieRef.current) {
+      feedPullLottieRef.current.style.opacity = String(Math.min(dist / 30, 1));
+    }
+    if (feedPullContentRef.current) {
+      feedPullContentRef.current.style.transform = `translateY(${dist}px)`;
+      feedPullContentRef.current.style.transition = feedPullStartY.current !== null ? 'none' : 'transform 0.3s ease-out';
+    }
+    if (headerPullRef.current) {
+      headerPullRef.current.style.transform = `translateY(${dist || chatPullDistance.current}px)`;
+      headerPullRef.current.style.transition = (feedPullStartY.current !== null || chatPullStartY.current !== null) ? 'none' : 'transform 0.3s ease-out';
+    }
+  };
+
+  const updateChatPullDOM = (dist: number) => {
+    chatPullDistance.current = dist;
+    if (chatPullIndicatorRef.current) {
+      chatPullIndicatorRef.current.style.top = `${60 + dist}px`;
+      chatPullIndicatorRef.current.style.transition = chatPullStartY.current !== null ? 'none' : 'top 0.3s ease-out';
+    }
+    if (chatPullLottieRef.current) {
+      chatPullLottieRef.current.style.opacity = String(Math.min(dist / 30, 1));
+    }
+    if (chatPullContentRef.current) {
+      chatPullContentRef.current.style.transform = `translateY(${dist}px)`;
+      chatPullContentRef.current.style.transition = chatPullStartY.current !== null ? 'none' : 'transform 0.3s ease-out';
+    }
+    if (headerPullRef.current) {
+      headerPullRef.current.style.transform = `translateY(${feedPullDistance.current || dist}px)`;
+      headerPullRef.current.style.transition = (feedPullStartY.current !== null || chatPullStartY.current !== null) ? 'none' : 'transform 0.3s ease-out';
+    }
+  };
   const [feedRefreshing, setFeedRefreshing] = useState(false);
   const [feedRefreshDone, setFeedRefreshDone] = useState(false);
   const [feedRefreshFading, setFeedRefreshFading] = useState(false);
@@ -809,7 +828,6 @@ export default function App() {
   const [didYouKnowNoteIndex, setDidYouKnowNoteIndex] = useState<Map<string, number>>(new Map());
   const [heartCounts, setHeartCounts] = useState<Map<string, number>>(new Map());
   const [userHearted, setUserHearted] = useState<Set<string>>(new Set());
-  const [followingUsers, setFollowingUsers] = useState<Array<{ id: string; full_name: string | null; avatar_url: string | null; email: string; followed_at: string }>>([]);
 
   // Create post
   const [showCreatePost, setShowCreatePost] = useState(false);
@@ -846,8 +864,6 @@ export default function App() {
   const [bookReaders, setBookReaders] = useState<BookReader[]>([]);
   const [isLoadingBookReaders, setIsLoadingBookReaders] = useState(false);
 
-  const [isLoadingFollowing, setIsLoadingFollowing] = useState(false);
-  const [followingSortOrder, setFollowingSortOrder] = useState<'recent_desc' | 'recent_asc' | 'name_desc' | 'name_asc'>('recent_desc');
   const [editingNoteBookId, setEditingNoteBookId] = useState<string | null>(null);
   const [notesSortOrder, setNotesSortOrder] = useState<'edited_desc' | 'edited_asc' | 'name_asc' | 'name_desc'>('edited_desc');
   const [bookshelfGrouping, setBookshelfGrouping] = useState<'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year' | 'list'>(() => {
@@ -885,33 +901,6 @@ export default function App() {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [resultsUpdateTrigger, setResultsUpdateTrigger] = useState(0);
   
-  // Trivia Game state
-  const [isPlayingTrivia, setIsPlayingTrivia] = useState(false);
-  const [triviaQuestions, setTriviaQuestions] = useState<Array<{
-    question: string;
-    correct_answer: string;
-    wrong_answers: string[];
-    book_title?: string;
-    book_author?: string;
-  }>>([]);
-  const [triviaFirstPlayTimestamp, setTriviaFirstPlayTimestamp] = useState<number | null>(null);
-  const [currentTriviaQuestionIndex, setCurrentTriviaQuestionIndex] = useState(0);
-  const [triviaScore, setTriviaScore] = useState(0);
-  const [selectedTriviaAnswer, setSelectedTriviaAnswer] = useState<string | null>(null);
-  const [isTriviaLoading, setIsTriviaLoading] = useState(false);
-  const [triviaGameComplete, setTriviaGameComplete] = useState(false);
-  const [triviaSelectedAnswers, setTriviaSelectedAnswers] = useState<Map<number, string>>(new Map());
-  const [isTriviaTransitioning, setIsTriviaTransitioning] = useState(false);
-  const [triviaShuffledAnswers, setTriviaShuffledAnswers] = useState<string[]>([]);
-  const [isTriviaReady, setIsTriviaReady] = useState(false);
-  const [isTriviaMuted, setIsTriviaMuted] = useState(false);
-  const [triviaAnswerFeedback, setTriviaAnswerFeedback] = useState<'correct' | 'incorrect' | null>(null);
-  const [booksWithTriviaQuestions, setBooksWithTriviaQuestions] = useState<number>(0);
-  const [triviaQuestionsRefreshTrigger, setTriviaQuestionsRefreshTrigger] = useState(0);
-  const [nextQuestionsCountdown, setNextQuestionsCountdown] = useState<{hours: number; minutes: number; seconds: number} | null>(null);
-  const triviaAudioRef = useRef<HTMLAudioElement | null>(null);
-  const triviaLottieRef = useRef<any>(null);
-  const prevTriviaGameCompleteRef = useRef(false);
   const [spoilerRevealed, setSpoilerRevealed] = useState<Map<string, Set<string>>>(() => getSpoilerRevealedFromStorage());
   
   // Merge Sort Implementation - O(n log n) comparisons
@@ -1938,14 +1927,14 @@ export default function App() {
 
   // Android hardware back button
   const backButtonStateRef = useRef({
-    isPlayingTrivia, showAboutScreen, isAdding, showShareDialog, showBookMenu,
+    showAboutScreen, isAdding, showShareDialog, showBookMenu,
     isEditing, isShowingNotes, isConfirmingDelete,
     showAccountPage, showFollowingPage, showFeedPage, showChatPage, chatBookSelected, showCreatePost, showSortingResults, showNotesView,
     showBookshelf, showBookshelfCovers,
   });
   useEffect(() => {
     backButtonStateRef.current = {
-      isPlayingTrivia, showAboutScreen, isAdding, showShareDialog, showBookMenu,
+      showAboutScreen, isAdding, showShareDialog, showBookMenu,
       isEditing, isShowingNotes, isConfirmingDelete,
       showAccountPage, showFollowingPage, showFeedPage, showChatPage, chatBookSelected, showCreatePost, showSortingResults, showNotesView,
       showBookshelf, showBookshelfCovers,
@@ -1955,7 +1944,7 @@ export default function App() {
     return listenForBackButton(() => {
       const s = backButtonStateRef.current;
       // 1. Dismiss modals/overlays (topmost first)
-      if (s.isPlayingTrivia) { setIsPlayingTrivia(false); return; }
+      if (triviaGameRef.current?.isPlaying) { triviaGameRef.current.close(); return; }
       if (s.showAboutScreen) { setShowAboutScreen(false); return; }
       if (s.isAdding) { setIsAdding(false); return; }
       if (s.showShareDialog) { setShowShareDialog(false); return; }
@@ -2107,217 +2096,6 @@ export default function App() {
   }, [user, books.length > 0]);
 
 
-  // Load followed users when following page is shown
-  useEffect(() => {
-    if (!showFollowingPage || !user) return;
-
-    const loadFollowingUsers = async () => {
-      setIsLoadingFollowing(true);
-      try {
-        // Get list of users the current user is following with timestamps
-        const { data: followsData, error: followsError } = await supabase
-          .from('follows')
-          .select('following_id, created_at')
-          .eq('follower_id', user.id);
-
-        if (followsError) {
-          console.error('[Following] Error fetching follows:', followsError);
-          setFollowingUsers([]);
-          return;
-        }
-
-        if (!followsData || followsData.length === 0) {
-          setFollowingUsers([]);
-          return;
-        }
-
-        // Create a map of following_id to created_at
-        const followedAtMap = new Map(followsData.map(f => [f.following_id, f.created_at]));
-
-        // Get user details for each followed user
-        const followingIds = followsData.map(f => f.following_id);
-        const { data: usersData, error: usersError } = await supabase
-          .from('users')
-          .select('id, full_name, avatar_url, email')
-          .in('id', followingIds);
-
-        if (usersError) {
-          console.error('[Following] Error fetching user details:', usersError);
-          setFollowingUsers([]);
-          return;
-        }
-
-        // Merge user data with followed_at timestamp
-        const usersWithFollowedAt = (usersData || []).map(u => ({
-          ...u,
-          followed_at: followedAtMap.get(u.id) || new Date().toISOString(),
-        }));
-
-        setFollowingUsers(usersWithFollowedAt);
-      } catch (err) {
-        console.error('[Following] Error loading following users:', err);
-        setFollowingUsers([]);
-      } finally {
-        setIsLoadingFollowing(false);
-      }
-    };
-
-    loadFollowingUsers();
-  }, [showFollowingPage, user]);
-
-  // Update count of books with trivia questions
-  useEffect(() => {
-    const refreshCount = () => {
-      if (isLoaded && user) {
-        const readBooks = books.filter(b => b.reading_status === 'read_it').map(b => ({ title: b.title, author: b.author || '' }));
-        countBooksWithTriviaQuestions(readBooks).then(count => {
-          setBooksWithTriviaQuestions(count);
-        }).catch(err => {
-          console.error('[App] Error counting books with trivia questions:', err);
-        });
-      }
-    };
-    
-    // Set the global callback so saveTriviaQuestionsToCache can trigger refresh
-    setTriviaQuestionsCountRefreshCallback(refreshCount);
-    
-    // Initial load
-    refreshCount();
-    
-    // Cleanup
-    return () => {
-      setTriviaQuestionsCountRefreshCallback(null);
-    };
-  }, [isLoaded, user, books.length, triviaQuestionsRefreshTrigger]); // Update when books change or refresh is triggered
-
-  // Ensure trivia answers are shuffled when question changes
-  useEffect(() => {
-    if (triviaQuestions.length > 0 && currentTriviaQuestionIndex < triviaQuestions.length && triviaShuffledAnswers.length === 0) {
-      const q = triviaQuestions[currentTriviaQuestionIndex];
-      const shuffled = [q.correct_answer, ...q.wrong_answers].sort(() => Math.random() - 0.5);
-      setTriviaShuffledAnswers(shuffled);
-    }
-  }, [triviaQuestions, currentTriviaQuestionIndex, triviaShuffledAnswers.length]);
-
-  // Fire confetti when trivia game completes
-  useEffect(() => {
-    // Only fire confetti when game transitions from incomplete to complete
-    if (triviaGameComplete && !prevTriviaGameCompleteRef.current) {
-      analytics.trackEvent('trivia', 'complete', { score: triviaScore, total: triviaQuestions.length });
-      // Play confetti sound
-      const confettiSound = new Audio(getAssetPath('/confetti-pop-sound.mp3'));
-      confettiSound.volume = 0.5; // Set volume to 50%
-      confettiSound.play().catch(err => {
-        console.warn('Failed to play confetti sound:', err);
-      });
-
-      // Check if confetti is available
-      if (typeof window !== 'undefined' && (window as any).confetti) {
-        const count = 200;
-        const defaults = {
-          origin: { y: 0.7 },
-        };
-
-        function fire(particleRatio: number, opts: any) {
-          (window as any).confetti(
-            Object.assign({}, defaults, opts, {
-              particleCount: Math.floor(count * particleRatio),
-            })
-          );
-        }
-
-        fire(0.25, {
-          spread: 26,
-          startVelocity: 55,
-        });
-
-        fire(0.2, {
-          spread: 60,
-        });
-
-        fire(0.35, {
-          spread: 100,
-          decay: 0.91,
-          scalar: 0.8,
-        });
-
-        fire(0.1, {
-          spread: 120,
-          startVelocity: 25,
-          decay: 0.92,
-          scalar: 1.2,
-        });
-
-        fire(0.1, {
-          spread: 120,
-          startVelocity: 45,
-        });
-      }
-    }
-    
-    // Update ref to track previous state
-    prevTriviaGameCompleteRef.current = triviaGameComplete;
-  }, [triviaGameComplete]);
-
-  // Load trivia first play timestamp from localStorage on mount
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('triviaFirstPlayTimestamp');
-      if (saved) {
-        const timestamp = parseInt(saved, 10);
-        if (!isNaN(timestamp)) {
-          setTriviaFirstPlayTimestamp(timestamp);
-        }
-      }
-    } catch (err) {
-      console.warn('[Trivia Timer] Error loading timestamp from localStorage:', err);
-    }
-  }, []);
-
-  // Calculate countdown to next batch of questions (24 hours)
-  useEffect(() => {
-    if (!triviaFirstPlayTimestamp) {
-      setNextQuestionsCountdown(null);
-      return;
-    }
-
-    const updateCountdown = () => {
-      const now = Date.now();
-      const twentyFourHours = 24 * 60 * 60 * 1000;
-      const timeUntilNext = (triviaFirstPlayTimestamp! + twentyFourHours) - now;
-
-      if (timeUntilNext <= 0) {
-        // 24 hours expired - reset timestamp to now to start new period
-        const newTimestamp = Date.now();
-        setTriviaFirstPlayTimestamp(newTimestamp);
-        try {
-          localStorage.setItem('triviaFirstPlayTimestamp', newTimestamp.toString());
-        } catch (err) {
-          console.warn('[Trivia Timer] Error saving timestamp to localStorage:', err);
-        }
-        // Update countdown for new period
-        const newTimeUntilNext = twentyFourHours;
-        const hours = Math.floor(newTimeUntilNext / (60 * 60 * 1000));
-        const minutes = Math.floor((newTimeUntilNext % (60 * 60 * 1000)) / (60 * 1000));
-        const seconds = Math.floor((newTimeUntilNext % (60 * 1000)) / 1000);
-        setNextQuestionsCountdown({ hours, minutes, seconds });
-      } else {
-        const hours = Math.floor(timeUntilNext / (60 * 60 * 1000));
-        const minutes = Math.floor((timeUntilNext % (60 * 60 * 1000)) / (60 * 1000));
-        const seconds = Math.floor((timeUntilNext % (60 * 1000)) / 1000);
-        
-        setNextQuestionsCountdown({ hours, minutes, seconds });
-      }
-    };
-
-    // Update immediately
-    updateCountdown();
-
-    // Update every 60 seconds (avoids re-rendering entire app every second)
-    const interval = setInterval(updateCountdown, 60000);
-
-    return () => clearInterval(interval);
-  }, [triviaFirstPlayTimestamp]);
 
   // All hooks must be called before any conditional returns
   const activeBook = books[selectedIndex] || null;
@@ -3221,60 +2999,6 @@ export default function App() {
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]);
-
-  // Control trivia theme music playback
-  useEffect(() => {
-    if (triviaAudioRef.current) {
-      const audio = triviaAudioRef.current;
-      // Set volume based on mute state
-      audio.muted = isTriviaMuted;
-      
-      // Play when trivia game is active (has questions and not complete)
-      if (isPlayingTrivia && triviaQuestions.length > 0 && !triviaGameComplete && !isTriviaReady && !isTriviaLoading) {
-        audio.loop = true;
-        // Resume from current position if already loaded, otherwise start from beginning
-        audio.play().catch(err => {
-          console.warn('Failed to play trivia theme:', err);
-        });
-      } else if (!isPlayingTrivia) {
-        // Only pause when game is closed (not when in ready/loading state)
-        audio.pause();
-        // Don't reset currentTime so it can resume when reopened
-      } else if (triviaGameComplete || isTriviaReady || isTriviaLoading) {
-        // Pause when game ends or is in ready/loading state, but keep position
-        audio.pause();
-      }
-    }
-  }, [isPlayingTrivia, triviaQuestions.length, triviaGameComplete, isTriviaReady, isTriviaLoading, isTriviaMuted]);
-
-  // Pause music when browser goes to background
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    const handleVisibilityChange = () => {
-      if (triviaAudioRef.current) {
-        const audio = triviaAudioRef.current;
-        audio.muted = isTriviaMuted; // Update mute state
-        if (document.hidden) {
-          // Browser went to background - pause music
-          audio.pause();
-        } else {
-          // Browser came back to foreground - resume if game is active
-          if (isPlayingTrivia && triviaQuestions.length > 0 && !triviaGameComplete && !isTriviaReady && !isTriviaLoading) {
-            audio.loop = true;
-            audio.play().catch(err => {
-              console.warn('Failed to resume trivia theme:', err);
-            });
-          }
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [isPlayingTrivia, triviaQuestions.length, triviaGameComplete, isTriviaReady, isTriviaLoading, isTriviaMuted]);
 
   // Track which books we're currently fetching influences for to prevent duplicate concurrent fetches
   const fetchingInfluencesForBooksRef = useRef<Set<string>>(new Set());
@@ -4527,10 +4251,13 @@ export default function App() {
     });
   }, [personalizedFeedItems, user?.id]);
 
-  // Handle toggling a heart
-  const handleToggleHeart = async (contentHash: string) => {
+  // Handle toggling a heart (stable ref for useCallback)
+  const userHeartedRef = useRef(userHearted);
+  userHeartedRef.current = userHearted;
+
+  const handleToggleHeart = useCallback(async (contentHash: string) => {
     if (!user?.id) return;
-    const wasHearted = userHearted.has(contentHash);
+    const wasHearted = userHeartedRef.current.has(contentHash);
     analytics.trackEvent('feed', 'heart', { is_hearted: !wasHearted });
     // Optimistic update
     setUserHearted(prev => {
@@ -4563,7 +4290,7 @@ export default function App() {
         return next;
       });
     }
-  };
+  }, [user?.id]);
 
   // Cleanup feed audio when leaving feed page
   useEffect(() => {
@@ -5647,11 +5374,10 @@ export default function App() {
           }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.3, ease: "easeInOut" }}
+          ref={headerPullRef}
           className="w-full z-40 fixed top-[50px] left-0 right-0 px-4 py-3 flex items-center justify-between"
           style={{
             background: 'transparent',
-            transform: `translateY(${feedPullDistance || chatPullDistance}px)`,
-            transition: (feedPullStartY.current !== null || chatPullStartY.current !== null) ? 'none' : 'transform 0.3s ease-out',
           }}
         >
           {/* BOOKS/BOOKSHELF/NOTES text on left with icon */}
@@ -5854,125 +5580,24 @@ export default function App() {
             onScroll={(scrollTop) => setScrollY(scrollTop)}
           />
         ) : showFollowingPage ? (
-          <motion.main
-            key="following"
-            ref={(el) => { scrollContainerRef.current = el; }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
-            onScroll={(e) => {
-              const target = e.currentTarget;
-              setScrollY(target.scrollTop);
+          <FollowingPage
+            user={user!}
+            supabase={supabase}
+            scrollContainerRef={scrollContainerRef}
+            onScroll={(scrollTop) => setScrollY(scrollTop)}
+            onUserClick={(userId) => {
+              capturePreviousView();
+              setViewingUserId(userId);
+              setShowFollowingPage(false);
+              setShowFeedPage(false);
+              setShowBookshelf(false);
+              setShowBookshelfCovers(true);
+              setShowNotesView(false);
+              setShowAccountPage(false);
+              setShowSortingResults(false);
             }}
-          >
-            {/* Following Page */}
-            <div className="w-full max-w-[600px] md:max-w-[800px] flex flex-col gap-4 px-4 py-8">
-              {isLoadingFollowing ? (
-                <motion.div
-                  animate={{ opacity: [0.5, 0.8, 0.5] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                  className="w-full rounded-2xl p-4 flex items-center gap-4"
-                  style={standardGlassmorphicStyle}
-                >
-                  {/* Avatar skeleton */}
-                  <div className="w-12 h-12 rounded-full bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" />
-                  {/* Name/email skeleton */}
-                  <div className="flex-1 min-w-0">
-                    <div className="w-32 h-5 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mb-2" />
-                    <div className="w-24 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                  </div>
-                  {/* Chevron skeleton */}
-                  <div className="w-5 h-5 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                </motion.div>
-              ) : followingUsers.length === 0 ? (
-                <div className="rounded-2xl p-6 text-center" style={standardGlassmorphicStyle}>
-                  <Users size={48} className="mx-auto mb-4 text-slate-400" />
-                  <p className="text-slate-600 dark:text-slate-400">You're not following anyone yet.</p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-                    Find readers in the community and follow them to see their books here.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {/* Sort Button */}
-                  <div className="flex justify-start mb-2">
-                    <button
-                      onClick={() => {
-                        const order: Array<'recent_desc' | 'recent_asc' | 'name_desc' | 'name_asc'> = ['recent_desc', 'recent_asc', 'name_asc', 'name_desc'];
-                        const currentIndex = order.indexOf(followingSortOrder);
-                        const nextIndex = (currentIndex + 1) % order.length;
-                        setFollowingSortOrder(order[nextIndex]);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 dark:text-slate-300 hover:opacity-80 active:scale-95"
-                      style={standardGlassmorphicStyle}
-                    >
-                      <span>
-                        {followingSortOrder === 'recent_desc' ? 'Recent ↓' :
-                         followingSortOrder === 'recent_asc' ? 'Recent ↑' :
-                         followingSortOrder === 'name_asc' ? 'Name A-Z' : 'Name Z-A'}
-                      </span>
-                    </button>
-                  </div>
-                  {[...followingUsers].sort((a, b) => {
-                    const nameA = (a.full_name || a.email).toLowerCase();
-                    const nameB = (b.full_name || b.email).toLowerCase();
-                    if (followingSortOrder === 'recent_desc') {
-                      return new Date(b.followed_at).getTime() - new Date(a.followed_at).getTime();
-                    } else if (followingSortOrder === 'recent_asc') {
-                      return new Date(a.followed_at).getTime() - new Date(b.followed_at).getTime();
-                    } else if (followingSortOrder === 'name_asc') {
-                      return nameA.localeCompare(nameB);
-                    } else {
-                      return nameB.localeCompare(nameA);
-                    }
-                  }).map((followedUser) => (
-                    <button
-                      key={followedUser.id}
-                      onClick={() => {
-                        setViewingUserId(followedUser.id);
-                        setShowFollowingPage(false);
-                        setShowFeedPage(false);
-                        setShowBookshelf(false);
-                        setShowBookshelfCovers(true);
-                        setShowNotesView(false);
-                        setShowAccountPage(false);
-                        setShowSortingResults(false);
-                      }}
-                      className="w-full rounded-2xl p-4 flex items-center gap-4 hover:opacity-90 active:scale-[0.98] transition-all text-left"
-                      style={standardGlassmorphicStyle}
-                    >
-                      {followedUser.avatar_url ? (
-                        <img
-                          src={followedUser.avatar_url}
-                          alt={followedUser.full_name || followedUser.email}
-                          className="w-12 h-12 shrink-0 rounded-full object-cover border-2 border-white/50"
-                          referrerPolicy="no-referrer"
-                        />
-                      ) : (
-                        <div className="w-12 h-12 shrink-0 rounded-full flex items-center justify-center border-2 border-white/50" style={{ background: avatarGradient(followedUser.id) }}>
-                          <span className="text-lg font-bold text-white">
-                            {(followedUser.full_name || followedUser.email).charAt(0).toUpperCase()}
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-slate-950 dark:text-slate-50 truncate">
-                          {followedUser.full_name || followedUser.email.split('@')[0]}
-                        </p>
-                        {followedUser.full_name && (
-                          <p className="text-sm text-slate-600 dark:text-slate-400 truncate">{followedUser.email}</p>
-                        )}
-                      </div>
-                      <ChevronRight size={20} className="text-slate-400 flex-shrink-0" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </motion.main>
+            standardGlassmorphicStyle={standardGlassmorphicStyle}
+          />
         ) : showFeedPage ? (
           <motion.main
             key="feed"
@@ -6014,22 +5639,22 @@ export default function App() {
               const dy = e.touches[0].clientY - feedPullStartY.current;
               if (dy > 0) {
                 const dist = Math.min(dy * 0.3, 40);
-                setFeedPullDistance(dist);
+                updateFeedPullDOM(dist);
                 if (dist >= 30 && !feedHapticFired.current) {
                   feedHapticFired.current = true;
                   triggerMediumHaptic();
                 }
               } else {
                 feedPullStartY.current = null;
-                setFeedPullDistance(0);
+                updateFeedPullDOM(0);
               }
             }}
             onTouchEnd={() => {
               if (feedPullStartY.current === null) return;
               feedPullStartY.current = null;
-              if (feedPullDistance >= 30) {
+              if (feedPullDistance.current >= 30) {
                 setFeedRefreshing(true);
-                setFeedPullDistance(20);
+                updateFeedPullDOM(20);
                 if (feedLottieRef.current) {
                   feedLottieRef.current.loop = true;
                   feedLottieRef.current.goToAndPlay(0);
@@ -6055,42 +5680,41 @@ export default function App() {
                   }
                 })();
               } else {
-                setFeedPullDistance(0);
+                updateFeedPullDOM(0);
               }
             }}
           >
             {/* Feed Page */}
-            {/* Pull to refresh indicator - positioned absolutely so it doesn't push content */}
-            {(feedPullDistance > 0 || feedRefreshing || feedRefreshDone || feedRefreshFading) && (
-              <div className="absolute left-0 right-0 flex justify-center z-50" style={{ top: `${60 + feedPullDistance}px`, transition: feedPullStartY.current !== null ? 'none' : 'top 0.3s ease-out' }}>
-                <div
-                  className="w-20 h-20"
-                  style={{
-                    opacity: feedRefreshFading ? 1 : feedRefreshDone ? 1 : feedRefreshing ? 1 : Math.min(feedPullDistance / 30, 1),
-                    animation: feedRefreshFading ? 'fadeOut 0.8s ease-out forwards' : undefined,
+            {/* Pull to refresh indicator - always rendered, visibility controlled via ref */}
+            <div ref={feedPullIndicatorRef} className="absolute left-0 right-0 flex justify-center z-50" style={{ top: '60px', display: (feedRefreshing || feedRefreshDone || feedRefreshFading) ? '' : 'none' }}>
+              <div
+                ref={feedPullLottieRef}
+                className="w-20 h-20"
+                style={{
+                  opacity: feedRefreshFading ? 1 : feedRefreshDone ? 1 : feedRefreshing ? 1 : 0,
+                  animation: feedRefreshFading ? 'fadeOut 0.8s ease-out forwards' : undefined,
+                }}
+              >
+                <Lottie
+                  lottieRef={feedLottieRef}
+                  animationData={refreshAnimation}
+                  loop={true}
+                  autoplay={false}
+                  onLoopComplete={() => {
+                    if (feedRefreshDone) {
+                      setFeedRefreshing(false);
+                      setFeedRefreshDone(false);
+                      setFeedRefreshFading(true);
+                      setTimeout(() => {
+                        setFeedRefreshFading(false);
+                        updateFeedPullDOM(0);
+                      }, 800);
+                    }
                   }}
-                >
-                  <Lottie
-                    lottieRef={feedLottieRef}
-                    animationData={refreshAnimation}
-                    loop={true}
-                    autoplay={false}
-                    onLoopComplete={() => {
-                      if (feedRefreshDone) {
-                        setFeedRefreshing(false);
-                        setFeedRefreshDone(false);
-                        setFeedRefreshFading(true);
-                        setTimeout(() => {
-                          setFeedRefreshFading(false);
-                          setFeedPullDistance(0);
-                        }, 800);
-                      }
-                    }}
-                  />
-                </div>
+                />
               </div>
-            )}
-            <div className="w-full max-w-[700px] md:mx-auto flex flex-col gap-0 px-0 pt-8" style={{ transform: `translateY(${feedPullDistance}px)`, transition: feedPullStartY.current !== null ? 'none' : 'transform 0.3s ease-out' }}>
+            </div>
+            <div ref={feedPullContentRef} className="w-full max-w-[700px] md:mx-auto flex flex-col gap-0 px-0 pt-8">
               {/* Anonymous user feed empty state */}
               {isAnonymous ? (
                 <div
@@ -7159,22 +6783,22 @@ export default function App() {
                 const dy = e.touches[0].clientY - chatPullStartY.current;
                 if (dy > 0) {
                   const dist = Math.min(dy * 0.3, 40);
-                  setChatPullDistance(dist);
+                  updateChatPullDOM(dist);
                   if (dist >= 30 && !chatHapticFired.current) {
                     chatHapticFired.current = true;
                     triggerMediumHaptic();
                   }
                 } else {
                   chatPullStartY.current = null;
-                  setChatPullDistance(0);
+                  updateChatPullDOM(0);
                 }
               },
               onTouchEnd: () => {
                 if (chatPullStartY.current === null) return;
                 chatPullStartY.current = null;
-                if (chatPullDistance >= 30) {
+                if (chatPullDistance.current >= 30) {
                   setChatRefreshing(true);
-                  setChatPullDistance(20);
+                  updateChatPullDOM(20);
                   if (chatLottieRef.current) {
                     chatLottieRef.current.loop = true;
                     chatLottieRef.current.goToAndPlay(0);
@@ -7190,7 +6814,7 @@ export default function App() {
                     }
                   })();
                 } else {
-                  setChatPullDistance(0);
+                  updateChatPullDOM(0);
                 }
               },
             } : {})}
@@ -7368,37 +6992,36 @@ export default function App() {
             ) : (
               /* Chat list view */
                 <>
-                {/* Pull to refresh indicator - positioned absolutely */}
-                {(chatPullDistance > 0 || chatRefreshing || chatRefreshDone || chatRefreshFading) && (
-                  <div className="absolute left-0 right-0 flex justify-center z-50" style={{ top: `${60 + chatPullDistance}px`, transition: chatPullStartY.current !== null ? 'none' : 'top 0.3s ease-out' }}>
-                    <div
-                      className="w-20 h-20"
-                      style={{
-                        opacity: chatRefreshFading ? 1 : chatRefreshDone ? 1 : chatRefreshing ? 1 : Math.min(chatPullDistance / 30, 1),
-                        animation: chatRefreshFading ? 'fadeOut 0.8s ease-out forwards' : undefined,
+                {/* Pull to refresh indicator - always rendered, visibility controlled via ref */}
+                <div ref={chatPullIndicatorRef} className="absolute left-0 right-0 flex justify-center z-50" style={{ top: '60px', display: (chatRefreshing || chatRefreshDone || chatRefreshFading) ? '' : 'none' }}>
+                  <div
+                    ref={chatPullLottieRef}
+                    className="w-20 h-20"
+                    style={{
+                      opacity: chatRefreshFading ? 1 : chatRefreshDone ? 1 : chatRefreshing ? 1 : 0,
+                      animation: chatRefreshFading ? 'fadeOut 0.8s ease-out forwards' : undefined,
+                    }}
+                  >
+                    <Lottie
+                      lottieRef={chatLottieRef}
+                      animationData={refreshAnimation}
+                      loop={true}
+                      autoplay={false}
+                      onLoopComplete={() => {
+                        if (chatRefreshDone) {
+                          setChatRefreshing(false);
+                          setChatRefreshDone(false);
+                          setChatRefreshFading(true);
+                          setTimeout(() => {
+                            setChatRefreshFading(false);
+                            updateChatPullDOM(0);
+                          }, 800);
+                        }
                       }}
-                    >
-                      <Lottie
-                        lottieRef={chatLottieRef}
-                        animationData={refreshAnimation}
-                        loop={true}
-                        autoplay={false}
-                        onLoopComplete={() => {
-                          if (chatRefreshDone) {
-                            setChatRefreshing(false);
-                            setChatRefreshDone(false);
-                            setChatRefreshFading(true);
-                            setTimeout(() => {
-                              setChatRefreshFading(false);
-                              setChatPullDistance(0);
-                            }, 800);
-                          }
-                        }}
-                      />
-                    </div>
+                    />
                   </div>
-                )}
-                <div className="w-full max-w-[600px] mx-auto px-4 py-4" style={{ marginTop: '30px', transform: `translateY(${chatPullDistance}px)`, transition: chatPullStartY.current !== null ? 'none' : 'transform 0.3s ease-out' }}>
+                </div>
+                <div ref={chatPullContentRef} className="w-full max-w-[600px] mx-auto px-4 py-4" style={{ marginTop: '30px' }}>
                   {/* Book picker for new chat — hidden for now */}
                   {false && books.length > 0 && (
                     <div
@@ -10990,23 +10613,23 @@ export default function App() {
                         </motion.div>
                       ) : (
                         <RelatedMovies
-                          movies={movies || []}
+                          movies={movies || EMPTY_ARRAY}
                           bookId={activeBook.id}
                           isLoading={false}
                           showPlayButtons={remoteFlags.related_work_play_buttons}
                           showComment={false}
                           showSend={remoteFlags.send_enabled}
                           renderAction={(idx) => {
-                            const m = (movies || [])[idx];
+                            const m = (movies || EMPTY_ARRAY)[idx];
                             const hash = getContentHash('related_work', m?.title || '');
                             return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
                           }}
                           onPin={(idx) => {
-                            const m = (movies || [])[idx];
+                            const m = (movies || EMPTY_ARRAY)[idx];
                             if (m) handlePinForLater(`${m.title} (${m.type}) — ${m.director}`, m.type, m.itunes_url, m.poster_url || m.itunes_artwork);
                           }}
                           isPinned={(idx) => {
-                            const m = (movies || [])[idx];
+                            const m = (movies || EMPTY_ARRAY)[idx];
                             return m ? isContentPinned(`${m.title} (${m.type}) — ${m.director}`) : false;
                           }}
                         />
@@ -11089,7 +10712,7 @@ export default function App() {
                         </motion.div>
                       ) : (
                         <RelatedBooks
-                          books={related || []}
+                          books={related || EMPTY_ARRAY}
                           bookId={activeBook.id}
                           isLoading={false}
                           onAddBook={handleAddBook}
@@ -11098,16 +10721,16 @@ export default function App() {
                           sourceBookCoverUrl={activeBook.cover_url}
                           sourceBookTitle={activeBook.title}
                           renderAction={(idx) => {
-                            const b = (related || [])[idx];
+                            const b = (related || EMPTY_ARRAY)[idx];
                             const hash = getContentHash('related_book', b?.title || '');
                             return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
                           }}
                           onPin={(idx) => {
-                            const b = (related || [])[idx];
+                            const b = (related || EMPTY_ARRAY)[idx];
                             if (b) handlePinForLater(`${b.title} by ${b.author}`, 'book', b.wikipedia_url || b.google_books_url, b.cover_url || b.thumbnail);
                           }}
                           isPinned={(idx) => {
-                            const b = (related || [])[idx];
+                            const b = (related || EMPTY_ARRAY)[idx];
                             return b ? isContentPinned(`${b.title} by ${b.author}`) : false;
                           }}
                         />
@@ -11182,72 +10805,16 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Floating Trivia button — peeks from right edge on bookshelf covers */}
-      {!isReviewer && showBookshelfCovers && !viewingUserId && !isSelectMode && books.length >= 5 && (() => {
-        if (!triviaButtonMountRef.current) triviaButtonMountRef.current = Date.now();
-        const sinceMountMs = Date.now() - triviaButtonMountRef.current;
-        const entranceDelay = sinceMountMs < 600 ? 0.6 : 0;
-        return (
-        <motion.button
-          initial={{ x: 80 }}
-          animate={{ x: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 25, delay: entranceDelay }}
-          onClick={() => {
-            triggerMediumHaptic();
-            const minBooks = 5;
-            if (books.length < minBooks) {
-              setShowTriviaTooltip(true);
-              setTimeout(() => setShowTriviaTooltip(false), 2000);
-              return;
-            }
-            analytics.trackEvent('trivia', 'start', { question_count: triviaQuestions.length });
-            setIsPlayingTrivia(true);
-            setIsTriviaReady(true);
-            setCurrentTriviaQuestionIndex(0);
-            setTriviaScore(0);
-            setSelectedTriviaAnswer(null);
-            setTriviaAnswerFeedback(null);
-            setTriviaGameComplete(false);
-            setTriviaSelectedAnswers(new Map());
-            setIsTriviaTransitioning(false);
-            setTriviaShuffledAnswers([]);
-          }}
-          className="fixed z-[45] flex flex-col items-center gap-0.5 pl-2.5 pr-3.5 py-2 rounded-l-xl active:scale-95"
-          style={{
-            bottom: 'calc(16px + var(--safe-area-bottom, 0px))',
-            right: '-10px',
-            rotate: '-8deg',
-            background: 'rgba(255, 255, 255, 0.7)',
-            backdropFilter: 'blur(16px)',
-            WebkitBackdropFilter: 'blur(16px)',
-            border: '1px solid rgba(255, 255, 255, 0.5)',
-            borderRight: 'none',
-            boxShadow: '-2px 2px 16px rgba(0, 0, 0, 0.08)',
-          }}
-        >
-          <span className="text-[10px] font-bold text-slate-600 tracking-wider leading-none">DAILY</span>
-          {featureFlags.hand_drawn_icons ? (
-            <img src={getAssetPath("/Trophy.svg")} alt="Trivia" className="w-[20px] h-[20px]" />
-          ) : (
-            <Trophy size={20} style={{ color: '#FF007B' }} />
-          )}
-          <span className="text-[10px] font-bold text-slate-600 tracking-wider leading-none">TRIVIA</span>
-          <AnimatePresence>
-            {showTriviaTooltip && (
-              <motion.div
-                initial={{ opacity: 0, x: 10 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 10 }}
-                className="absolute right-full mr-2 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white whitespace-nowrap pointer-events-none z-50"
-                style={{ background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
-              >
-                Need 5 books to play
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.button>
-        );
-      })()}
+      <TriviaGame
+        ref={triviaGameRef}
+        books={books}
+        isLoaded={isLoaded}
+        user={user}
+        showBookshelfCovers={showBookshelfCovers}
+        viewingUserId={viewingUserId}
+        isSelectMode={isSelectMode}
+        isReviewer={isReviewer}
+      />
 
       {/* Bottom Navigation Bar / Selection Mode Action Bar — hidden when BookChat is open */}
       {!(showChatPage && chatBookSelected) && (
@@ -11996,463 +11563,6 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Trivia Game Overlay */}
-      <AnimatePresence>
-        {isPlayingTrivia && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-end justify-center px-4"
-            onClick={(e) => {
-              if (e.target === e.currentTarget && !triviaGameComplete) {
-                // Minimize game - preserve state, just close the overlay
-                setIsPlayingTrivia(false);
-                // Don't reset isTriviaReady if we have questions (mid-game)
-                // Only reset if we're in the initial ready state
-                if (triviaQuestions.length === 0) {
-                  setIsTriviaReady(false);
-                }
-              }
-            }}
-          >
-            {/* Trivia theme music */}
-            <audio
-              ref={triviaAudioRef}
-              src={getAssetPath('/trivia_theme.mp3')}
-              preload="auto"
-            />
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              onAnimationComplete={() => { if (triviaLottieRef.current) triviaLottieRef.current.goToAndPlay(0); }}
-              className="w-full max-w-md bg-white/80 dark:bg-white/15 backdrop-blur-md rounded-t-3xl shadow-2xl border-t border-white/30 dark:border-white/10 relative"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Trivia Logo - Anchored to top of trivia box, centered on box x-axis */}
-              <AnimatePresence>
-                {(isTriviaReady && !isTriviaLoading && !triviaGameComplete && triviaQuestions.length === 0) && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="absolute left-1/2 -translate-x-1/2 z-30 pointer-events-none"
-                    style={{
-                      top: 'calc(-10rem + 40px)'
-                    }}
-                  >
-                    <Lottie
-                      lottieRef={triviaLottieRef}
-                      animationData={triviaAnimation}
-                      autoplay={false}
-                      loop={false}
-                      className="h-40 w-auto block mx-auto"
-                      style={{ transform: 'scale(1.5)' }}
-                    />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              
-              {/* Handle bar */}
-              <div className="w-full flex justify-center pt-3 pb-2">
-                <div className="w-12 h-1 bg-slate-400 rounded-full" />
-              </div>
-              
-              <div className="px-4 pb-6 max-h-[90vh] overflow-y-auto">
-                  {isTriviaReady && !isTriviaLoading && !triviaGameComplete && triviaQuestions.length === 0 ? (
-                  <div className="text-center">
-                    <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50 mb-0">Ready to play!</h2>
-                    <p className="text-xs text-slate-700 dark:text-slate-300 mb-3">Tap to test your knowledge</p>
-                    {/* Book covers for trivia-eligible books */}
-                    {(() => {
-                      const triviaBooks = books.filter(b => b.reading_status === 'read_it' && b.cover_url);
-                      if (triviaBooks.length === 0) return null;
-                      const maxCovers = 8;
-                      const shown = triviaBooks.slice(0, maxCovers);
-                      const overlapPx = 12;
-                      const coverW = 40;
-                      const coverH = 58;
-                      const totalWidth = coverW + (shown.length - 1) * (coverW - overlapPx);
-                      return (
-                        <div className="flex justify-center mb-4">
-                          <div className="relative" style={{ width: totalWidth, height: coverH }}>
-                            {shown.map((book, i) => (
-                              <TriviaCover
-                                key={book.id}
-                                src={book.cover_url!}
-                                alt={book.title}
-                                index={i}
-                                coverW={coverW}
-                                coverH={coverH}
-                                overlapPx={overlapPx}
-                              />
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  <button
-                    onClick={async () => {
-                      setIsTriviaLoading(true);
-                      
-                      try {
-                        // Check if we need to load questions
-                        const shouldFetchNew = triviaQuestions.length === 0;
-                        
-                        if (shouldFetchNew) {
-                          // Load new random questions from cache
-                          const readBooks = books.filter(b => b.reading_status === 'read_it').map(b => ({ title: b.title, author: b.author || '' }));
-                          const questions = await loadRandomTriviaQuestions(readBooks);
-                          if (questions.length === 0) {
-                            alert('No trivia questions available yet. Mark books as "Read" to generate questions!');
-                            setIsTriviaLoading(false);
-                            return;
-                          }
-                          
-                          if (questions.length < 11) {
-                            console.warn(`[Trivia Game] Only ${questions.length} questions available, using all of them`);
-                          }
-                          
-                          setTriviaQuestions(questions);
-                          // Pre-shuffle answers for first question
-                          const firstQ = questions[0];
-                          const firstAnswers = [
-                            firstQ.correct_answer,
-                            ...firstQ.wrong_answers
-                          ].sort(() => Math.random() - 0.5);
-                          setTriviaShuffledAnswers(firstAnswers);
-                        }
-                        
-                        // Set first play timestamp if not already set (when user first plays)
-                        if (!triviaFirstPlayTimestamp) {
-                          const timestamp = Date.now();
-                          setTriviaFirstPlayTimestamp(timestamp);
-                          try {
-                            localStorage.setItem('triviaFirstPlayTimestamp', timestamp.toString());
-                          } catch (err) {
-                            console.warn('[Trivia Timer] Error saving timestamp to localStorage:', err);
-                          }
-                        }
-                        
-                        setIsTriviaReady(false);
-                      } catch (err) {
-                        console.error('[Trivia Game] Error:', err);
-                        alert('Error loading trivia questions. Please try again.');
-                        setIsTriviaLoading(false);
-                      } finally {
-                        setIsTriviaLoading(false);
-                      }
-                    }}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all text-white active:scale-95 shadow-sm"
-                    style={{ background: '#2563eb' }}
-                  >
-                    <Play size={16} />
-                    <span>Play</span>
-                  </button>
-                </div>
-              ) : isTriviaLoading ? (
-                <div className="w-full">
-                  <motion.div
-                    animate={{ opacity: [0.5, 0.8, 0.5] }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                    className="rounded-xl p-4"
-          style={glassmorphicStyle}
-                  >
-                    <div className="h-12 flex items-center justify-center">
-                      <div className="w-full h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                    </div>
-                  </motion.div>
-                </div>
-              ) : triviaGameComplete ? (
-                <motion.div
-                  initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{ duration: 0.4, ease: "easeOut" }}
-                  className="space-y-4"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                      <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">Trivia Complete!</h2>
-                      <button
-                        onClick={() => {
-                          setIsPlayingTrivia(false);
-                          setTriviaGameComplete(false);
-                          setCurrentTriviaQuestionIndex(0);
-                          setTriviaScore(0);
-                          setSelectedTriviaAnswer(null);
-                          setTriviaAnswerFeedback(null);
-                          setTriviaSelectedAnswers(new Map());
-                          setTriviaShuffledAnswers([]);
-                          setIsTriviaReady(false);
-                        }}
-                        className="w-8 h-8 rounded-full bg-white/80 dark:bg-white/15 backdrop-blur-md hover:bg-white/85 border border-white/30 dark:border-white/10 active:scale-95 transition-all flex items-center justify-center shadow-sm"
-                      >
-                        <ChevronLeft size={16} className="text-slate-700 dark:text-slate-300 rotate-90" />
-                      </button>
-                    </div>
-                    <div className="rounded-xl p-4 mb-4 shadow-sm" style={{ background: 'rgba(255,255,255,0.5)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)' }}>
-                      <p className="text-xs font-medium text-slate-700 dark:text-slate-300 text-center mb-2">Your Score</p>
-                      <p className="text-slate-950 dark:text-slate-50 text-center text-2xl font-bold mb-2">{triviaScore} / {triviaQuestions.length}</p>
-                      <p className="text-xs text-slate-600 dark:text-slate-400 text-center">
-                      {triviaScore === triviaQuestions.length 
-                        ? 'Perfect score! 🎉' 
-                        : triviaScore >= triviaQuestions.length * 0.8
-                        ? 'Great job! 🎯'
-                        : triviaScore >= triviaQuestions.length * 0.6
-                        ? 'Good effort! 👍'
-                        : 'Keep practicing! 📚'}
-                    </p>
-                  </div>
-                  
-                    {/* Answers Summary */}
-                    <div className="rounded-xl p-4 space-y-3 max-h-[50vh] overflow-y-auto shadow-sm" style={{ background: 'rgba(255,255,255,0.5)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)' }}>
-                      <h3 className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-3">Answers Summary</h3>
-                    {triviaQuestions.map((question, qIdx) => {
-                      const selectedAnswer = triviaSelectedAnswers.get(qIdx);
-                      const isCorrect = selectedAnswer === question.correct_answer;
-                      
-                      return (
-                        <div key={qIdx} className="border-b border-white/30 dark:border-white/10 pb-3 last:border-b-0 last:pb-0">
-                          <p className="text-xs font-bold text-slate-950 dark:text-slate-50 mb-2">{qIdx + 1}. {question.question}</p>
-                          <div className="space-y-1.5">
-                            <div className="px-3 py-2 rounded-xl shadow-sm" style={{ background: isCorrect ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)', border: '1px solid rgba(255,255,255,0.2)' }}>
-                              <p className="text-xs text-slate-800 dark:text-slate-200">Your answer: <span className="font-bold">{selectedAnswer || 'No answer'}</span></p>
-                            </div>
-                            {!isCorrect && (
-                              <div className="px-3 py-2 rounded-xl shadow-sm" style={{ background: 'rgba(34,197,94,0.5)', border: '1px solid rgba(255,255,255,0.2)' }}>
-                                <p className="text-xs text-slate-800 dark:text-slate-200">Correct answer: <span className="font-bold">{question.correct_answer}</span></p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  
-                  {nextQuestionsCountdown && triviaFirstPlayTimestamp ? (
-                    <div className="bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-md rounded-xl p-4 border border-slate-200/30 shadow-sm mt-4">
-                      <p className="text-xs text-slate-700 dark:text-slate-300 text-center font-medium mb-3">New questions available in:</p>
-                      <div className="flex justify-center">
-                        <span className="countdown font-mono text-2xl">
-                          <span 
-                            style={{ 
-                              '--value': nextQuestionsCountdown.hours 
-                            } as React.CSSProperties} 
-                            aria-live="polite" 
-                            aria-label={nextQuestionsCountdown.hours.toString()}
-                          >
-                            {nextQuestionsCountdown.hours}
-                          </span>
-                          {' : '}
-                          <span 
-                            style={{ 
-                              '--value': nextQuestionsCountdown.minutes,
-                              '--digits': 2 
-                            } as React.CSSProperties} 
-                            aria-live="polite" 
-                            aria-label={nextQuestionsCountdown.minutes.toString()}
-                          >
-                            {String(nextQuestionsCountdown.minutes).padStart(2, '0')}
-                          </span>
-                          {' : '}
-                          <span 
-                            style={{ 
-                              '--value': nextQuestionsCountdown.seconds,
-                              '--digits': 2 
-                            } as React.CSSProperties} 
-                            aria-live="polite" 
-                            aria-label={nextQuestionsCountdown.seconds.toString()}
-                          >
-                            {String(nextQuestionsCountdown.seconds).padStart(2, '0')}
-                          </span>
-                        </span>
-                      </div>
-                    </div>
-                  ) : triviaFirstPlayTimestamp ? (
-                    <div className="bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-md rounded-xl p-4 border border-slate-200/30 shadow-sm mt-4">
-                      <p className="text-xs text-slate-700 dark:text-slate-300 text-center font-medium">
-                        New questions available on next play!
-                      </p>
-                    </div>
-                  ) : null}
-                </motion.div>
-              ) : triviaQuestions.length > 0 && currentTriviaQuestionIndex < triviaQuestions.length ? (
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={currentTriviaQuestionIndex}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    transition={{ duration: 0.3 }}
-                    className="space-y-4"
-                    style={{ minHeight: '200px' }}
-                  >
-                    {/* Shuffle is now done when advancing to next question */}
-                    
-                      <div className="rounded-xl p-3 mb-3 shadow-sm" style={{ background: 'rgba(255,255,255,0.5)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)' }}>
-                        <div className="flex items-center justify-between">
-                          <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">Trivia Game</h2>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => setIsTriviaMuted(!isTriviaMuted)}
-                              className="w-8 h-8 rounded-full bg-white/80 dark:bg-white/15 backdrop-blur-md hover:bg-white/85 border border-white/30 dark:border-white/10 active:scale-95 transition-all flex items-center justify-center shadow-sm"
-                              aria-label={isTriviaMuted ? 'Unmute music' : 'Mute music'}
-                            >
-                              {isTriviaMuted ? (
-                                <VolumeX size={14} className="text-slate-700 dark:text-slate-300" />
-                              ) : (
-                                <Volume2 size={14} className="text-slate-700 dark:text-slate-300" />
-                              )}
-                            </button>
-                            <span className="text-xs text-slate-700 dark:text-slate-300">
-                              Question {currentTriviaQuestionIndex + 1} / {triviaQuestions.length}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="rounded-xl p-4 mb-4 shadow-sm" style={{ background: 'rgba(255,255,255,0.5)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)' }}>
-                        {(() => {
-                          const currentQuestion = triviaQuestions[currentTriviaQuestionIndex];
-                          const normalizedTitle = (currentQuestion.book_title || '').toLowerCase().trim();
-                          const normalizedAuthor = (currentQuestion.book_author || '').toLowerCase().trim();
-                          const sourceBook = books.find(
-                            (book) =>
-                              (book.title || '').toLowerCase().trim() === normalizedTitle &&
-                              (book.author || '').toLowerCase().trim() === normalizedAuthor
-                          );
-                          if (!sourceBook) return null;
-                          return (
-                            <div className="flex items-center gap-3 mb-3">
-                              {sourceBook.cover_url ? (
-                                <img
-                                  src={sourceBook.cover_url}
-                                  alt={sourceBook.title}
-                                  className="w-10 h-14 object-cover rounded-lg flex-shrink-0"
-                                  style={{ border: '2px solid rgba(255, 255, 255, 0.6)' }}
-                                />
-                              ) : (
-                                <div className="w-10 h-14 bg-white/60 dark:bg-white/12 rounded-lg flex-shrink-0 flex items-center justify-center">
-                                  <BookOpen size={14} className="text-slate-500 dark:text-slate-400" />
-                                </div>
-                              )}
-                              <div className="min-w-0">
-                                <p className="text-[11px] text-slate-600 dark:text-slate-400">From</p>
-                                <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">{sourceBook.title}</p>
-                                <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{sourceBook.author}</p>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                        <p className="text-xs font-bold text-slate-950 dark:text-slate-50 mb-4">
-                          {triviaQuestions[currentTriviaQuestionIndex].question}
-                        </p>
-                      
-                      <div className="space-y-2">
-                        {triviaShuffledAnswers.map((answer, idx) => {
-                          const currentQuestion = triviaQuestions[currentTriviaQuestionIndex];
-                          const isSelected = selectedTriviaAnswer === answer;
-                          const isCorrect = answer === currentQuestion.correct_answer;
-                          const showFeedback = triviaAnswerFeedback !== null;
-                          
-                          // Determine feedback state for rendering
-                          const feedbackState = isSelected && showFeedback
-                            ? (isCorrect ? 'correct' : 'incorrect')
-                            : isSelected ? 'selected'
-                            : (selectedTriviaAnswer !== null && showFeedback && isCorrect) ? 'reveal-correct'
-                            : (selectedTriviaAnswer !== null) ? 'dimmed'
-                            : 'default';
-                          let extraClass = feedbackState === 'dimmed' ? 'opacity-50' : '';
-                          
-                          return (
-                            <div
-                              key={idx}
-                              role="button"
-                              tabIndex={0}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                if (selectedTriviaAnswer === null) {
-                                  setSelectedTriviaAnswer(answer);
-                                  setTriviaSelectedAnswers(prev => {
-                                    const newMap = new Map(prev);
-                                    newMap.set(currentTriviaQuestionIndex, answer);
-                                    return newMap;
-                                  });
-
-                                  const wasCorrect = answer === currentQuestion.correct_answer;
-                                  if (wasCorrect) {
-                                    triggerSuccessHaptic();
-                                    setTriviaScore(prev => prev + 1);
-                                  } else {
-                                    triggerErrorHaptic();
-                                  }
-
-                                  setTriviaAnswerFeedback(wasCorrect ? 'correct' : 'incorrect');
-
-                                  setTimeout(() => {
-                                    setIsTriviaTransitioning(true);
-                                    setTimeout(() => {
-                                      if (currentTriviaQuestionIndex < triviaQuestions.length - 1) {
-                                        // Pre-shuffle answers for next question
-                                        const nextQ = triviaQuestions[currentTriviaQuestionIndex + 1];
-                                        const nextAnswers = [
-                                          nextQ.correct_answer,
-                                          ...nextQ.wrong_answers
-                                        ].sort(() => Math.random() - 0.5);
-                                        setTriviaShuffledAnswers(nextAnswers);
-                                        setCurrentTriviaQuestionIndex(prev => prev + 1);
-                                        setSelectedTriviaAnswer(null);
-                                        setTriviaAnswerFeedback(null);
-                                        setIsTriviaTransitioning(false);
-                                      } else {
-                                        setTriviaGameComplete(true);
-                                      }
-                                    }, 150);
-                                  }, 500);
-                                }
-                              }}
-                              className={`w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold shadow-sm transition-all duration-200 relative overflow-hidden ${
-                                selectedTriviaAnswer === null ? 'cursor-pointer active:scale-[0.98]' : 'pointer-events-none'
-                              } ${extraClass}`}
-                              style={{ minHeight: '40px', display: 'flex', alignItems: 'center' }}
-                            >
-                              {/* Background layer */}
-                              <div
-                                className="absolute inset-0 rounded-xl transition-all duration-200"
-                                style={{
-                                  background: feedbackState === 'incorrect' ? 'rgba(239,68,68,0.5)'
-                                    : feedbackState === 'correct' ? 'rgba(34,197,94,0.5)'
-                                    : feedbackState === 'selected' ? 'rgba(226,232,240,0.8)'
-                                    : feedbackState === 'reveal-correct' ? '#86efac'
-                                    : 'rgba(255,255,255,1)',
-                                }}
-                              />
-                              <div className={`flex items-center justify-between w-full relative z-10 ${
-                                feedbackState === 'incorrect' || feedbackState === 'correct' ? 'text-slate-950 dark:text-slate-50' : 'text-slate-950 dark:text-slate-50'
-                              }`}>
-                                <span>{answer}</span>
-                                {isSelected && showFeedback && (
-                                  <span className="text-sm font-black">
-                                    {isCorrect ? '✓' : '✗'}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </motion.div>
-                </AnimatePresence>
-              ) : null}
-              </div>
-            </motion.div>
-          </motion.div>
-          )}
-        </AnimatePresence>
 
       <ConnectAccountModal
         isOpen={showConnectAccountModal}

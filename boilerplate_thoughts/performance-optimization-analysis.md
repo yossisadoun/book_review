@@ -4,9 +4,9 @@
 
 ## Executive Summary
 
-The app is a **~13.8k-line monolithic Next.js component** (`app/page.tsx`) with significant performance debt:
+The app is a **~12.9k-line monolithic Next.js component** (`app/page.tsx`) with significant performance debt:
 
-- **64 useEffect hooks** and **192 useState declarations** in a single component
+- **56 useEffect hooks** and **170 useState declarations** in a single component
 - **~105 Lucide icon imports** in page.tsx alone (~50-80KB uncompressed)
 - **No code splitting** — entire component loaded for every "route"
 - **Heavy libraries loaded upfront**: Framer Motion (~100KB), Lottie (~80KB), Supabase, AI SDK
@@ -21,6 +21,11 @@ The app is a **~13.8k-line monolithic Next.js component** (`app/page.tsx`) with 
 - SpotlightSection wrapped in React.memo (still the only memoized component in page.tsx)
 - Audio stops on episode/book change (partial fix — still no unmount cleanup)
 - **AccountPage extracted** — removed ~540 lines, 7 useState, 2 useEffect, 3 refs from page.tsx (with 19 component + 8 wiring tests)
+- **FollowingPage extracted** — removed ~160 lines, 3 useState, 1 useEffect from page.tsx (with 7 component + 6 wiring tests). Added back-navigation support ('following' ViewOrigin).
+- **Pull-to-refresh refactored** — converted feedPullDistance/chatPullDistance from useState to useRef with direct DOM manipulation, eliminating ~60 re-renders/sec during touch drag
+- **Audio unmount leak fixed** — PodcastEpisodes now fully releases Audio resources on unmount (pause, clear src, load, null handlers)
+- **Fan menu close/reopen bug fixed** — removed portal overlays from MusicModal/WatchModal that caused double-fire with X button
+- **TriviaGame extracted** — removed ~740 lines, 17 useState, 7 useEffect, 4 useRef from page.tsx to `app/components/TriviaGame.tsx` (with 18 guard tests). Uses `forwardRef`+`useImperativeHandle` for back button integration.
 
 ---
 
@@ -31,15 +36,16 @@ All pages (bookshelf, feed, chat, account, following, book detail, trivia, notes
 
 ### Current Structure
 ```
-App() [~13,809 lines]
-├── 192 useState declarations
-├── 64 useEffect hooks
+App() [~12,913 lines]
+├── 170 useState declarations
+├── 56 useEffect hooks
 ├── 8 useMemo hooks
 ├── 0 useCallback hooks
-├── 51 useRef hooks
+├── 47 useRef hooks
 └── All UI rendering
     ├── Account page → EXTRACTED to app/components/AccountPage.tsx (~520 lines)
-    ├── Following page (~120 lines)
+    ├── Following page → EXTRACTED to app/components/FollowingPage.tsx (~190 lines)
+    ├── Trivia game → EXTRACTED to app/components/TriviaGame.tsx (~780 lines)
     ├── Feed page (~1,960 lines)
     ├── Chat page (~800 lines)
     ├── Sorting results (~110 lines)
@@ -48,7 +54,6 @@ App() [~13,809 lines]
     ├── Bookshelf spines (~420 lines)
     ├── Book detail page (~1,720 lines)
     ├── Bottom navigation (~750 lines)
-    ├── Trivia modal (~360 lines)
     └── About screen (~16 lines)
 ```
 
@@ -60,13 +65,13 @@ Each page becomes its own file with its own state. Only shared state (books, use
 | Target Component | Lines to Extract | State Variables to Move |
 |-----------------|-----------------|----------------------|
 | `AccountPage` | ~~5902-6325~~ | **DONE** — extracted to `app/components/AccountPage.tsx` |
-| `FollowingPage` | 6326-6445 | followingUsers, followersCount |
+| `FollowingPage` | ~~6326-6445~~ | **DONE** — extracted to `app/components/FollowingPage.tsx` |
 | `FeedPage` | 6446-8411 | personalizedFeedItems, feedTypeFilter, feedPullDistance |
 | `ChatPage` | 7610-8411 | chatList, characterChatList, chatPullDistance |
 | `BookshelfCovers` | 8832-9460 | bookshelfGrouping, showAddBookTooltip |
 | `BookshelfSpines` | 9461-9879 | (same grouping state) |
 | `BookDetail` | 9880-11597 | insights, podcasts, videos, articles, relatedBooks |
-| `TriviaGame` | 12472-12833 | triviaQuestions, currentTriviaIndex, triviaScore |
+| `TriviaGame` | ~~12472-12833~~ | **DONE** — extracted to `app/components/TriviaGame.tsx` |
 
 **Phase 2 — State management:**
 Use React Context or Zustand for shared state (books, user, auth). Page-specific state stays local.
@@ -83,24 +88,16 @@ const AddBookSheet = lazy(() => import('./components/AddBookSheet'));
 
 ## 2. Re-render Performance (CRITICAL)
 
-### Touch Handlers Using setState
-Pull-to-refresh updates state on every pixel moved:
-```typescript
-onTouchMove={(e) => {
-  const dist = Math.min(dy * 0.3, 40);
-  setFeedPullDistance(dist);  // ← 60 setState calls/sec during touch
-}}
-```
-- `feedPullDistance` at line 749 — still useState
-- `chatPullDistance` at line 746 — still useState
-
-**Fix:** Use `useRef` for pull distance, update DOM directly via ref.
+### Touch Handlers Using setState — FIXED
+Pull-to-refresh converted from useState to useRef with direct DOM manipulation:
+- `feedPullDistance` — **FIXED** (useRef + `updateFeedPullDOM` helper)
+- `chatPullDistance` — **FIXED** (useRef + `updateChatPullDOM` helper)
 
 ### State Variables That Should Be Refs
 | Variable | Change Frequency | Current | Should Be |
 |----------|-----------------|---------|-----------|
-| `feedPullDistance` | 60x/sec (touch) | useState | useRef |
-| `chatPullDistance` | 60x/sec (touch) | useState | useRef |
+| `feedPullDistance` | 60x/sec (touch) | ~~useState~~ **useRef** | **DONE** |
+| `chatPullDistance` | 60x/sec (touch) | ~~useState~~ **useRef** | **DONE** |
 | `scrollY` | 30x/sec (scroll) | useState | useRef |
 | `touchStart`/`touchEnd` | Per touch event | useState | useRef |
 
@@ -268,10 +265,10 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 
 ### Sequence
 1. Load JS bundle (~300-500KB gzip estimated)
-2. Hydrate — initialize 192 useState hooks, read localStorage ~10-50ms
+2. Hydrate — initialize 189 useState hooks, read localStorage ~10-50ms
 3. Auth check — 100-500ms network
 4. Load books from Supabase — 100-300ms network
-5. Fire 64 useEffect hooks (most are conditional, but all evaluated)
+5. Fire 63 useEffect hooks (most are conditional, but all evaluated)
 6. First render of bookshelf
 
 **Estimated time to interactive:** 2-4 seconds on 4G
@@ -314,16 +311,17 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 ## Priority Roadmap
 
 ### Immediate (High Impact, Low Risk)
-1. ~~**Wrap all card components in React.memo**~~ → Blocked by #2
-2. **Add `useCallback` for all handler props** (renderAction, onPin, isPinned) — prerequisite for React.memo to be effective
-3. **Then wrap card components in React.memo** — prevents cascading re-renders
-4. **Fix audio unmount leak** — add cleanup return in PodcastEpisodes useEffect
-5. **Move pull-to-refresh to useRef** — eliminates 60 re-renders/sec
+1. ~~**Wrap all card components in React.memo**~~ ✅ DONE — HeartButton, InsightsCards, PodcastEpisodes, YouTubeVideos, AnalysisArticles, RelatedMovies, RelatedBooks, RatingStars all wrapped in React.memo
+2. ~~**Add `useCallback` for handleToggleHeart**~~ ✅ DONE — stable via useCallback + userHeartedRef pattern. HeartButton memo is the biggest win (each card renders multiple HeartButtons; only the affected one re-renders on heart change)
+3. ~~**Fix `|| []` anti-pattern**~~ ✅ DONE — EMPTY_ARRAY constant for RelatedMovies/RelatedBooks props
+4. **Stabilize remaining inline callbacks** (renderAction, onPin, isPinned per section) — would make card memo fully effective, but requires refs for section data. Lower priority since HeartButton memo already handles the hot path.
+5. **Fix audio unmount leak** — add cleanup return in PodcastEpisodes useEffect
+6. **Move pull-to-refresh to useRef** — eliminates 60 re-renders/sec ✅ FIXED
 6. **Cache useImageBrightness by URL** — eliminate redundant canvas operations (module-level Map cache)
 7. **Parallelize waterfall API calls** — save 200-500ms per page
 
 ### Short-term (Refactoring Required)
-8. **Extract page components** — ~~AccountPage~~ ✓, FeedPage, ChatPage as separate files with own state
+8. **Extract page components** — ~~AccountPage~~ ✓, ~~FollowingPage~~ ✓, FeedPage, ChatPage as separate files with own state
 9. **Add code splitting** — lazy-load modals, sheets, chat, trivia
 10. **Memoize chat context building** — sorts entire bookshelf on every render
 11. **Implement request deduplication** — prevent simultaneous identical API calls
@@ -333,7 +331,7 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 13. **State management** — Context API or Zustand for shared state, local state per page
 14. **Enable Next.js image optimization** — responsive images, lazy loading, AVIF/WebP
 15. **Cache invalidation with TTL** — replace naive localStorage caching
-16. **Reduce useEffect count** — consolidate into service hooks, from 64 to ~15
+16. **Reduce useEffect count** — consolidate into service hooks, from 63 to ~15
 17. **Audit Lottie/framer-motion usage** — lazy-load animation libraries per page
 
 ### Metrics to Track
@@ -414,6 +412,7 @@ For each bug found during extraction, add a targeted test:
 | Component | Lines Removed | State Moved | Tests |
 |-----------|--------------|-------------|-------|
 | AccountPage | ~540 | 7 useState, 2 useEffect, 3 refs | 19 component + 8 wiring |
+| FollowingPage | ~160 | 3 useState, 1 useEffect | 7 component + 6 wiring |
 
 ### Next Targets
 

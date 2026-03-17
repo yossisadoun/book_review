@@ -73,6 +73,50 @@ describe('AccountPage wiring in page.tsx', () => {
   });
 });
 
+describe('FollowingPage wiring in page.tsx', () => {
+  it('should not contain orphaned FollowingPage state variables', () => {
+    const movedState = [
+      'followingUsers',
+      'isLoadingFollowing',
+      'followingSortOrder',
+    ];
+    for (const name of movedState) {
+      expect(pageSource).not.toMatch(new RegExp(`useState.*${name}|\\[${name},\\s*set`));
+    }
+  });
+
+  it('should import FollowingPage component', () => {
+    expect(pageSource).toMatch(/import\s+FollowingPage\s+from/);
+  });
+
+  it('should render <FollowingPage with required props', () => {
+    expect(pageSource).toMatch(/<FollowingPage/);
+    expect(pageSource).toMatch(/onUserClick=\{/);
+    expect(pageSource).toMatch(/onScroll=\{/);
+    expect(pageSource).toMatch(/standardGlassmorphicStyle=\{/);
+  });
+
+  it('should not have inline following page load effect', () => {
+    expect(pageSource).not.toMatch(/Load followed users when following page/);
+  });
+
+  it('should capture previous view before navigating to a profile', () => {
+    // The onUserClick callback should call capturePreviousView() so the back button
+    // returns to the following page, not the bookshelf
+    const followingBlock = pageSource.slice(
+      pageSource.indexOf('<FollowingPage'),
+      pageSource.indexOf('/>', pageSource.indexOf('<FollowingPage')) + 2
+    );
+    expect(followingBlock).toContain('capturePreviousView()');
+  });
+
+  it('should support "following" as a ViewOrigin for back navigation', () => {
+    // capturePreviousView must capture 'following' and restorePreviousView must handle it
+    expect(pageSource).toMatch(/previousViewRef\.current\s*=\s*'following'/);
+    expect(pageSource).toMatch(/target\s*===\s*'following'/);
+  });
+});
+
 describe('Extracted component checklist (general)', () => {
   it('page.tsx should not import getGrokUsageLogs (moved to AccountPage)', () => {
     expect(pageSource).not.toMatch(/import.*getGrokUsageLogs/);
