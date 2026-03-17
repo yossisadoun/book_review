@@ -2919,7 +2919,7 @@ export default function App() {
         // Remove from fetching set on error so we can retry
         fetchingFactsForBooksRef.current.delete(bookId);
       });
-    }, 1500); // Delay to avoid rate limits when scrolling
+    }, 300); // Short debounce for scroll; above-the-fold content
 
     return () => {
       cancelled = true;
@@ -2991,7 +2991,7 @@ export default function App() {
         }
         fetchingFirstIssueYearRef.current.delete(bookId);
       });
-    }, 500);
+    }, 300); // Short debounce for scroll
 
     return () => {
       cancelled = true;
@@ -3086,7 +3086,7 @@ export default function App() {
         // Remove from fetching set on error so we can retry
         fetchingInfluencesForBooksRef.current.delete(bookId);
       });
-    }, 2000); // Delay to avoid rate limits when scrolling
+    }, 1000); // Short debounce for scroll; below-the-fold content
 
     return () => {
       cancelled = true;
@@ -3182,7 +3182,7 @@ export default function App() {
         // Remove from fetching set on error so we can retry
         fetchingDomainForBooksRef.current.delete(bookId);
       });
-    }, 2500); // Delay to avoid rate limits when scrolling
+    }, 1000); // Short debounce for scroll; below-the-fold content
 
     return () => {
       cancelled = true;
@@ -3278,7 +3278,7 @@ export default function App() {
         // Remove from fetching set on error so we can retry
         fetchingContextForBooksRef.current.delete(bookId);
       });
-    }, 3000); // Delay to avoid rate limits when scrolling
+    }, 1000); // Short debounce for scroll; below-the-fold content
 
     return () => {
       cancelled = true;
@@ -3375,7 +3375,7 @@ export default function App() {
         // Remove from fetching set on error so we can retry
         fetchingDidYouKnowForBooksRef.current.delete(bookId);
       });
-    }, 1500); // Shorter delay since this is the primary insight type
+    }, 300); // Short debounce for scroll; above-the-fold content
 
     return () => {
       cancelled = true;
@@ -3472,7 +3472,7 @@ export default function App() {
         // Remove from fetching set on error so we can retry
         fetchingPodcastsForBooksRef.current.delete(bookId);
       });
-    }, 2000); // Delay to avoid rate limits when scrolling
+    }, 600); // Short debounce for scroll; services check Supabase cache first (~50ms)
 
     return () => {
       cancelled = true;
@@ -3551,7 +3551,7 @@ export default function App() {
         // Remove from fetching set on error so we can retry
         fetchingAnalysisForBooksRef.current.delete(bookId);
       });
-    }, 2000); // Delay to avoid rate limits when scrolling
+    }, 600); // Short debounce for scroll; services check Supabase cache first (~50ms)
 
     return () => {
       cancelled = true;
@@ -3639,7 +3639,7 @@ export default function App() {
         // Remove from fetching set on error so we can retry
         fetchingVideosForBooksRef.current.delete(bookId);
       });
-    }, 2500); // Delay to avoid rate limits when scrolling
+    }, 600); // Short debounce for scroll; services check Supabase cache first (~50ms)
 
     return () => {
       cancelled = true;
@@ -3719,7 +3719,7 @@ export default function App() {
         // Remove from fetching set on error so we can retry
         fetchingRelatedForBooksRef.current.delete(bookId);
       });
-    }, 3000); // Delay to avoid rate limits when scrolling
+    }, 1000); // Short debounce for scroll; below-the-fold content
 
     return () => {
       cancelled = true;
@@ -3788,7 +3788,7 @@ export default function App() {
         console.error('Error fetching related movies:', err);
         fetchingRelatedMoviesRef.current.delete(bookId);
       });
-    }, 5000); // Slightly longer delay than related books to stagger API calls
+    }, 1000); // Short debounce for scroll; below-the-fold content
 
     return () => {
       cancelled = true;
@@ -3840,7 +3840,7 @@ export default function App() {
         fetchingSummaryRef.current.delete(bookId);
         console.error('[BookSummary] Error:', err);
       });
-    }, 500);
+    }, 300); // Short debounce for scroll; above-the-fold content
 
     // Also fetch character avatars
     if (!characterAvatars.has(bookId)) {
@@ -3928,7 +3928,7 @@ export default function App() {
         setLoadingResearchForBookId(null);
         console.error('Error fetching book research:', err);
       });
-    }, 3500); // Delay to avoid rate limits when scrolling
+    }, 1000); // Short debounce for scroll; below-the-fold content
 
     return () => {
       cancelled = true;

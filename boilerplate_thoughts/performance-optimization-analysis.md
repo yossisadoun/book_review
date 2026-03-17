@@ -318,7 +318,7 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 5. ~~**Fix audio unmount leak**~~ ✅ ALREADY FIXED — useEffect cleanup calls stopAudio() on unmount
 6. **Move pull-to-refresh to useRef** — eliminates 60 re-renders/sec ✅ FIXED
 6. ~~**Cache useImageBrightness by URL**~~ ✅ DONE — module-level `brightnessCache` Map in utils.ts; skips canvas work for previously seen URLs, initializes state from cache
-7. **Parallelize waterfall API calls** — save 200-500ms per page
+7. ~~**Reduce API call debounce delays**~~ ✅ DONE — Reduced staggered timeouts from 500-5000ms to 3-tier system: 300ms (above-fold: summary, facts, did-you-know), 600ms (mid-page: podcasts, articles, videos), 1000ms (below-fold: related books/movies, influences, context). Services already check Supabase cache first (~50ms), so long delays were unnecessary. Saves 1.5-4s on book page load.
 
 ### Short-term (Refactoring Required)
 8. **Extract page components** — ~~AccountPage~~ ✓, ~~FollowingPage~~ ✓, FeedPage, ChatPage as separate files with own state
