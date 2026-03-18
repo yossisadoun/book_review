@@ -20,6 +20,11 @@ const nextConfig: NextConfig = {
   // Exclude mobile_app and packages directories from Next.js build
   pageExtensions: ['ts', 'tsx', 'js', 'jsx'],
   webpack: (config, { isServer }) => {
+    // This app has a large client graph in dev; extend chunk timeout
+    // to avoid transient "Loading chunk app/layout failed (timeout)".
+    if (!isServer && config.output) {
+      config.output.chunkLoadTimeout = 300000;
+    }
     config.resolve.alias = {
       ...config.resolve.alias,
     };

@@ -126,3 +126,99 @@ describe('Extracted component checklist (general)', () => {
     expect(pageSource).not.toMatch(/GrokUsageLog/);
   });
 });
+
+describe('Book detail card callback stability wiring', () => {
+  function getBlock(anchor: string, length = 1000) {
+    const start = pageSource.indexOf(anchor);
+    expect(start).toBeGreaterThan(-1);
+    return pageSource.slice(start, start + length);
+  }
+
+  it('uses stable InsightsCards callbacks in book detail', () => {
+    const block = getBlock("bookId={`${activeBook.id}-${selectedInsightCategory}`}");
+    expect(block).toContain('renderAction={renderInsightsHeartAction}');
+    expect(block).toContain('onPin={pinInsightItem}');
+    expect(block).toContain('isPinned={isInsightItemPinned}');
+    expect(block).not.toContain('renderAction={(idx)');
+    expect(block).not.toContain('onPin={(idx)');
+    expect(block).not.toContain('isPinned={(idx)');
+  });
+
+  it('uses stable PodcastEpisodes callbacks in book detail', () => {
+    const block = getBlock("bookId={activeBook?.id || ''}");
+    expect(block).toContain('renderAction={renderPodcastHeartAction}');
+    expect(block).toContain('onPin={pinPodcastItem}');
+    expect(block).toContain('isPinned={isPodcastItemPinned}');
+    expect(block).not.toContain('renderAction={(idx)');
+    expect(block).not.toContain('onPin={(idx)');
+    expect(block).not.toContain('isPinned={(idx)');
+  });
+
+  it('uses stable YouTubeVideos callbacks in book detail', () => {
+    const block = getBlock('videos={videos}');
+    expect(block).toContain('renderAction={renderYouTubeHeartAction}');
+    expect(block).toContain('onPin={pinYouTubeItem}');
+    expect(block).toContain('isPinned={isYouTubeItemPinned}');
+    expect(block).not.toContain('renderAction={(idx)');
+    expect(block).not.toContain('onPin={(idx)');
+    expect(block).not.toContain('isPinned={(idx)');
+  });
+
+  it('uses stable AnalysisArticles callbacks in book detail', () => {
+    const block = getBlock('articles={articles}');
+    expect(block).toContain('renderAction={renderArticleHeartAction}');
+    expect(block).toContain('onPin={pinArticleItem}');
+    expect(block).toContain('isPinned={isArticleItemPinned}');
+    expect(block).not.toContain('renderAction={(idx)');
+    expect(block).not.toContain('onPin={(idx)');
+    expect(block).not.toContain('isPinned={(idx)');
+  });
+
+  it('uses stable RelatedMovies callbacks in book detail', () => {
+    const block = getBlock('movies={movies}');
+    expect(block).toContain('renderAction={renderRelatedMovieHeartAction}');
+    expect(block).toContain('onPin={pinRelatedMovieItem}');
+    expect(block).toContain('isPinned={isRelatedMovieItemPinned}');
+    expect(block).not.toContain('renderAction={(idx)');
+    expect(block).not.toContain('onPin={(idx)');
+    expect(block).not.toContain('isPinned={(idx)');
+  });
+
+  it('uses stable RelatedBooks callbacks in book detail', () => {
+    const block = getBlock('books={related}');
+    expect(block).toContain('renderAction={renderRelatedBookHeartAction}');
+    expect(block).toContain('onPin={pinRelatedBookItem}');
+    expect(block).toContain('isPinned={isRelatedBookItemPinned}');
+    expect(block).not.toContain('renderAction={(idx)');
+    expect(block).not.toContain('onPin={(idx)');
+    expect(block).not.toContain('isPinned={(idx)');
+  });
+});
+
+describe('Header scroll visibility guards', () => {
+  it('book detail header should not force opacity animation on rerender', () => {
+    const start = pageSource.indexOf('ref={attachBookDetailHeaderRef}');
+    expect(start).toBeGreaterThan(-1);
+    const block = pageSource.slice(start, start + 240);
+    expect(block).not.toContain('animate={{ opacity: 1 }}');
+  });
+
+  it('logo header should use ref attach and not force opacity animation', () => {
+    const start = pageSource.indexOf('ref={attachHeaderLogoRef}');
+    expect(start).toBeGreaterThan(-1);
+    const block = pageSource.slice(start, start + 220);
+    expect(block).not.toContain('animate={{ opacity: 1 }}');
+  });
+});
+
+describe('Lazy chunk retry guards', () => {
+  it('uses lazyWithChunkRetry for NotesEditorOverlay import', () => {
+    expect(pageSource).toContain("const NotesEditorOverlay = lazyWithChunkRetry(() => import('./components/NotesEditorOverlay'), 'NotesEditorOverlay');");
+  });
+
+  it('defines lazyWithChunkRetry to recover from chunk load errors', () => {
+    expect(pageSource).toContain('function lazyWithChunkRetry');
+    expect(pageSource).toContain('window.location.reload()');
+    expect(pageSource).toContain('ChunkLoadError');
+  });
+});

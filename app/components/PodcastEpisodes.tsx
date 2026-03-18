@@ -159,6 +159,7 @@ const PodcastEpisodes = React.memo(function PodcastEpisodes({ episodes, bookId, 
 
   const currentEpisode = episodes[currentIndex];
   const hasPreview = !!currentEpisode.audioUrl;
+  const pinned = !!isPinned?.(currentIndex);
 
   const stackedCardStyle = (offset: number, scale: number, opacity: number): React.CSSProperties => ({
     background: 'rgba(255, 255, 255, 0.25)',
@@ -347,7 +348,7 @@ const PodcastEpisodes = React.memo(function PodcastEpisodes({ episodes, bookId, 
                 {/* Action bar */}
                 <div className="flex items-center gap-5 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
-                  {onPin && <button onClick={() => onPin(currentIndex)} className="active:scale-90 transition-transform"><StickyNote size={17} fill={isPinned?.(currentIndex) ? '#fbbf24' : 'none'} className="text-slate-600 dark:text-slate-400" /></button>}
+                  {onPin && <button onClick={() => onPin(currentIndex)} className="active:scale-90 transition-transform"><StickyNote size={17} fill={pinned ? 'currentColor' : 'none'} className={pinned ? 'text-amber-400 dark:text-amber-400' : 'text-slate-600 dark:text-slate-400'} /></button>}
                   {showComment && <span className="flex items-center gap-1"><MessageCircle size={17} className="text-slate-600 dark:text-slate-400" /><span className="text-xs font-medium min-w-[12px] invisible">0</span></span>}
                   {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>

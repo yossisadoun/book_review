@@ -141,13 +141,43 @@ import ResearchSection from './components/ResearchSection';
 import ArrowAnimation from './components/ArrowAnimation';
 import LightbulbAnimation from './components/LightbulbAnimation';
 import RatingStars, { RATING_FEEDBACK } from './components/RatingStars';
-const AddBookSheet = lazy(() => import('./components/AddBookSheet'));
-const ConnectAccountModal = lazy(() => import('./components/ConnectAccountModal'));
-const NotesEditorOverlay = lazy(() => import('./components/NotesEditorOverlay'));
-const AccountPage = lazy(() => import('./components/AccountPage'));
-const FeedPage = lazy(() => import('./components/FeedPage'));
-const ChatPage = lazy(() => import('./components/ChatPage'));
-const FollowingPage = lazy(() => import('./components/FollowingPage'));
+
+function lazyWithChunkRetry<T extends React.ComponentType<any>>(
+  importer: () => Promise<{ default: T }>,
+  chunkKey: string,
+) {
+  return lazy(async () => {
+    try {
+      const mod = await importer();
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem(`chunk-retry:${chunkKey}`);
+      }
+      return mod;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isChunkLoadError =
+        /ChunkLoadError|Loading chunk .* failed|Failed to fetch dynamically imported module|Importing a module script failed/i.test(message);
+
+      if (isChunkLoadError && typeof window !== 'undefined') {
+        const retryKey = `chunk-retry:${chunkKey}`;
+        if (!sessionStorage.getItem(retryKey)) {
+          sessionStorage.setItem(retryKey, '1');
+          // Stale client chunk map after rebuild/restart; one hard reload resolves it.
+          window.location.reload();
+        }
+      }
+      throw error;
+    }
+  });
+}
+
+const AddBookSheet = lazyWithChunkRetry(() => import('./components/AddBookSheet'), 'AddBookSheet');
+const ConnectAccountModal = lazyWithChunkRetry(() => import('./components/ConnectAccountModal'), 'ConnectAccountModal');
+const NotesEditorOverlay = lazyWithChunkRetry(() => import('./components/NotesEditorOverlay'), 'NotesEditorOverlay');
+const AccountPage = lazyWithChunkRetry(() => import('./components/AccountPage'), 'AccountPage');
+const FeedPage = lazyWithChunkRetry(() => import('./components/FeedPage'), 'FeedPage');
+const ChatPage = lazyWithChunkRetry(() => import('./components/ChatPage'), 'ChatPage');
+const FollowingPage = lazyWithChunkRetry(() => import('./components/FollowingPage'), 'FollowingPage');
 import { getChatList, getCharacterChatList, lookupOrphanedChatCoverUrls, reassignChatsToBook, getProactiveCandidates, generateProactiveMessage, markProactiveReplied, type ChatListItem, type CharacterChatListItem, type BookChatContext } from './services/chat-service';
 import { getCached, setCache, CACHE_KEYS } from './services/cache-service';
 import HeartButton from './components/HeartButton';
@@ -204,6 +234,7 @@ import { getRelatedBooks } from './services/related-books-service';
 import { getRelatedMovies } from './services/related-movies-service';
 import { createFriendBookFeedItem, generateFeedItemsForBook, getPersonalizedFeed, markFeedItemsAsShown, getReadFeedItems, setFeedItemReadStatus, getSpoilerRevealedFromStorage, loadSpoilerRevealedFromStorage, saveSpoilerRevealedToStorage } from './services/feed-service';
 import { analytics } from './services/analytics-service';
+import { useBookDetailCardCallbacks } from './hooks/useBookDetailCardCallbacks';
 
 // Stable empty array to avoid creating new references on every render (for React.memo)
 const EMPTY_ARRAY: never[] = [];
@@ -633,6 +664,35 @@ export default function App() {
     if (bookDetailHeaderRef.current) {
       bookDetailHeaderRef.current.style.opacity = String(opacity);
       bookDetailHeaderRef.current.style.pointerEvents = pointerEvents;
+    }
+  }, []);
+
+  const attachHeaderLogoRef = useCallback((el: HTMLDivElement | null) => {
+    headerLogoRef.current = el;
+    if (el) {
+      const opacity = scrollY.current > 20 ? Math.max(0, 1 - (scrollY.current - 20) / 40) : 1;
+      el.style.opacity = String(opacity);
+    }
+  }, []);
+
+  const attachHeaderBarRef = useCallback((el: HTMLDivElement | null) => {
+    headerPullRef.current = el;
+    headerBarRef.current = el;
+    if (el) {
+      const opacity = scrollY.current > 20 ? Math.max(0, 1 - (scrollY.current - 20) / 40) : 1;
+      const pointerEvents = scrollY.current > 60 ? 'none' : 'auto';
+      el.style.opacity = String(opacity);
+      el.style.pointerEvents = pointerEvents;
+    }
+  }, []);
+
+  const attachBookDetailHeaderRef = useCallback((el: HTMLDivElement | null) => {
+    bookDetailHeaderRef.current = el;
+    if (el) {
+      const opacity = scrollY.current > 20 ? Math.max(0, 1 - (scrollY.current - 20) / 40) : 1;
+      const pointerEvents = scrollY.current > 60 ? 'none' : 'auto';
+      el.style.opacity = String(opacity);
+      el.style.pointerEvents = pointerEvents;
     }
   }, []);
 
@@ -2147,6 +2207,209 @@ export default function App() {
     loadingAnalysisForBookId,
     loadingRelatedForBookId,
   ]);
+
+  const bookDetailInsightsState = useMemo(() => {
+    const emptyState = {
+      hasEnabledInsights: false,
+      shouldBlurInsights: false,
+      categories: [] as { id: string; label: string; count: number }[],
+      currentCategory: undefined as { id: string; label: string; count: number } | undefined,
+      currentInsights: [] as { text: string; sourceUrl?: string; label: string }[],
+      isLoading: false,
+    };
+
+    if (!activeBook || contentPreferences.fun_facts === false) {
+      return emptyState;
+    }
+
+    const isNotRead = activeBook.reading_status !== 'read_it';
+    const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
+    const isInsightsRevealed = revealedSections.has('insights');
+    const shouldBlurInsights = isNotRead && !isInsightsRevealed;
+
+    const hasFacts = activeBook.author_facts && activeBook.author_facts.length > 0;
+    const research = researchData.get(activeBook.id) || null;
+    const hasResearch = !!(research && research.pillars && research.pillars.length > 0);
+    const influences = bookInfluences.get(activeBook.id) || [];
+    const hasInfluences = influences.length > 0;
+    const domainData = bookDomain.get(activeBook.id);
+    const hasDomain = !!(domainData && domainData.facts && domainData.facts.length > 0);
+    const domainLabel = domainData?.label || 'Domain';
+    const contextInsights = bookContext.get(activeBook.id) || [];
+    const hasContext = contextInsights.length > 0;
+    const didYouKnowInsights = didYouKnow.get(activeBook.id) || [];
+    const hasDidYouKnow = didYouKnowInsights.length > 0;
+    const isLoadingFacts = !bookPageSectionsResolved && loadingFactsForBookId === activeBook.id && !hasFacts;
+    const isLoadingResearch = !bookPageSectionsResolved && loadingResearchForBookId === activeBook.id && !hasResearch;
+    const isLoadingInfluences = !bookPageSectionsResolved && loadingInfluencesForBookId === activeBook.id && !hasInfluences;
+    const isLoadingDomain = !bookPageSectionsResolved && loadingDomainForBookId === activeBook.id && !hasDomain;
+    const isLoadingContext = !bookPageSectionsResolved && loadingContextForBookId === activeBook.id && !hasContext;
+    const isLoadingDidYouKnow = !bookPageSectionsResolved && loadingDidYouKnowForBookId === activeBook.id && !hasDidYouKnow;
+
+    const categories: { id: string; label: string; count: number }[] = [];
+    if (featureFlags.insights.author_facts && (hasFacts || isLoadingFacts)) {
+      categories.push({ id: 'trivia', label: 'Trivia', count: activeBook.author_facts?.length || 0 });
+    }
+    if (featureFlags.insights.book_influences && (hasInfluences || isLoadingInfluences)) {
+      categories.push({ id: 'influences', label: 'Influences', count: influences.length });
+    }
+    if (featureFlags.insights.book_domain && (hasDomain || isLoadingDomain)) {
+      categories.push({ id: 'domain', label: domainLabel, count: domainData?.facts?.length || 0 });
+    }
+    if (featureFlags.insights.book_context && (hasContext || isLoadingContext)) {
+      categories.push({ id: 'context', label: 'Context', count: contextInsights.length });
+    }
+    if (featureFlags.insights.did_you_know && (hasDidYouKnow || isLoadingDidYouKnow)) {
+      categories.push({ id: 'did_you_know', label: 'Did you know?', count: didYouKnowInsights.length });
+    }
+    if (hasResearch) {
+      research.pillars.forEach((pillar) => {
+        categories.push({
+          id: pillar.pillar_name.toLowerCase().replace(/\s+/g, '_'),
+          label: pillar.pillar_name,
+          count: pillar.content_items.length,
+        });
+      });
+    }
+
+    const hasEnabledInsights =
+      (featureFlags.insights.author_facts && (isLoadingFacts || hasFacts)) ||
+      (featureFlags.insights.book_influences && (isLoadingInfluences || hasInfluences)) ||
+      (featureFlags.insights.book_domain && (isLoadingDomain || hasDomain)) ||
+      (featureFlags.insights.book_context && (isLoadingContext || hasContext)) ||
+      (featureFlags.insights.did_you_know && (isLoadingDidYouKnow || hasDidYouKnow)) ||
+      (isLoadingResearch || hasResearch);
+
+    if (!hasEnabledInsights) {
+      return emptyState;
+    }
+
+    const currentCategory = categories.find(c => c.id === selectedInsightCategory) || categories[0];
+    let currentInsights: { text: string; sourceUrl?: string; label: string }[] = [];
+    let isLoading = false;
+
+    if (currentCategory?.id === 'trivia') {
+      currentInsights = (activeBook.author_facts || []).map(fact => ({ text: fact, label: 'Trivia' }));
+      isLoading = isLoadingFacts;
+    } else if (currentCategory?.id === 'influences') {
+      currentInsights = influences.map(influence => ({ text: influence, label: 'Influences' }));
+      isLoading = isLoadingInfluences;
+    } else if (currentCategory?.id === 'domain') {
+      const domainDataForBook = bookDomain.get(activeBook.id);
+      const domainLabelForBook = domainDataForBook?.label || 'Domain';
+      currentInsights = (domainDataForBook?.facts || []).map(insight => ({ text: insight, label: domainLabelForBook }));
+      isLoading = isLoadingDomain;
+    } else if (currentCategory?.id === 'context') {
+      currentInsights = contextInsights.map(insight => ({ text: insight, label: 'Context' }));
+      isLoading = isLoadingContext;
+    } else if (currentCategory?.id === 'did_you_know') {
+      currentInsights = didYouKnowInsights.map(item => ({
+        text: item.notes.join('\n\n'),
+        label: 'Did you know?',
+        sourceUrl: item.source_url,
+      }));
+      isLoading = isLoadingDidYouKnow;
+    } else if (currentCategory && hasResearch) {
+      const pillar = research.pillars.find(p => p.pillar_name.toLowerCase().replace(/\s+/g, '_') === currentCategory.id);
+      if (pillar) {
+        currentInsights = pillar.content_items.map(item => ({
+          text: item.deep_insight,
+          sourceUrl: item.source_url,
+          label: pillar.pillar_name,
+        }));
+      }
+      isLoading = isLoadingResearch;
+    }
+
+    return {
+      hasEnabledInsights,
+      shouldBlurInsights,
+      categories,
+      currentCategory,
+      currentInsights,
+      isLoading,
+    };
+  }, [
+    activeBook,
+    selectedInsightCategory,
+    contentPreferences.fun_facts,
+    spoilerRevealed,
+    researchData,
+    bookInfluences,
+    bookDomain,
+    bookContext,
+    didYouKnow,
+    bookPageSectionsResolved,
+    loadingFactsForBookId,
+    loadingResearchForBookId,
+    loadingInfluencesForBookId,
+    loadingDomainForBookId,
+    loadingContextForBookId,
+    loadingDidYouKnowForBookId,
+    featureFlags.insights.author_facts,
+    featureFlags.insights.book_influences,
+    featureFlags.insights.book_domain,
+    featureFlags.insights.book_context,
+    featureFlags.insights.did_you_know,
+  ]);
+
+  const activeVideos = useMemo<YouTubeVideo[]>(() => {
+    if (!activeBook) return [];
+    return youtubeVideos.get(activeBook.id) || [];
+  }, [activeBook?.id, youtubeVideos]);
+
+  const activeArticles = useMemo<AnalysisArticle[]>(() => {
+    if (!activeBook) return [];
+    return analysisArticles.get(activeBook.id) || [];
+  }, [activeBook?.id, analysisArticles]);
+
+  const activeRelatedMovies = useMemo<RelatedMovie[]>(() => {
+    if (!activeBook) return [];
+    return relatedMovies.get(activeBook.id) || [];
+  }, [activeBook?.id, relatedMovies]);
+
+  const activeRelatedBooks = useMemo<RelatedBook[]>(() => {
+    if (!activeBook) return [];
+    return relatedBooks.get(activeBook.id) || [];
+  }, [activeBook?.id, relatedBooks]);
+
+  function toggleHeartAction(contentHash: string): void {
+    void handleToggleHeart(contentHash);
+  }
+
+  const {
+    renderInsightsHeartAction,
+    pinInsightItem,
+    isInsightItemPinned,
+    renderPodcastHeartAction,
+    pinPodcastItem,
+    isPodcastItemPinned,
+    renderYouTubeHeartAction,
+    pinYouTubeItem,
+    isYouTubeItemPinned,
+    renderArticleHeartAction,
+    pinArticleItem,
+    isArticleItemPinned,
+    renderRelatedMovieHeartAction,
+    pinRelatedMovieItem,
+    isRelatedMovieItemPinned,
+    renderRelatedBookHeartAction,
+    pinRelatedBookItem,
+    isRelatedBookItemPinned,
+  } = useBookDetailCardCallbacks({
+    currentInsights: bookDetailInsightsState.currentInsights,
+    combinedPodcastEpisodes,
+    activeVideos,
+    activeArticles,
+    activeRelatedMovies,
+    activeRelatedBooks,
+    heartCounts,
+    userHearted,
+    getContentHash,
+    onToggleHeart: toggleHeartAction,
+    handlePinForLater,
+    isContentPinned,
+  });
 
   // Spotlight recommendation — pick one random content item from available data
   const [spotlightIndex, setSpotlightIndex] = useState(0);
@@ -5205,9 +5468,7 @@ export default function App() {
       {/* Logo text header - shows on main views (bookshelf, feed, following, notes, book details) */}
       {!showAccountPage && !showSortingResults && !viewingUserId && (
         <motion.div
-          ref={headerLogoRef}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
+          ref={attachHeaderLogoRef}
           className="fixed top-[20px] left-0 right-0 flex justify-center z-40 pointer-events-none"
         >
           <img
@@ -5223,11 +5484,7 @@ export default function App() {
       <AnimatePresence mode="wait">
         <motion.div
           key={showSortingResults ? 'sorting-results-header' : showNotesView ? 'notes-header' : showBookshelf ? 'bookshelf-header' : 'books-header'}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.3, ease: "easeInOut" }}
-          ref={(el) => { headerPullRef.current = el; headerBarRef.current = el; }}
+          ref={attachHeaderBarRef}
           className="w-full z-40 fixed top-[50px] left-0 right-0 px-4 py-3 flex items-center justify-between"
           style={{
             background: 'transparent',
@@ -7040,10 +7297,8 @@ export default function App() {
           >
           {/* Back button and book info header */}
           <motion.div
-            ref={bookDetailHeaderRef}
+            ref={attachBookDetailHeaderRef}
             className="fixed top-[62px] left-4 right-4 z-50 flex items-center gap-3"
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
           >
             <button
               onClick={() => {
@@ -8096,105 +8351,14 @@ export default function App() {
                   >
                 {/* Insights: Show if we have facts, research, or are loading */}
                 {(() => {
-                  if (contentPreferences.fun_facts === false) return null;
-                  const isNotRead = activeBook.reading_status !== 'read_it';
-                  const revealedSections = spoilerRevealed.get(activeBook.id) || new Set<string>();
-                  const isInsightsRevealed = revealedSections.has('insights');
-                  const shouldBlurInsights = isNotRead && !isInsightsRevealed;
-                  const hasFacts = activeBook.author_facts && activeBook.author_facts.length > 0;
-                  const research = researchData.get(activeBook.id) || null;
-                  const hasResearch = research && research.pillars && research.pillars.length > 0;
-                  const influences = bookInfluences.get(activeBook.id) || [];
-                  const hasInfluences = influences.length > 0;
-                  const domainData = bookDomain.get(activeBook.id);
-                  const hasDomain = domainData && domainData.facts && domainData.facts.length > 0;
-                  const domainLabel = domainData?.label || 'Domain';
-                  const contextInsights = bookContext.get(activeBook.id) || [];
-                  const hasContext = contextInsights.length > 0;
-                  const didYouKnowInsights = didYouKnow.get(activeBook.id) || [];
-                  const hasDidYouKnow = didYouKnowInsights.length > 0;
-                  const isLoadingFacts = !bookPageSectionsResolved && loadingFactsForBookId === activeBook.id && !hasFacts;
-                  const isLoadingResearch = !bookPageSectionsResolved && loadingResearchForBookId === activeBook.id && !hasResearch;
-                  const isLoadingInfluences = !bookPageSectionsResolved && loadingInfluencesForBookId === activeBook.id && !hasInfluences;
-                  const isLoadingDomain = !bookPageSectionsResolved && loadingDomainForBookId === activeBook.id && !hasDomain;
-                  const isLoadingContext = !bookPageSectionsResolved && loadingContextForBookId === activeBook.id && !hasContext;
-                  const isLoadingDidYouKnow = !bookPageSectionsResolved && loadingDidYouKnowForBookId === activeBook.id && !hasDidYouKnow;
-                  
-                  // Get available categories (only show enabled insight types)
-                  const categories: { id: string; label: string; count: number }[] = [];
-                  if (featureFlags.insights.author_facts && (hasFacts || isLoadingFacts)) {
-                    categories.push({ id: 'trivia', label: 'Trivia', count: activeBook.author_facts?.length || 0 });
-                  }
-                  if (featureFlags.insights.book_influences && (hasInfluences || isLoadingInfluences)) {
-                    categories.push({ id: 'influences', label: 'Influences', count: influences.length });
-                  }
-                  if (featureFlags.insights.book_domain && (hasDomain || isLoadingDomain)) {
-                    categories.push({ id: 'domain', label: domainLabel, count: domainData?.facts?.length || 0 });
-                  }
-                  if (featureFlags.insights.book_context && (hasContext || isLoadingContext)) {
-                    categories.push({ id: 'context', label: 'Context', count: contextInsights.length });
-                  }
-                  if (featureFlags.insights.did_you_know && (hasDidYouKnow || isLoadingDidYouKnow)) {
-                    categories.push({ id: 'did_you_know', label: 'Did you know?', count: didYouKnowInsights.length });
-                  }
-                  if (hasResearch) {
-                    research.pillars.forEach(pillar => {
-                      categories.push({ 
-                        id: pillar.pillar_name.toLowerCase().replace(/\s+/g, '_'), 
-                        label: pillar.pillar_name, 
-                        count: pillar.content_items.length 
-                      });
-                    });
-                  }
-                  
-                  // Only render if loading or has data (for enabled insight types)
-                  const hasEnabledInsights =
-                    (featureFlags.insights.author_facts && (isLoadingFacts || hasFacts)) ||
-                    (featureFlags.insights.book_influences && (isLoadingInfluences || hasInfluences)) ||
-                    (featureFlags.insights.book_domain && (isLoadingDomain || hasDomain)) ||
-                    (featureFlags.insights.book_context && (isLoadingContext || hasContext)) ||
-                    (featureFlags.insights.did_you_know && (isLoadingDidYouKnow || hasDidYouKnow)) ||
-                    (isLoadingResearch || hasResearch); // Research doesn't have a feature flag
-                  if (!hasEnabledInsights) return null;
-                  
-                  // Determine current category data
-                  const currentCategory = categories.find(c => c.id === selectedInsightCategory) || categories[0];
-                  let currentInsights: { text: string; sourceUrl?: string; label: string }[] = [];
-                  let isLoading = false;
-                  
-                  if (currentCategory?.id === 'trivia') {
-                    currentInsights = (activeBook.author_facts || []).map(fact => ({ text: fact, label: 'Trivia' }));
-                    isLoading = isLoadingFacts;
-                  } else if (currentCategory?.id === 'influences') {
-                    currentInsights = influences.map(influence => ({ text: influence, label: 'Influences' }));
-                    isLoading = isLoadingInfluences;
-                  } else if (currentCategory?.id === 'domain') {
-                    const domainDataForBook = bookDomain.get(activeBook.id);
-                    const domainLabelForBook = domainDataForBook?.label || 'Domain';
-                    currentInsights = (domainDataForBook?.facts || []).map(insight => ({ text: insight, label: domainLabelForBook }));
-                    isLoading = isLoadingDomain;
-                  } else if (currentCategory?.id === 'context') {
-                    currentInsights = contextInsights.map(insight => ({ text: insight, label: 'Context' }));
-                    isLoading = isLoadingContext;
-                  } else if (currentCategory?.id === 'did_you_know') {
-                    // Combine all 3 notes per item into a single insight card
-                    currentInsights = didYouKnowInsights.map(item => ({
-                      text: item.notes.join('\n\n'),
-                      label: 'Did you know?',
-                      sourceUrl: item.source_url
-                    }));
-                    isLoading = isLoadingDidYouKnow;
-                  } else if (currentCategory && hasResearch) {
-                    const pillar = research.pillars.find(p => p.pillar_name.toLowerCase().replace(/\s+/g, '_') === currentCategory.id);
-                    if (pillar) {
-                      currentInsights = pillar.content_items.map(item => ({ 
-                        text: item.deep_insight, 
-                        sourceUrl: item.source_url,
-                        label: pillar.pillar_name
-                      }));
-                    }
-                    isLoading = isLoadingResearch;
-                  }
+                  if (!bookDetailInsightsState.hasEnabledInsights) return null;
+                  const {
+                    shouldBlurInsights,
+                    categories,
+                    currentCategory,
+                    currentInsights,
+                    isLoading,
+                  } = bookDetailInsightsState;
                   
                   return (
                     <div className="w-full space-y-2">
@@ -8300,18 +8464,9 @@ export default function App() {
                               isLoading={false}
                               showComment={false}
                               showSend={remoteFlags.send_enabled}
-                              renderAction={(idx) => {
-                                const hash = getContentHash('insight', currentInsights[idx]?.text?.substring(0, 50) || '');
-                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
-                              }}
-                              onPin={(idx) => {
-                                const insight = currentInsights[idx];
-                                if (insight) handlePinForLater(insight.text, 'insight');
-                              }}
-                              isPinned={(idx) => {
-                                const insight = currentInsights[idx];
-                                return insight ? isContentPinned(insight.text) : false;
-                              }}
+                              renderAction={renderInsightsHeartAction}
+                              onPin={pinInsightItem}
+                              isPinned={isInsightItemPinned}
                             />
                           ) : null}
                         </div>
@@ -8371,18 +8526,9 @@ export default function App() {
                               isLoading={false}
                               showComment={false}
                               showSend={remoteFlags.send_enabled}
-                              renderAction={(idx) => {
-                                const hash = getContentHash('podcast', episodes[idx]?.url || '');
-                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
-                              }}
-                              onPin={(idx) => {
-                                const ep = episodes[idx];
-                                if (ep) handlePinForLater(`${ep.podcast_name || 'Podcast'} — ${ep.title}`, 'podcast', ep.url || ep.audioUrl, ep.thumbnail);
-                              }}
-                              isPinned={(idx) => {
-                                const ep = episodes[idx];
-                                return ep ? isContentPinned(`${ep.podcast_name || 'Podcast'} — ${ep.title}`) : false;
-                              }}
+                              renderAction={renderPodcastHeartAction}
+                              onPin={pinPodcastItem}
+                              isPinned={isPodcastItemPinned}
                             />
                           )}
                       </div>
@@ -8393,7 +8539,7 @@ export default function App() {
                 {/* YouTube Videos - Show below podcasts */}
                 {(() => {
                   if (contentPreferences.youtube === false) return null;
-                  const videos = youtubeVideos.get(activeBook.id) || [];
+                  const videos = activeVideos;
                   const hasVideos = videos.length > 0;
                   const isLoading = !bookPageSectionsResolved && loadingVideosForBookId === activeBook.id && !hasVideos;
 
@@ -8439,18 +8585,9 @@ export default function App() {
                               isLoading={false}
                               showComment={false}
                               showSend={remoteFlags.send_enabled}
-                              renderAction={(idx) => {
-                                const hash = getContentHash('youtube', videos[idx]?.videoId || '');
-                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
-                              }}
-                              onPin={(idx) => {
-                                const v = videos[idx];
-                                if (v) handlePinForLater(`${v.title} — ${v.channelTitle}`, 'youtube', v.videoId ? `https://www.youtube.com/watch?v=${v.videoId}` : undefined, v.thumbnail);
-                              }}
-                              isPinned={(idx) => {
-                                const v = videos[idx];
-                                return v ? isContentPinned(`${v.title} — ${v.channelTitle}`) : false;
-                              }}
+                              renderAction={renderYouTubeHeartAction}
+                              onPin={pinYouTubeItem}
+                              isPinned={isYouTubeItemPinned}
                             />
                           )}
                       </div>
@@ -8461,7 +8598,7 @@ export default function App() {
                 {/* Analysis Articles - Show below videos */}
                 {(() => {
                   if (contentPreferences.articles === false) return null;
-                  const articles = analysisArticles.get(activeBook.id) || [];
+                  const articles = activeArticles;
                   // Check if we have real articles (not just the fallback search URL)
                   // A fallback article has a title that starts with "Search Google Scholar" and URL contains "scholar.google.com/scholar?q="
                   const hasRealArticles = articles.length > 0 && articles.some(article => {
@@ -8513,18 +8650,9 @@ export default function App() {
                               isLoading={false}
                               showComment={false}
                               showSend={remoteFlags.send_enabled}
-                              renderAction={(idx) => {
-                                const hash = getContentHash('article', articles[idx]?.url || '');
-                                return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
-                              }}
-                              onPin={(idx) => {
-                                const a = articles[idx];
-                                if (a) handlePinForLater(`${a.title}${a.url ? ` — ${a.url}` : ''}`, 'article', a.url);
-                              }}
-                              isPinned={(idx) => {
-                                const a = articles[idx];
-                                return a ? isContentPinned(`${a.title}${a.url ? ` — ${a.url}` : ''}`) : false;
-                              }}
+                              renderAction={renderArticleHeartAction}
+                              onPin={pinArticleItem}
+                              isPinned={isArticleItemPinned}
                             />
                           )}
                       </div>
@@ -8535,9 +8663,9 @@ export default function App() {
                 {/* Related Movies & Shows */}
                 {(() => {
                   if (contentPreferences.related_work === false) return null;
-                  const movies = relatedMovies.get(activeBook.id);
-                  const hasData = movies !== undefined;
-                  const hasMovies = movies && movies.length > 0;
+                  const movies = activeRelatedMovies;
+                  const hasData = relatedMovies.get(activeBook.id) !== undefined;
+                  const hasMovies = movies.length > 0;
                   const isLoading = !bookPageSectionsResolved && loadingRelatedMoviesForBookId === activeBook.id && !hasData;
 
                   if (!isLoading && !hasMovies) return null;
@@ -8575,25 +8703,15 @@ export default function App() {
                         </motion.div>
                       ) : (
                         <RelatedMovies
-                          movies={movies || EMPTY_ARRAY}
+                          movies={movies}
                           bookId={activeBook.id}
                           isLoading={false}
                           showPlayButtons={remoteFlags.related_work_play_buttons}
                           showComment={false}
                           showSend={remoteFlags.send_enabled}
-                          renderAction={(idx) => {
-                            const m = (movies || EMPTY_ARRAY)[idx];
-                            const hash = getContentHash('related_work', m?.title || '');
-                            return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
-                          }}
-                          onPin={(idx) => {
-                            const m = (movies || EMPTY_ARRAY)[idx];
-                            if (m) handlePinForLater(`${m.title} (${m.type}) — ${m.director}`, m.type, m.itunes_url, m.poster_url || m.itunes_artwork);
-                          }}
-                          isPinned={(idx) => {
-                            const m = (movies || EMPTY_ARRAY)[idx];
-                            return m ? isContentPinned(`${m.title} (${m.type}) — ${m.director}`) : false;
-                          }}
+                          renderAction={renderRelatedMovieHeartAction}
+                          onPin={pinRelatedMovieItem}
+                          isPinned={isRelatedMovieItemPinned}
                         />
                       )}
                     </div>
@@ -8626,9 +8744,9 @@ export default function App() {
                 {/* Related Books - Show below Related Movies */}
                 {(() => {
                   if (contentPreferences.related_books === false) return null;
-                  const related = relatedBooks.get(activeBook.id);
-                  const hasData = related !== undefined;
-                  const hasRelated = related && related.length > 0;
+                  const related = activeRelatedBooks;
+                  const hasData = relatedBooks.get(activeBook.id) !== undefined;
+                  const hasRelated = related.length > 0;
                   const isLoading = !bookPageSectionsResolved && loadingRelatedForBookId === activeBook.id && !hasData;
 
                   if (!isLoading && !hasRelated) return null;
@@ -8674,7 +8792,7 @@ export default function App() {
                         </motion.div>
                       ) : (
                         <RelatedBooks
-                          books={related || EMPTY_ARRAY}
+                          books={related}
                           bookId={activeBook.id}
                           isLoading={false}
                           onAddBook={handleAddBook}
@@ -8682,19 +8800,9 @@ export default function App() {
                           showSend={remoteFlags.send_enabled}
                           sourceBookCoverUrl={activeBook.cover_url}
                           sourceBookTitle={activeBook.title}
-                          renderAction={(idx) => {
-                            const b = (related || EMPTY_ARRAY)[idx];
-                            const hash = getContentHash('related_book', b?.title || '');
-                            return <HeartButton contentHash={hash} count={heartCounts.get(hash) || 0} isHearted={userHearted.has(hash)} onToggle={handleToggleHeart} size={17} />;
-                          }}
-                          onPin={(idx) => {
-                            const b = (related || EMPTY_ARRAY)[idx];
-                            if (b) handlePinForLater(`${b.title} by ${b.author}`, 'book', b.wikipedia_url || b.google_books_url, b.cover_url || b.thumbnail);
-                          }}
-                          isPinned={(idx) => {
-                            const b = (related || EMPTY_ARRAY)[idx];
-                            return b ? isContentPinned(`${b.title} by ${b.author}`) : false;
-                          }}
+                          renderAction={renderRelatedBookHeartAction}
+                          onPin={pinRelatedBookItem}
+                          isPinned={isRelatedBookItemPinned}
                         />
                       )}
                     </div>
