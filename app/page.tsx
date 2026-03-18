@@ -4251,6 +4251,26 @@ export default function App() {
     });
   }, [personalizedFeedItems, user?.id]);
 
+  // Preload book summaries for friend_book feed items (moved out of render path)
+  useEffect(() => {
+    const friendItems = personalizedFeedItems.filter(item => item.type === 'friend_book' && item.source_book_title && item.source_book_author);
+    for (const item of friendItems) {
+      const summaryKey = `${(item.source_book_title || '').toLowerCase().trim()}::${(item.source_book_author || '').toLowerCase().trim()}`;
+      if (feedSummaryFetchedRef.current.has(summaryKey)) continue;
+      feedSummaryFetchedRef.current.add(summaryKey);
+      supabase.from('book_summary_cache')
+        .select('summary_data')
+        .eq('book_title', (item.source_book_title || '').toLowerCase().trim())
+        .eq('book_author', (item.source_book_author || '').toLowerCase().trim())
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data?.summary_data?.summary) {
+            setFeedBookSummaries(prev => new Map(prev).set(summaryKey, data.summary_data.summary));
+          }
+        });
+    }
+  }, [personalizedFeedItems]);
+
   // Handle toggling a heart (stable ref for useCallback)
   const userHeartedRef = useRef(userHearted);
   userHeartedRef.current = userHearted;
@@ -6581,21 +6601,8 @@ export default function App() {
                     };
                     const friendAvatarUrl = item.content.friend_avatar_url;
                     const friendName = item.content.friend_name || 'A friend';
-                    // Fetch book summary if not already fetched
+                    // Summary is preloaded via useEffect (no render-time fetching)
                     const summaryKey = `${(item.source_book_title || '').toLowerCase().trim()}::${(item.source_book_author || '').toLowerCase().trim()}`;
-                    if (!feedSummaryFetchedRef.current.has(summaryKey) && item.source_book_title && item.source_book_author) {
-                      feedSummaryFetchedRef.current.add(summaryKey);
-                      supabase.from('book_summary_cache')
-                        .select('summary_data')
-                        .eq('book_title', (item.source_book_title || '').toLowerCase().trim())
-                        .eq('book_author', (item.source_book_author || '').toLowerCase().trim())
-                        .maybeSingle()
-                        .then(({ data }) => {
-                          if (data?.summary_data?.summary) {
-                            setFeedBookSummaries(prev => new Map(prev).set(summaryKey, data.summary_data.summary));
-                          }
-                        });
-                    }
                     const friendBookSummary = feedBookSummaries.get(summaryKey);
                     return (
                       <motion.div key={item.id} initial={{ opacity: 1 }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }} className={`w-full ${cardOpacity}`}>

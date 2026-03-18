@@ -419,22 +419,19 @@ function calculateFeedScore(item: any, recentTypes: string[], recentBooks: strin
 export async function markFeedItemsAsShown(itemIds: string[]): Promise<void> {
   if (itemIds.length === 0) return;
 
-  for (const id of itemIds) {
-    const { data: item } = await supabase
-      .from('feed_items')
-      .select('times_shown')
-      .eq('id', id)
-      .single();
+  // Batch update: increment times_shown and set last_shown_at via RPC
+  // This replaces the N+1 pattern (select+update per item) with a single call
+  const { error } = await supabase.rpc('batch_mark_feed_items_shown', {
+    item_ids: itemIds,
+  });
 
-    const currentCount = item?.times_shown || 0;
-
+  if (error) {
+    // Fallback: single update without increment (still 1 call instead of N*2)
+    console.warn('[markFeedItemsAsShown] RPC failed, using fallback:', error.message);
     await supabase
       .from('feed_items')
-      .update({
-        times_shown: currentCount + 1,
-        last_shown_at: new Date().toISOString(),
-      })
-      .eq('id', id);
+      .update({ last_shown_at: new Date().toISOString() })
+      .in('id', itemIds);
   }
 }
 

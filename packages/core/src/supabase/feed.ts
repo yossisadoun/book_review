@@ -510,7 +510,7 @@ export async function createFriendBookItem(
     source_book_cover_url: book.cover_url,
     type: 'friend_book',
     content,
-    content_hash: generateContentHash('friend_book', content),
+    content_hash: generateContentHashSync('friend_book', content),
     reading_status: book.reading_status,
     base_score: 1.0,
     times_shown: 0,
