@@ -206,6 +206,17 @@ const { data: usersData } = await supabase.from('users').in('id', followingIds).
 ### No Request Deduplication
 If multiple components request data for the same book simultaneously (e.g., podcasts + videos + articles all fire on book select), each makes independent API calls. No in-flight request deduplication.
 
+**Status update (2026-03-18):**
+- Core book-detail fetches now use request token guards plus `AbortController` cancellation:
+  - `articles`, `videos`, `related_books`, `related_movies`, `summary`
+- Shared fetch helper now stops retry loops on aborted requests.
+- Follow-up regressions were fixed and covered by new tests:
+  - analysis effect abort-controller scope checks
+  - abort noise suppression (`AbortError` ignored in expected cancellation path)
+  - summary parser resilience for variable/partially malformed LLM JSON
+  - schema-compat guard for `first_issue_year` cache column mismatch
+- Remaining cancellation scope: podcasts and character avatars are still mostly stale-response guarded rather than fully abort-propagated.
+
 ### Redundant Refetches
 | Data | Trigger | Cached? | Issue |
 |------|---------|---------|-------|
@@ -329,18 +340,18 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 12. **Extract frosted glass styles** — many already module-level constants, finish the rest
 
 ### Suggested Next Step (Highest ROI)
-**Implement request deduplication + cancellation for book-detail fetches** (`AbortController` + in-flight request map keyed by book + endpoint).
+**Finish cancellation coverage for remaining book-detail fetches (podcasts + character avatars), then add a compile gate in CI (`tsc --noEmit`).**
 
 Why this next:
-- It directly reduces duplicate network work when users switch books quickly.
-- It lowers UI flicker/race conditions from stale responses.
-- It complements the callback/render work already completed by reducing upstream async churn.
+- It closes the last async race/cancellation gap in the same hotspot we just hardened.
+- It prevents wasted network and noisy logs when users rapidly switch books.
+- A compile gate catches declaration/scope regressions (like duplicate const declarations) before runtime.
 
 Concrete acceptance criteria:
-- One in-flight request per `(bookId, dataType)` at a time.
-- New active book cancels prior requests for previous book.
-- Responses from stale book IDs are ignored even if they resolve later.
-- Add focused tests for dedup and stale-response guard behavior.
+- `podcasts` and `avatars` service paths accept and honor `AbortSignal`.
+- Effect cleanups abort in-flight requests; expected `AbortError` does not log as failure.
+- Stale-response token guards remain in place as a second safety net.
+- CI includes `npx tsc --noEmit` and fails on parse/type regressions.
 
 ### Medium-term (Architecture Changes)
 13. **State management** — Context API or Zustand for shared state, local state per page
@@ -471,13 +482,19 @@ For each bug found during extraction, add a targeted test:
 - [x] Fixed `PodcastEpisodes` audio unmount cleanup and validated with focused tests
 - [x] Cached `useImageBrightness` by URL
 - [x] Reduced staged book-detail fetch delays (300ms / 600ms / 1000ms tiers)
+- [x] Implemented request deduplication + cancellation for core book-detail fetches (`articles`, `videos`, `related_books`, `related_movies`, `summary`)
+- [x] Added cancellation wiring guards + schema-compat guards in `tests/page-wiring.test.ts`
+- [x] Added summary parser resilience tests in `tests/book-summary-service.test.ts`
 
 ### In Progress
 - [ ] Keep monitoring chunk-load reliability after lazy retry + timeout hardening (especially during active dev rebuilds)
 - [ ] Keep extraction guardrails/tests in lockstep as remaining monolith sections are split
+- [ ] Extend full cancellation propagation to remaining book-detail fetches (`podcasts`, `avatars`)
+- [ ] Add compile/type-check gate (`npx tsc --noEmit`) to CI/pre-push workflow
 
 ### Next (priority order)
-- [ ] **Request deduplication + cancellation for book-detail fetches** (`AbortController` + in-flight map keyed by `bookId + dataType`)
+- [ ] **Complete cancellation coverage for `podcasts` + `avatars`** (propagate `AbortSignal` through service internals)
+- [ ] **Add compile/type-check gate** (`npx tsc --noEmit`) to catch runtime parse/type regressions before merge
 - [ ] **Extract `BookDetail`** into feature components (`BookDetailHeader`, `BookDetailSections`, then compose)
 - [ ] Extract `BookshelfCovers` and `BookshelfSpines` with shared grouping state strategy
 - [ ] Memoize/optimize chat context building to avoid full bookshelf sorts each render

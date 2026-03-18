@@ -22,6 +22,7 @@ const relatedBooksServiceSource = readFileSync(join(__dirname, '../app/services/
 const relatedMoviesServiceSource = readFileSync(join(__dirname, '../app/services/related-movies-service.ts'), 'utf-8');
 const summaryServiceSource = readFileSync(join(__dirname, '../app/services/book-summary-service.ts'), 'utf-8');
 const apiUtilsServiceSource = readFileSync(join(__dirname, '../app/services/api-utils.ts'), 'utf-8');
+const insightsServiceSource = readFileSync(join(__dirname, '../app/services/insights-service.ts'), 'utf-8');
 
 describe('AccountPage wiring in page.tsx', () => {
   it('should not contain orphaned AccountPage state variables', () => {
@@ -283,5 +284,42 @@ describe('Book detail request cancellation wiring', () => {
   it('stops retry loop immediately on abort in fetchWithRetry', () => {
     expect(apiUtilsServiceSource).toContain("if (options.signal?.aborted)");
     expect(apiUtilsServiceSource).toContain("if ((err as any)?.name === 'AbortError')");
+  });
+
+  it('declares analysis abort controller in same effect scope', () => {
+    const start = pageSource.indexOf('// Load analysis articles from Google Scholar');
+    expect(start).toBeGreaterThan(-1);
+    const end = pageSource.indexOf('}, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded', start);
+    expect(end).toBeGreaterThan(start);
+    const block = pageSource.slice(start, end);
+    expect(block).toContain('const abortController = new AbortController();');
+    expect(block).toContain('getGoogleScholarAnalysis(bookTitle, bookAuthor, abortController.signal)');
+    expect(block).toContain('abortController.abort();');
+  });
+
+  it('does not add AbortController to chat-list effect yet', () => {
+    const start = pageSource.indexOf('// Load chat list when entering chat page (stale-while-revalidate)');
+    expect(start).toBeGreaterThan(-1);
+    const block = pageSource.slice(start, start + 900);
+    expect(block).not.toContain('new AbortController()');
+  });
+
+  it('ignores expected AbortError in analysis catch before logging', () => {
+    const start = pageSource.indexOf("console.error('Error fetching analysis articles:', err);");
+    expect(start).toBeGreaterThan(-1);
+    const block = pageSource.slice(start - 300, start + 120);
+    expect(block).toContain("if ((err as any)?.name === 'AbortError')");
+    expect(block).toContain('return;');
+  });
+});
+
+describe('First issue year schema compatibility', () => {
+  it('does not query missing first_issue_year column from author_facts_cache', () => {
+    expect(insightsServiceSource).not.toContain(".select('first_issue_year')");
+  });
+
+  it('does not write first_issue_year into author_facts_cache payloads', () => {
+    expect(insightsServiceSource).not.toContain('first_issue_year: year');
+    expect(insightsServiceSource).not.toContain('Saved first_issue_year');
   });
 });
