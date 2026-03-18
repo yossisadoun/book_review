@@ -542,14 +542,7 @@ export default function App() {
   const [isFollowLoading, setIsFollowLoading] = useState(false);
   const [myFollowingCount, setMyFollowingCount] = useState(0);
   const [viewingUserFollowingCount, setViewingUserFollowingCount] = useState(0);
-  const [selectedIndex, setSelectedIndex] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('lastSelectedBookIndex');
-      const parsed = saved ? parseInt(saved, 10) : 0;
-      return isNaN(parsed) ? 0 : parsed;
-    }
-    return 0;
-  });
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const [isAdding, setIsAdding] = useState(false);
   const [addBookSheetMode, setAddBookSheetMode] = useState<'default' | 'chat_picker'>('default');
   const [showConnectAccountModal, setShowConnectAccountModal] = useState(false);
@@ -1732,9 +1725,14 @@ export default function App() {
     }
 
     // Show cached books instantly
+    const savedBookId = typeof window !== 'undefined' ? localStorage.getItem('lastSelectedBookId') : null;
     const cachedBooks = getCached<any[]>(CACHE_KEYS.books(user.id));
     if (cachedBooks && cachedBooks.length > 0) {
       setBooks(cachedBooks);
+      if (savedBookId) {
+        const idx = cachedBooks.findIndex((b: any) => b.id === savedBookId);
+        if (idx >= 0) setSelectedIndex(idx);
+      }
       setIsLoaded(true);
     }
 
@@ -1771,25 +1769,11 @@ export default function App() {
           .eq('follower_id', user.id);
         setMyFollowingCount(followingCount || 0);
 
-        // Restore saved selectedIndex if valid, otherwise reset to 0
-        if (appBooks.length > 0) {
-          if (typeof window !== 'undefined') {
-            const savedIndex = localStorage.getItem('lastSelectedBookIndex');
-            const parsedIndex = savedIndex ? parseInt(savedIndex, 10) : null;
-            if (parsedIndex !== null && !isNaN(parsedIndex) && parsedIndex >= 0 && parsedIndex < appBooks.length) {
-              setSelectedIndex(parsedIndex);
-            } else {
-              // If saved index is invalid or out of bounds, reset to 0
-              setSelectedIndex(0);
-            }
-          } else {
-            // Server-side: ensure index is valid
-            if (selectedIndex >= appBooks.length) {
-              setSelectedIndex(0);
-            }
-          }
-        } else {
-          // No books, reset to 0
+        // Restore selected book by ID (stable across reorders/additions)
+        if (appBooks.length > 0 && savedBookId) {
+          const idx = appBooks.findIndex(b => b.id === savedBookId);
+          setSelectedIndex(idx >= 0 ? idx : 0);
+        } else if (appBooks.length === 0) {
           setSelectedIndex(0);
         }
       } catch (err) {
@@ -2483,12 +2467,12 @@ export default function App() {
     }
   }, [bookshelfGrouping]);
 
-  // Save selected book index to localStorage
+  // Save selected book ID to localStorage (not index — index is fragile across reloads)
   useEffect(() => {
     if (typeof window !== 'undefined' && books.length > 0 && selectedIndex >= 0 && selectedIndex < books.length) {
-      localStorage.setItem('lastSelectedBookIndex', selectedIndex.toString());
+      localStorage.setItem('lastSelectedBookId', books[selectedIndex].id);
     }
-  }, [selectedIndex, books.length]);
+  }, [selectedIndex, books]);
 
   // Expose one-time feed backfill on window (run window.backfillFeed() in console)
   useEffect(() => {
