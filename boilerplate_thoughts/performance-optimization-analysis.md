@@ -19,13 +19,17 @@ The app is a **~12.9k-line monolithic Next.js component** (`app/page.tsx`) with 
 - Card components extracted to separate files (InsightsCards, PodcastEpisodes, etc.)
 - useMemo count improved from 1 → 8 (feed filtering, bookshelf grouping, spotlight, podcast combine, section headers)
 - SpotlightSection wrapped in React.memo (still the only memoized component in page.tsx)
-- Audio stops on episode/book change (partial fix — still no unmount cleanup)
 - **AccountPage extracted** — removed ~540 lines, 7 useState, 2 useEffect, 3 refs from page.tsx (with 19 component + 8 wiring tests)
 - **FollowingPage extracted** — removed ~160 lines, 3 useState, 1 useEffect from page.tsx (with 7 component + 6 wiring tests). Added back-navigation support ('following' ViewOrigin).
 - **Pull-to-refresh refactored** — converted feedPullDistance/chatPullDistance from useState to useRef with direct DOM manipulation, eliminating ~60 re-renders/sec during touch drag
 - **Audio unmount leak fixed** — PodcastEpisodes now fully releases Audio resources on unmount (pause, clear src, load, null handlers)
 - **Fan menu close/reopen bug fixed** — removed portal overlays from MusicModal/WatchModal that caused double-fire with X button
 - **TriviaGame extracted** — removed ~740 lines, 17 useState, 7 useEffect, 4 useRef from page.tsx to `app/components/TriviaGame.tsx` (with 18 guard tests). Uses `forwardRef`+`useImperativeHandle` for back button integration.
+- **Book detail callback stabilization completed** — card handlers (`renderAction`, `onPin`, `isPinned`) moved from inline JSX lambdas to stable callbacks via `useBookDetailCardCallbacks`, improving memo hit rate and reducing avoidable card re-renders.
+- **Header scroll regression fixed** — removed conflicting forced Framer opacity animations on scroll-managed headers; ref-attach callbacks now apply current scroll opacity immediately on mount/rerender.
+- **Chunk-load resilience added** — lazy imports now use retry-once reload behavior for chunk mismatch errors; webpack `chunkLoadTimeout` increased in dev to reduce false timeout failures for large chunks.
+- **Pinned sticky-note icon parity improved** — pinned state now uses `currentColor` for both fill and outline (same yellow), with style + runtime regression tests.
+- **Regression test coverage expanded** — added `useBookDetailCardCallbacks` runtime identity tests, sticky-note style/wiring tests, and additional page wiring guards.
 
 ---
 
@@ -121,12 +125,9 @@ Every card component re-renders on any parent state change:
 **Fix:** Wrap all with `React.memo()`. Requires stabilizing props first (see below).
 
 ### Inline Callback Anti-patterns (Blocks React.memo)
-Every card receives unstable props that change identity every render:
-- `renderAction={() => <HeartButton ... />}` — new function every render
-- `onPin={(idx) => { handlePinForLater(...) }}` — new function every render
-- `isPinned={(idx) => { isContentPinned(...) }}` — new function every render
-
-Even if components were wrapped in React.memo, these would defeat it. Must add `useCallback` for all handler props first.
+**Status:** Mostly fixed in the book-detail card path.
+- `renderAction`, `onPin`, and `isPinned` for Insights/Podcasts/YouTube/Articles/Related Books/Related Movies now use stable callback references (hook-based).
+- Remaining audit target: any non-book-detail surfaces still passing inline lambdas into memoized children.
 
 ### Inline Object Anti-patterns
 - `stackedCardStyle()` in RelatedBooks/RelatedMovies returns new objects per render
@@ -169,6 +170,10 @@ Still missing for:
 7 components now lazy-loaded via `React.lazy()` + `Suspense`:
 - `AccountPage`, `FollowingPage`, `FeedPage`, `ChatPage` (page components)
 - `AddBookSheet`, `ConnectAccountModal`, `NotesEditorOverlay` (modals/sheets)
+
+Lazy-loading resilience hardening:
+- `lazyWithChunkRetry` wrapper added for lazy imports (retry-once via reload on chunk mismatch).
+- webpack dev `chunkLoadTimeout` increased to reduce transient timeout failures during heavy rebuilds.
 
 Remaining candidates for lazy loading:
 - `TriviaGame` — uses `forwardRef`/`useImperativeHandle`, needs wrapper for lazy
@@ -280,7 +285,7 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 ## 8. Specific Component Issues
 
 ### PodcastEpisodes
-- Audio stops on episode change but **not on component unmount** (no cleanup return in useEffect)
+- Audio cleanup on unmount is fixed (cleanup return calls `stopAudio()`).
 - `useImageBrightness` recalculates on every mount — no URL cache
 - 300ms setTimeout for navigation animation (could use AnimatePresence)
 
@@ -295,8 +300,8 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 - Keyboard listeners potentially leak
 
 ### All Card Components (InsightsCards, PodcastEpisodes, YouTubeVideos, AnalysisArticles, RelatedBooks, RelatedMovies)
-- Receive `renderAction`, `onPin`, `isPinned` as inline arrow functions from page.tsx — new references every render
-- None wrapped in React.memo
+- Wrapped in `React.memo`
+- Book-detail path now passes stable `renderAction`, `onPin`, and `isPinned` callbacks
 - Each has internal `touchStart`/`touchEnd` as useState (should be useRef)
 
 ### LoginScreen
@@ -310,7 +315,7 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 1. ~~**Wrap all card components in React.memo**~~ ✅ DONE — HeartButton, InsightsCards, PodcastEpisodes, YouTubeVideos, AnalysisArticles, RelatedMovies, RelatedBooks, RatingStars all wrapped in React.memo
 2. ~~**Add `useCallback` for handleToggleHeart**~~ ✅ DONE — stable via useCallback + userHeartedRef pattern. HeartButton memo is the biggest win (each card renders multiple HeartButtons; only the affected one re-renders on heart change)
 3. ~~**Fix `|| []` anti-pattern**~~ ✅ DONE — EMPTY_ARRAY constant for RelatedMovies/RelatedBooks props
-4. **Stabilize remaining inline callbacks** (renderAction, onPin, isPinned per section) — would make card memo fully effective, but requires refs for section data. Lower priority since HeartButton memo already handles the hot path.
+4. ~~**Stabilize remaining inline callbacks**~~ ✅ DONE for book-detail sections via `useBookDetailCardCallbacks` + runtime identity tests. Follow-up: audit any remaining non-book-detail inline handler props.
 5. ~~**Fix audio unmount leak**~~ ✅ ALREADY FIXED — useEffect cleanup calls stopAudio() on unmount
 6. **Move pull-to-refresh to useRef** — eliminates 60 re-renders/sec ✅ FIXED
 6. ~~**Cache useImageBrightness by URL**~~ ✅ DONE — module-level `brightnessCache` Map in utils.ts; skips canvas work for previously seen URLs, initializes state from cache
@@ -322,6 +327,20 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 10. **Memoize chat context building** — sorts entire bookshelf on every render
 11. **Implement request deduplication** — prevent simultaneous identical API calls
 12. **Extract frosted glass styles** — many already module-level constants, finish the rest
+
+### Suggested Next Step (Highest ROI)
+**Implement request deduplication + cancellation for book-detail fetches** (`AbortController` + in-flight request map keyed by book + endpoint).
+
+Why this next:
+- It directly reduces duplicate network work when users switch books quickly.
+- It lowers UI flicker/race conditions from stale responses.
+- It complements the callback/render work already completed by reducing upstream async churn.
+
+Concrete acceptance criteria:
+- One in-flight request per `(bookId, dataType)` at a time.
+- New active book cancels prior requests for previous book.
+- Responses from stale book IDs are ignored even if they resolve later.
+- Add focused tests for dedup and stale-response guard behavior.
 
 ### Medium-term (Architecture Changes)
 13. **State management** — Context API or Zustand for shared state, local state per page
@@ -433,3 +452,38 @@ For each bug found during extraction, add a targeted test:
 | BookDetail | ~1,720 | Largest — insights/podcasts/videos/articles state Maps, many card component integrations. Plan: extract sub-sections first (BookDetailHeader, BookDetailSections) then compose. |
 | BookshelfCovers | ~630 | bookshelf grouping state shared with spines |
 | BookshelfSpines | ~420 | same grouping state |
+
+---
+
+## 10. Progress Tracker
+
+### Done
+- [x] Extracted `AccountPage`, `FollowingPage`, `TriviaGame`, `FeedPage`, `ChatPage` from `app/page.tsx`
+- [x] Added extraction wiring tests and regression guards in `tests/page-wiring.test.ts`
+- [x] Converted pull-to-refresh high-frequency touch state to refs (feed + chat)
+- [x] Stabilized book-detail card callbacks (`renderAction` / `onPin` / `isPinned`) via `useBookDetailCardCallbacks`
+- [x] Added runtime callback identity tests (`tests/useBookDetailCardCallbacks.test.tsx`)
+- [x] Fixed header reappearing regression by removing conflicting forced opacity animation on scroll-managed headers
+- [x] Hardened lazy chunk loading with retry-once reload guard for lazy imports
+- [x] Increased webpack client chunk load timeout in dev (`next.config.ts`)
+- [x] Fixed sticky-note pinned icon styling to use same yellow for fill + outline across all card components
+- [x] Added sticky-note style and click-contract tests (`tests/sticky-note-pin-style.test.tsx`)
+- [x] Fixed `PodcastEpisodes` audio unmount cleanup and validated with focused tests
+- [x] Cached `useImageBrightness` by URL
+- [x] Reduced staged book-detail fetch delays (300ms / 600ms / 1000ms tiers)
+
+### In Progress
+- [ ] Keep monitoring chunk-load reliability after lazy retry + timeout hardening (especially during active dev rebuilds)
+- [ ] Keep extraction guardrails/tests in lockstep as remaining monolith sections are split
+
+### Next (priority order)
+- [ ] **Request deduplication + cancellation for book-detail fetches** (`AbortController` + in-flight map keyed by `bookId + dataType`)
+- [ ] **Extract `BookDetail`** into feature components (`BookDetailHeader`, `BookDetailSections`, then compose)
+- [ ] Extract `BookshelfCovers` and `BookshelfSpines` with shared grouping state strategy
+- [ ] Memoize/optimize chat context building to avoid full bookshelf sorts each render
+- [ ] Add feed local cache (stale-while-revalidate) similar to books cache
+- [ ] Add chat list local cache + refresh strategy
+- [ ] Add cache TTL/invalidation policy for DB cache tables
+- [ ] Track feed generation completion (`feed_generated_at` or equivalent) to skip redundant generation
+- [ ] Persist selected in-session maps where beneficial (podcasts/videos/articles/related data)
+- [ ] Resolve metadata viewport warning by moving to dedicated viewport export in layout

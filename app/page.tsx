@@ -560,39 +560,6 @@ export default function App() {
   const [selectingReadingStatusForExisting, setSelectingReadingStatusForExisting] = useState(false);
   const [pendingBookMeta, setPendingBookMeta] = useState<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> | null>(null);
   
-  // Swipe detection state for book navigation
-  const [bookTouchStart, setBookTouchStart] = useState<{ x: number; y: number } | null>(null);
-  const [bookTouchEnd, setBookTouchEnd] = useState<{ x: number; y: number } | null>(null);
-  
-  // Minimum swipe distance (in pixels)
-  const minSwipeDistance = 50;
-  
-  // Handle book navigation swipe
-  const handleBookSwipe = () => {
-    if (!bookTouchStart || !bookTouchEnd) return;
-
-    // Don't allow swiping when in notes editor
-    if (isShowingNotes) return;
-    
-    const distanceX = bookTouchStart.x - bookTouchEnd.x;
-    const distanceY = bookTouchStart.y - bookTouchEnd.y;
-    
-    // Only handle horizontal swipes (ignore if vertical scroll is more dominant)
-    if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
-      triggerMediumHaptic();
-      if (distanceX > 0) {
-        // Swipe left = next book
-        setSelectedIndex(prev => (prev < books.length - 1 ? prev + 1 : 0));
-      } else {
-        // Swipe right = previous book
-        setSelectedIndex(prev => (prev > 0 ? prev - 1 : books.length - 1));
-      }
-    }
-    
-    // Reset touch state
-    setBookTouchStart(null);
-    setBookTouchEnd(null);
-  };
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isShowingNotes, setIsShowingNotes] = useState(false);
   const openNotesAfterNavRef = useRef(false); // Track when to open notes after navigating from notes list
@@ -695,6 +662,38 @@ export default function App() {
       el.style.pointerEvents = pointerEvents;
     }
   }, []);
+
+  type BookRequestType =
+    | 'podcasts'
+    | 'articles'
+    | 'videos'
+    | 'related_books'
+    | 'related_movies'
+    | 'summary'
+    | 'avatars'
+    | 'influences'
+    | 'domain'
+    | 'context'
+    | 'did_you_know';
+  const activeBookRequestsRef = useRef<Map<BookRequestType, { bookId: string; token: number }>>(new Map());
+  const nextBookRequestTokenRef = useRef(1);
+
+  const beginBookRequest = useCallback((requestType: BookRequestType, bookId: string): number => {
+    const token = nextBookRequestTokenRef.current++;
+    activeBookRequestsRef.current.set(requestType, { bookId, token });
+    return token;
+  }, []);
+
+  const isActiveBookRequest = useCallback((requestType: BookRequestType, bookId: string, token: number): boolean => {
+    const active = activeBookRequestsRef.current.get(requestType);
+    return !!active && active.bookId === bookId && active.token === token;
+  }, []);
+
+  const clearBookRequest = useCallback((requestType: BookRequestType, bookId: string, token: number): void => {
+    if (isActiveBookRequest(requestType, bookId, token)) {
+      activeBookRequestsRef.current.delete(requestType);
+    }
+  }, [isActiveBookRequest]);
 
   // Scroll to top when status bar area is tapped (iOS pattern)
   const scrollToTop = () => {
@@ -3233,6 +3232,7 @@ export default function App() {
 
     // Set loading state
     setLoadingInfluencesForBookId(bookId);
+    const requestToken = beginBookRequest('influences', bookId);
 
     // Add a delay to avoid rate limits when scrolling through books
     const fetchTimer = setTimeout(() => {
@@ -3240,7 +3240,10 @@ export default function App() {
       
       console.log(`[Book Influences] 🔄 Fetching influences for "${bookTitle}" by ${bookAuthor}...`);
       getBookInfluences(bookTitle, bookAuthor).then((influences) => {
-        if (cancelled) return;
+        if (cancelled || !isActiveBookRequest('influences', bookId, requestToken)) {
+          fetchingInfluencesForBooksRef.current.delete(bookId);
+          return;
+        }
         
         // Clear loading state and remove from fetching set
         setLoadingInfluencesForBookId(null);
@@ -3265,7 +3268,7 @@ export default function App() {
           });
         }
       }).catch(err => {
-        if (!cancelled) {
+        if (!cancelled && isActiveBookRequest('influences', bookId, requestToken)) {
           setLoadingInfluencesForBookId(null);
           console.error('Error fetching book influences:', err);
         }
@@ -3276,8 +3279,11 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      setLoadingInfluencesForBookId(null);
-      fetchingInfluencesForBooksRef.current.delete(bookId); // Clean up on unmount
+      fetchingInfluencesForBooksRef.current.delete(bookId);
+      if (isActiveBookRequest('influences', bookId, requestToken)) {
+        setLoadingInfluencesForBookId(null);
+        clearBookRequest('influences', bookId, requestToken);
+      }
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
@@ -3329,6 +3335,7 @@ export default function App() {
 
     // Set loading state
     setLoadingDomainForBookId(bookId);
+    const requestToken = beginBookRequest('domain', bookId);
 
     // Add a delay to avoid rate limits when scrolling through books
     const fetchTimer = setTimeout(() => {
@@ -3336,7 +3343,10 @@ export default function App() {
       
       console.log(`[Book Domain] 🔄 Fetching domain insights for "${bookTitle}" by ${bookAuthor}...`);
       getBookDomain(bookTitle, bookAuthor).then((domainData) => {
-        if (cancelled) return;
+        if (cancelled || !isActiveBookRequest('domain', bookId, requestToken)) {
+          fetchingDomainForBooksRef.current.delete(bookId);
+          return;
+        }
         
         // Clear loading state and remove from fetching set
         setLoadingDomainForBookId(null);
@@ -3361,7 +3371,7 @@ export default function App() {
           });
         }
       }).catch(err => {
-        if (!cancelled) {
+        if (!cancelled && isActiveBookRequest('domain', bookId, requestToken)) {
           setLoadingDomainForBookId(null);
           console.error('Error fetching book domain insights:', err);
         }
@@ -3372,8 +3382,11 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      setLoadingDomainForBookId(null);
-      fetchingDomainForBooksRef.current.delete(bookId); // Clean up on unmount
+      fetchingDomainForBooksRef.current.delete(bookId);
+      if (isActiveBookRequest('domain', bookId, requestToken)) {
+        setLoadingDomainForBookId(null);
+        clearBookRequest('domain', bookId, requestToken);
+      }
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
@@ -3425,6 +3438,7 @@ export default function App() {
 
     // Set loading state
     setLoadingContextForBookId(bookId);
+    const requestToken = beginBookRequest('context', bookId);
 
     // Add a delay to avoid rate limits when scrolling through books
     const fetchTimer = setTimeout(() => {
@@ -3432,7 +3446,10 @@ export default function App() {
         
       console.log(`[Book Context] 🔄 Fetching context insights for "${bookTitle}" by ${bookAuthor}...`);
       getBookContext(bookTitle, bookAuthor).then((contextInsights) => {
-        if (cancelled) return;
+        if (cancelled || !isActiveBookRequest('context', bookId, requestToken)) {
+          fetchingContextForBooksRef.current.delete(bookId);
+          return;
+        }
         
         // Clear loading state and remove from fetching set
         setLoadingContextForBookId(null);
@@ -3457,7 +3474,7 @@ export default function App() {
           });
         }
       }).catch(err => {
-        if (!cancelled) {
+        if (!cancelled && isActiveBookRequest('context', bookId, requestToken)) {
           setLoadingContextForBookId(null);
           console.error('Error fetching book context insights:', err);
         }
@@ -3468,8 +3485,11 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      setLoadingContextForBookId(null);
-      fetchingContextForBooksRef.current.delete(bookId); // Clean up on unmount
+      fetchingContextForBooksRef.current.delete(bookId);
+      if (isActiveBookRequest('context', bookId, requestToken)) {
+        setLoadingContextForBookId(null);
+        clearBookRequest('context', bookId, requestToken);
+      }
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
@@ -3521,6 +3541,7 @@ export default function App() {
 
     // Set loading state
     setLoadingDidYouKnowForBookId(bookId);
+    const requestToken = beginBookRequest('did_you_know', bookId);
 
     // Add a short delay to avoid rate limits when scrolling through books
     // Shorter delay than other insights since this is the only enabled insight type by default
@@ -3529,7 +3550,10 @@ export default function App() {
 
       console.log(`[Did You Know] 🔄 Fetching "Did you know?" insights for "${bookTitle}" by ${bookAuthor}...`);
       getDidYouKnow(bookTitle, bookAuthor).then((insights) => {
-        if (cancelled) return;
+        if (cancelled || !isActiveBookRequest('did_you_know', bookId, requestToken)) {
+          fetchingDidYouKnowForBooksRef.current.delete(bookId);
+          return;
+        }
 
         // Clear loading state and remove from fetching set
         setLoadingDidYouKnowForBookId(null);
@@ -3554,7 +3578,7 @@ export default function App() {
           });
         }
       }).catch(err => {
-        if (!cancelled) {
+        if (!cancelled && isActiveBookRequest('did_you_know', bookId, requestToken)) {
           setLoadingDidYouKnowForBookId(null);
           console.error('Error fetching "Did you know?" insights:', err);
         }
@@ -3565,8 +3589,11 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      setLoadingDidYouKnowForBookId(null);
-      fetchingDidYouKnowForBooksRef.current.delete(bookId); // Clean up on unmount
+      fetchingDidYouKnowForBooksRef.current.delete(bookId);
+      if (isActiveBookRequest('did_you_know', bookId, requestToken)) {
+        setLoadingDidYouKnowForBookId(null);
+        clearBookRequest('did_you_know', bookId, requestToken);
+      }
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
@@ -3613,6 +3640,7 @@ export default function App() {
 
     // Set loading state
     setLoadingPodcastsForBookId(bookId);
+    const requestToken = beginBookRequest('podcasts', bookId);
 
     // Add a delay to avoid rate limits when scrolling through books
     const fetchTimer = setTimeout(() => {
@@ -3620,7 +3648,10 @@ export default function App() {
       
       console.log(`[Podcast Episodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${bookAuthor}...`);
       getPodcastEpisodes(bookTitle, bookAuthor).then((allEpisodes) => {
-        if (cancelled) return;
+        if (cancelled || !isActiveBookRequest('podcasts', bookId, requestToken)) {
+          fetchingPodcastsForBooksRef.current.delete(bookId);
+          return;
+        }
         
         // Clear loading state and remove from fetching set
         setLoadingPodcastsForBookId(null);
@@ -3651,7 +3682,7 @@ export default function App() {
           console.log(`[Podcast Episodes] ⚠️ No episodes found for "${bookTitle}"`);
         }
       }).catch(err => {
-        if (!cancelled) {
+        if (!cancelled && isActiveBookRequest('podcasts', bookId, requestToken)) {
           setLoadingPodcastsForBookId(null);
           console.error('Error fetching podcast episodes:', err);
         }
@@ -3662,8 +3693,11 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      setLoadingPodcastsForBookId(null);
-      fetchingPodcastsForBooksRef.current.delete(bookId); // Clean up on unmount
+      fetchingPodcastsForBooksRef.current.delete(bookId);
+      if (isActiveBookRequest('podcasts', bookId, requestToken)) {
+        setLoadingPodcastsForBookId(null);
+        clearBookRequest('podcasts', bookId, requestToken);
+      }
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
@@ -3697,11 +3731,13 @@ export default function App() {
     }
 
     let cancelled = false;
+    const abortController = new AbortController();
     
     // Mark as being fetched (to prevent concurrent fetches)
     fetchingAnalysisForBooksRef.current.add(bookId);
 
     setLoadingAnalysisForBookId(bookId);
+    const requestToken = beginBookRequest('articles', bookId);
 
     // Add a delay to avoid rate limits when scrolling through books
     const fetchTimer = setTimeout(() => {
@@ -3711,8 +3747,11 @@ export default function App() {
       const bookAuthor = currentBook.author;
       
       console.log(`[Analysis Articles] 🔄 Fetching from Google Scholar for "${bookTitle}" by ${bookAuthor}...`);
-      getGoogleScholarAnalysis(bookTitle, bookAuthor).then((articles) => {
-        if (cancelled) return;
+      getGoogleScholarAnalysis(bookTitle, bookAuthor, abortController.signal).then((articles) => {
+        if (cancelled || !isActiveBookRequest('articles', bookId, requestToken)) {
+          fetchingAnalysisForBooksRef.current.delete(bookId);
+          return;
+        }
         
         // Clear loading state and remove from fetching set
         setLoadingAnalysisForBookId(null);
@@ -3731,7 +3770,14 @@ export default function App() {
           console.log(`[Analysis Articles] ⚠️ No articles found for "${bookTitle}" (cached for future requests)`);
         }
       }).catch((err) => {
-        if (cancelled) return;
+        if (cancelled || !isActiveBookRequest('articles', bookId, requestToken)) {
+          fetchingAnalysisForBooksRef.current.delete(bookId);
+          return;
+        }
+        if ((err as any)?.name === 'AbortError') {
+          fetchingAnalysisForBooksRef.current.delete(bookId);
+          return;
+        }
         setLoadingAnalysisForBookId(null);
         console.error('Error fetching analysis articles:', err);
         // Remove from fetching set on error so we can retry
@@ -3741,8 +3787,12 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      setLoadingAnalysisForBookId(null);
-      fetchingAnalysisForBooksRef.current.delete(bookId); // Clean up on unmount
+      fetchingAnalysisForBooksRef.current.delete(bookId);
+      if (isActiveBookRequest('articles', bookId, requestToken)) {
+        setLoadingAnalysisForBookId(null);
+        clearBookRequest('articles', bookId, requestToken);
+      }
+      abortController.abort();
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
@@ -3779,12 +3829,14 @@ export default function App() {
     // Force fetch to check cache - this ensures cached data is loaded on initial page load
 
     let cancelled = false;
+    const abortController = new AbortController();
     
     // Mark as being fetched (to prevent concurrent fetches)
     fetchingVideosForBooksRef.current.add(bookId);
 
     // Set loading state
     setLoadingVideosForBookId(bookId);
+    const requestToken = beginBookRequest('videos', bookId);
 
     // Add a delay to avoid rate limits when scrolling through books
     const fetchTimer = setTimeout(() => {
@@ -3794,8 +3846,11 @@ export default function App() {
       const bookAuthor = currentBook.author;
       
       console.log(`[YouTube Videos] 🔄 Fetching for "${bookTitle}" by ${bookAuthor}...`);
-      getYouTubeVideos(bookTitle, bookAuthor).then((videos) => {
-        if (cancelled) return;
+      getYouTubeVideos(bookTitle, bookAuthor, abortController.signal).then((videos) => {
+        if (cancelled || !isActiveBookRequest('videos', bookId, requestToken)) {
+          fetchingVideosForBooksRef.current.delete(bookId);
+          return;
+        }
         
         // Clear loading state and remove from fetching set
         setLoadingVideosForBookId(null);
@@ -3819,7 +3874,10 @@ export default function App() {
           });
         }
       }).catch((err) => {
-        if (cancelled) return;
+        if (cancelled || !isActiveBookRequest('videos', bookId, requestToken)) {
+          fetchingVideosForBooksRef.current.delete(bookId);
+          return;
+        }
         setLoadingVideosForBookId(null);
         console.error('Error fetching YouTube videos:', err);
         // Remove from fetching set on error so we can retry
@@ -3829,8 +3887,12 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      setLoadingVideosForBookId(null);
-      fetchingVideosForBooksRef.current.delete(bookId); // Clean up on unmount
+      fetchingVideosForBooksRef.current.delete(bookId);
+      if (isActiveBookRequest('videos', bookId, requestToken)) {
+        setLoadingVideosForBookId(null);
+        clearBookRequest('videos', bookId, requestToken);
+      }
+      abortController.abort();
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
@@ -3864,12 +3926,14 @@ export default function App() {
     }
 
     let cancelled = false;
+    const abortController = new AbortController();
     
     // Mark as being fetched (to prevent concurrent fetches)
     fetchingRelatedForBooksRef.current.add(bookId);
 
     // Set loading state
     setLoadingRelatedForBookId(bookId);
+    const requestToken = beginBookRequest('related_books', bookId);
 
     // Add a delay to avoid rate limits when scrolling through books
     const fetchTimer = setTimeout(() => {
@@ -3879,8 +3943,11 @@ export default function App() {
       const bookAuthor = currentBook.author;
       
       console.log(`[Related Books] 🔄 Fetching for "${bookTitle}" by ${bookAuthor}...`);
-      getRelatedBooks(bookTitle, bookAuthor).then((books) => {
-        if (cancelled) return;
+      getRelatedBooks(bookTitle, bookAuthor, abortController.signal).then((books) => {
+        if (cancelled || !isActiveBookRequest('related_books', bookId, requestToken)) {
+          fetchingRelatedForBooksRef.current.delete(bookId);
+          return;
+        }
         
         // Clear loading state and remove from fetching set
         setLoadingRelatedForBookId(null);
@@ -3899,7 +3966,10 @@ export default function App() {
           return newMap;
         });
       }).catch((err) => {
-        if (cancelled) return;
+        if (cancelled || !isActiveBookRequest('related_books', bookId, requestToken)) {
+          fetchingRelatedForBooksRef.current.delete(bookId);
+          return;
+        }
         setLoadingRelatedForBookId(null);
         console.error('Error fetching related books:', err);
         // Remove from fetching set on error so we can retry
@@ -3909,8 +3979,12 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      setLoadingRelatedForBookId(null);
-      fetchingRelatedForBooksRef.current.delete(bookId); // Clean up on unmount
+      fetchingRelatedForBooksRef.current.delete(bookId);
+      if (isActiveBookRequest('related_books', bookId, requestToken)) {
+        setLoadingRelatedForBookId(null);
+        clearBookRequest('related_books', bookId, requestToken);
+      }
+      abortController.abort();
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
@@ -3941,8 +4015,10 @@ export default function App() {
     }
 
     let cancelled = false;
+    const abortController = new AbortController();
     fetchingRelatedMoviesRef.current.add(bookId);
     setLoadingRelatedMoviesForBookId(bookId);
+    const requestToken = beginBookRequest('related_movies', bookId);
 
     const fetchTimer = setTimeout(() => {
       if (cancelled) return;
@@ -3951,8 +4027,11 @@ export default function App() {
       const bookAuthor = currentBook.author;
 
       console.log(`[Related Movies] Fetching for "${bookTitle}" by ${bookAuthor}...`);
-      getRelatedMovies(bookTitle, bookAuthor).then((movies) => {
-        if (cancelled) return;
+      getRelatedMovies(bookTitle, bookAuthor, abortController.signal).then((movies) => {
+        if (cancelled || !isActiveBookRequest('related_movies', bookId, requestToken)) {
+          fetchingRelatedMoviesRef.current.delete(bookId);
+          return;
+        }
 
         setLoadingRelatedMoviesForBookId(null);
         fetchingRelatedMoviesRef.current.delete(bookId);
@@ -3969,7 +4048,10 @@ export default function App() {
           return newMap;
         });
       }).catch((err) => {
-        if (cancelled) return;
+        if (cancelled || !isActiveBookRequest('related_movies', bookId, requestToken)) {
+          fetchingRelatedMoviesRef.current.delete(bookId);
+          return;
+        }
         setLoadingRelatedMoviesForBookId(null);
         console.error('Error fetching related movies:', err);
         fetchingRelatedMoviesRef.current.delete(bookId);
@@ -3978,8 +4060,12 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      setLoadingRelatedMoviesForBookId(null);
       fetchingRelatedMoviesRef.current.delete(bookId);
+      if (isActiveBookRequest('related_movies', bookId, requestToken)) {
+        setLoadingRelatedMoviesForBookId(null);
+        clearBookRequest('related_movies', bookId, requestToken);
+      }
+      abortController.abort();
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]);
@@ -4004,13 +4090,18 @@ export default function App() {
     }
 
     let cancelled = false;
+    const abortController = new AbortController();
     fetchingSummaryRef.current.add(bookId);
     setLoadingSummaryForBookId(bookId);
+    const summaryToken = beginBookRequest('summary', bookId);
 
     const fetchTimer = setTimeout(() => {
       if (cancelled) return;
-      getBookSummary(currentBook.title, currentBook.author).then((summary) => {
-        if (cancelled) return;
+      getBookSummary(currentBook.title, currentBook.author, abortController.signal).then((summary) => {
+        if (cancelled || !isActiveBookRequest('summary', bookId, summaryToken)) {
+          fetchingSummaryRef.current.delete(bookId);
+          return;
+        }
         setLoadingSummaryForBookId(null);
         fetchingSummaryRef.current.delete(bookId);
         if (summary) {
@@ -4021,7 +4112,10 @@ export default function App() {
           });
         }
       }).catch((err) => {
-        if (cancelled) return;
+        if (cancelled || !isActiveBookRequest('summary', bookId, summaryToken)) {
+          fetchingSummaryRef.current.delete(bookId);
+          return;
+        }
         setLoadingSummaryForBookId(null);
         fetchingSummaryRef.current.delete(bookId);
         console.error('[BookSummary] Error:', err);
@@ -4031,8 +4125,9 @@ export default function App() {
     // Also fetch character avatars
     if (!characterAvatars.has(bookId)) {
       setLoadingAvatarsForBookId(bookId);
+      const avatarToken = beginBookRequest('avatars', bookId);
       getCharacterAvatars(currentBook.title, currentBook.author).then((avatars) => {
-        if (cancelled) return;
+        if (cancelled || !isActiveBookRequest('avatars', bookId, avatarToken)) return;
         setLoadingAvatarsForBookId(null);
         if (avatars.length > 0) {
           setCharacterAvatars(prev => {
@@ -4042,7 +4137,7 @@ export default function App() {
           });
         }
       }).catch((err) => {
-        if (cancelled) return;
+        if (cancelled || !isActiveBookRequest('avatars', bookId, avatarToken)) return;
         setLoadingAvatarsForBookId(null);
         console.error('[CharacterAvatars] Error:', err);
       });
@@ -4050,9 +4145,17 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      setLoadingSummaryForBookId(null);
-      setLoadingAvatarsForBookId(null);
       fetchingSummaryRef.current.delete(bookId);
+      if (isActiveBookRequest('summary', bookId, summaryToken)) {
+        setLoadingSummaryForBookId(null);
+        clearBookRequest('summary', bookId, summaryToken);
+      }
+      abortController.abort();
+      const activeAvatar = activeBookRequestsRef.current.get('avatars');
+      if (activeAvatar?.bookId === bookId) {
+        setLoadingAvatarsForBookId(null);
+        activeBookRequestsRef.current.delete('avatars');
+      }
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]);
@@ -7265,35 +7368,6 @@ export default function App() {
               const target = e.currentTarget;
               updateScrollY(target.scrollTop);
             }}
-            onTouchStart={(e) => {
-              // Track touch start for book navigation swipe
-              const touch = e.touches[0];
-              setBookTouchStart({ x: touch.clientX, y: touch.clientY });
-            }}
-            onTouchMove={(e) => {
-              // Allow native bounce on touch devices
-              const target = e.currentTarget;
-              const { scrollTop, scrollHeight, clientHeight } = target;
-              const isAtTop = scrollTop === 0;
-              const isAtBottom = scrollTop + clientHeight >= scrollHeight - 1;
-              
-              // Track touch end for swipe detection (only at top/bottom to avoid scroll interference)
-              if ((isAtTop || isAtBottom) && bookTouchStart) {
-                const touch = e.touches[0];
-                setBookTouchEnd({ x: touch.clientX, y: touch.clientY });
-              }
-              
-              // Let native bounce behavior work
-              if (isAtTop || isAtBottom) {
-                // Native iOS bounce will handle this
-                return;
-              }
-            }}
-            onTouchEnd={() => {
-              if (bookTouchStart && bookTouchEnd) {
-                handleBookSwipe();
-              }
-            }}
           >
           {/* Back button and book info header */}
           <motion.div
@@ -7744,12 +7818,6 @@ export default function App() {
                 )}
               </AnimatePresence>
 
-              {books.length > 1 && !isShowingNotes && (
-                <>
-                  <button onClick={() => { triggerMediumHaptic(); setSelectedIndex(prev => (prev > 0 ? prev - 1 : books.length - 1)); }} className="absolute left-0 top-1/2 -translate-y-1/2 p-4 text-white drop-shadow-lg z-10 opacity-0 group-hover:opacity-100 transition-opacity"><ChevronLeft size={36} /></button>
-                  <button onClick={() => { triggerMediumHaptic(); setSelectedIndex(prev => (prev < books.length - 1 ? prev + 1 : 0)); }} className="absolute right-0 top-1/2 -translate-y-1/2 p-4 text-white drop-shadow-lg z-10 opacity-0 group-hover:opacity-100 transition-opacity"><ChevronRight size={36} /></button>
-                </>
-              )}
             </div>
 
             {/* Chat Panel — row of 5 avatars below cover */}

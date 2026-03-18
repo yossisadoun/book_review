@@ -157,28 +157,6 @@ export async function getAuthorFacts(bookTitle: string, author: string): Promise
 export async function getFirstIssueYear(bookTitle: string, author: string): Promise<number | null> {
   console.log(`[getFirstIssueYear] 🔄 Fetching first issue year for "${bookTitle}" by ${author}`);
 
-  const normalizedTitle = bookTitle.toLowerCase().trim();
-  const normalizedAuthor = author.toLowerCase().trim();
-
-  // Check cache first
-  try {
-    const { data: cachedData, error: cacheError } = await supabase
-      .from('author_facts_cache')
-      .select('first_issue_year')
-      .eq('book_title', normalizedTitle)
-      .eq('book_author', normalizedAuthor)
-      .maybeSingle();
-
-    if (!cacheError && cachedData && cachedData.first_issue_year != null) {
-      console.log(`[getFirstIssueYear] ✅ Found cached first_issue_year: ${cachedData.first_issue_year}`);
-      return cachedData.first_issue_year as number;
-    } else if (cacheError && cacheError.code !== 'PGRST116') {
-      console.warn('[getFirstIssueYear] ⚠️ Error checking cache:', cacheError);
-    }
-  } catch (err) {
-    console.warn('[getFirstIssueYear] ⚠️ Error checking cache:', err);
-  }
-
   // Fetch from Grok API
   if (!grokApiKey) {
     console.warn('[getFirstIssueYear] API key is missing!');
@@ -223,37 +201,9 @@ export async function getFirstIssueYear(bookTitle: string, author: string): Prom
 
     console.log(`[getFirstIssueYear] ✅ Parsed first_issue_year: ${year}`);
 
-    // Save to cache (upsert into author_facts_cache)
-    if (year != null) {
-      try {
-        const { data: existing } = await supabase
-          .from('author_facts_cache')
-          .select('id')
-          .eq('book_title', normalizedTitle)
-          .eq('book_author', normalizedAuthor)
-          .maybeSingle();
-
-        if (existing) {
-          await supabase
-            .from('author_facts_cache')
-            .update({ first_issue_year: year, updated_at: new Date().toISOString() })
-            .eq('book_title', normalizedTitle)
-            .eq('book_author', normalizedAuthor);
-        } else {
-          await supabase
-            .from('author_facts_cache')
-            .insert({
-              book_title: normalizedTitle,
-              book_author: normalizedAuthor,
-              author_facts: [],
-              first_issue_year: year,
-            });
-        }
-        console.log(`[getFirstIssueYear] 💾 Saved first_issue_year ${year} to author_facts_cache`);
-      } catch (err) {
-        console.error('[getFirstIssueYear] ❌ Error saving to cache:', err);
-      }
-    }
+    // Cache writes for first_issue_year are intentionally skipped here because
+    // some deployed DB schemas do not include this column on author_facts_cache.
+    // The caller persists this value to the books table instead.
 
     return year;
   } catch (err: any) {

@@ -38,6 +38,9 @@ export async function fetchWithRetry(url: string, options: RequestInit = {}, ret
 
   for (let i = 0; i < retries; i++) {
     try {
+      if (options.signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
       const res = await fetch(url, options);
       if (res.ok) return await res.json();
 
@@ -87,6 +90,9 @@ export async function fetchWithRetry(url: string, options: RequestInit = {}, ret
       }
       throw new Error(`HTTP ${res.status}: ${errorBody || ''}`);
     } catch (err) {
+      if ((err as any)?.name === 'AbortError') {
+        throw err;
+      }
       if (i === retries - 1) throw err;
       await new Promise(resolve => setTimeout(resolve, delay));
       delay *= 2;

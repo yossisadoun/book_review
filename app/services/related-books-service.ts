@@ -5,7 +5,7 @@ import { loadPrompts, formatPrompt } from '@/lib/prompts';
 import { lookupBooksOnAppleBooks } from './apple-books-service';
 
 // --- Related Books (Grok API) ---
-export async function getRelatedBooks(bookTitle: string, author: string): Promise<RelatedBook[]> {
+export async function getRelatedBooks(bookTitle: string, author: string, signal?: AbortSignal): Promise<RelatedBook[]> {
   console.log(`[getRelatedBooks] 🔄 Fetching related books for "${bookTitle}" by ${author}`);
 
   // Check database cache first
@@ -85,7 +85,8 @@ export async function getRelatedBooks(bookTitle: string, author: string): Promis
         "Authorization": `Bearer ${grokApiKey}`,
         "Accept": "application/json",
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal,
     }, 2, 3000);
 
     // Log usage
@@ -156,6 +157,9 @@ export async function getRelatedBooks(bookTitle: string, author: string): Promis
 
     return validBooks;
   } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw err;
+    }
     console.error('[getRelatedBooks] ❌ Error:', err);
     return [];
   }

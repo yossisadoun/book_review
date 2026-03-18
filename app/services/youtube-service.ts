@@ -15,7 +15,7 @@ function parseDuration(iso: string): string {
 }
 
 // --- YouTube Data API ---
-export async function getYouTubeVideos(bookTitle: string, author: string): Promise<YouTubeVideo[]> {
+export async function getYouTubeVideos(bookTitle: string, author: string, signal?: AbortSignal): Promise<YouTubeVideo[]> {
   console.log(`[getYouTubeVideos] 🔄 Searching YouTube for "${bookTitle}" by ${author}`);
 
   // Check database cache first
@@ -75,7 +75,7 @@ export async function getYouTubeVideos(bookTitle: string, author: string): Promi
     const url1 = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query1)}&type=video&maxResults=5&key=${youtubeApiKey}`;
 
     console.log(`[getYouTubeVideos] 🔍 Query 1: "${query1}"`);
-    const response1 = await fetch(url1);
+    const response1 = await fetch(url1, { signal });
     if (response1.ok) {
       const data1 = await response1.json();
       if (data1.items) {
@@ -139,7 +139,7 @@ export async function getYouTubeVideos(bookTitle: string, author: string): Promi
     const url2 = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query2)}&type=video&maxResults=5&key=${youtubeApiKey}`;
 
     console.log(`[getYouTubeVideos] 🔍 Query 2: "${query2}"`);
-    const response2 = await fetch(url2);
+    const response2 = await fetch(url2, { signal });
     if (response2.ok) {
       const data2 = await response2.json();
       if (data2.items) {
@@ -209,7 +209,7 @@ export async function getYouTubeVideos(bookTitle: string, author: string): Promi
       try {
         const videoIds = limitedVideos.map(v => v.videoId).join(',');
         const durationUrl = `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${videoIds}&key=${youtubeApiKey}`;
-        const durationRes = await fetch(durationUrl);
+        const durationRes = await fetch(durationUrl, { signal });
         if (durationRes.ok) {
           const durationData = await durationRes.json();
           const durationMap = new Map<string, string>();
@@ -225,6 +225,9 @@ export async function getYouTubeVideos(bookTitle: string, author: string): Promi
           }
         }
       } catch (err) {
+        if ((err as any)?.name === 'AbortError') {
+          throw err;
+        }
         console.warn('[getYouTubeVideos] ⚠️ Could not fetch durations:', err);
       }
     }
@@ -238,6 +241,9 @@ export async function getYouTubeVideos(bookTitle: string, author: string): Promi
 
     return limitedVideos;
   } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw err;
+    }
     console.error('[getYouTubeVideos] ❌ Error:', err);
     console.error('[getYouTubeVideos] Error details:', {
       message: err.message,

@@ -16,6 +16,12 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const pageSource = readFileSync(join(__dirname, '../app/page.tsx'), 'utf-8');
+const articlesServiceSource = readFileSync(join(__dirname, '../app/services/articles-service.ts'), 'utf-8');
+const youtubeServiceSource = readFileSync(join(__dirname, '../app/services/youtube-service.ts'), 'utf-8');
+const relatedBooksServiceSource = readFileSync(join(__dirname, '../app/services/related-books-service.ts'), 'utf-8');
+const relatedMoviesServiceSource = readFileSync(join(__dirname, '../app/services/related-movies-service.ts'), 'utf-8');
+const summaryServiceSource = readFileSync(join(__dirname, '../app/services/book-summary-service.ts'), 'utf-8');
+const apiUtilsServiceSource = readFileSync(join(__dirname, '../app/services/api-utils.ts'), 'utf-8');
 
 describe('AccountPage wiring in page.tsx', () => {
   it('should not contain orphaned AccountPage state variables', () => {
@@ -220,5 +226,62 @@ describe('Lazy chunk retry guards', () => {
     expect(pageSource).toContain('function lazyWithChunkRetry');
     expect(pageSource).toContain('window.location.reload()');
     expect(pageSource).toContain('ChunkLoadError');
+  });
+});
+
+describe('Book detail navigation controls', () => {
+  it('should not keep swipe-based next/prev book navigation state in page.tsx', () => {
+    expect(pageSource).not.toContain('bookTouchStart');
+    expect(pageSource).not.toContain('bookTouchEnd');
+    expect(pageSource).not.toContain('handleBookSwipe');
+  });
+
+  it('should not render hover prev/next cover arrow buttons', () => {
+    expect(pageSource).not.toContain('<ChevronLeft size={36} />');
+    expect(pageSource).not.toContain('<ChevronRight size={36} />');
+  });
+});
+
+describe('Book detail request stale-response guards', () => {
+  it('defines request token guard helpers in page.tsx', () => {
+    expect(pageSource).toContain('const activeBookRequestsRef = useRef<Map<BookRequestType');
+    expect(pageSource).toContain('const beginBookRequest = useCallback');
+    expect(pageSource).toContain('const isActiveBookRequest = useCallback');
+  });
+
+  it('guards async book-detail fetch handlers against stale responses', () => {
+    expect(pageSource).toContain("isActiveBookRequest('podcasts', bookId, requestToken)");
+    expect(pageSource).toContain("isActiveBookRequest('videos', bookId, requestToken)");
+    expect(pageSource).toContain("isActiveBookRequest('articles', bookId, requestToken)");
+    expect(pageSource).toContain("isActiveBookRequest('related_books', bookId, requestToken)");
+    expect(pageSource).toContain("isActiveBookRequest('related_movies', bookId, requestToken)");
+  });
+});
+
+describe('Book detail request cancellation wiring', () => {
+  it('creates AbortController per fetch effect and aborts on cleanup', () => {
+    expect(pageSource).toContain('const abortController = new AbortController();');
+    expect(pageSource).toContain('abortController.abort();');
+  });
+
+  it('passes AbortController signal to cancellable book-detail services', () => {
+    expect(pageSource).toContain('getGoogleScholarAnalysis(bookTitle, bookAuthor, abortController.signal)');
+    expect(pageSource).toContain('getYouTubeVideos(bookTitle, bookAuthor, abortController.signal)');
+    expect(pageSource).toContain('getRelatedBooks(bookTitle, bookAuthor, abortController.signal)');
+    expect(pageSource).toContain('getRelatedMovies(bookTitle, bookAuthor, abortController.signal)');
+    expect(pageSource).toContain('getBookSummary(currentBook.title, currentBook.author, abortController.signal)');
+  });
+
+  it('supports signal argument in service fetch entry points', () => {
+    expect(articlesServiceSource).toContain('signal?: AbortSignal');
+    expect(youtubeServiceSource).toContain('signal?: AbortSignal');
+    expect(relatedBooksServiceSource).toContain('signal?: AbortSignal');
+    expect(relatedMoviesServiceSource).toContain('signal?: AbortSignal');
+    expect(summaryServiceSource).toContain('signal?: AbortSignal');
+  });
+
+  it('stops retry loop immediately on abort in fetchWithRetry', () => {
+    expect(apiUtilsServiceSource).toContain("if (options.signal?.aborted)");
+    expect(apiUtilsServiceSource).toContain("if ((err as any)?.name === 'AbortError')");
   });
 });

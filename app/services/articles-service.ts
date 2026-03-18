@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import type { AnalysisArticle } from '../types';
 
 // --- Google Scholar API ---
-export async function getGoogleScholarAnalysis(bookTitle: string, author: string): Promise<AnalysisArticle[]> {
+export async function getGoogleScholarAnalysis(bookTitle: string, author: string, signal?: AbortSignal): Promise<AnalysisArticle[]> {
   console.log(`[getGoogleScholarAnalysis] 🔄 Searching Google Scholar for "${bookTitle}" by ${author}`);
 
   // Normalize for database lookup
@@ -47,6 +47,9 @@ export async function getGoogleScholarAnalysis(bookTitle: string, author: string
   }
 
   // Construct search query: book title + author + (Analysis OR Review OR Criticism)
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
   const searchQuery = `"${bookTitle}" "${author}" (Analysis OR Review OR Criticism)`;
   const encodedQuery = encodeURIComponent(searchQuery);
 
@@ -79,17 +82,27 @@ export async function getGoogleScholarAnalysis(bookTitle: string, author: string
 
     try {
       const controller = new AbortController();
+      const relayAbort = () => controller.abort();
+      if (signal) {
+        signal.addEventListener('abort', relayAbort, { once: true });
+      }
       const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
 
-      const response = await fetch(config.url, {
-        method: 'GET',
-        headers: {
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
+      let response: Response;
+      try {
+        response = await fetch(config.url, {
+          method: 'GET',
+          headers: {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          },
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+        if (signal) {
+          signal.removeEventListener('abort', relayAbort);
+        }
+      }
 
       if (!response.ok) {
         // Silently skip 403/500 errors (expected from proxies)
@@ -190,6 +203,9 @@ export async function getGoogleScholarAnalysis(bookTitle: string, author: string
         return articles;
       }
     } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw err;
+      }
       // Silently handle errors (proxies are unreliable)
       // Only log unexpected errors
       if (err.name !== 'AbortError' && !err.message?.includes('CORS') && !err.message?.includes('Failed to fetch') && !err.message?.includes('blocked')) {
@@ -201,6 +217,9 @@ export async function getGoogleScholarAnalysis(bookTitle: string, author: string
 
   // Check if we successfully parsed pages but found no articles
   // This means Google Scholar has no results for this book, so save empty array to prevent future calls
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
   console.log(`[getGoogleScholarAnalysis] ⚠️ No articles found after trying all proxies. This book may have no scholarly analysis available.`);
 
   // Save empty array to database to prevent future unnecessary API calls

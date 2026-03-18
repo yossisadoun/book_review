@@ -220,7 +220,7 @@ async function enrichWithTmdb(movie: RelatedMovie): Promise<RelatedMovie> {
 }
 
 // --- Related Movies/Shows (Grok API) ---
-export async function getRelatedMovies(bookTitle: string, author: string): Promise<RelatedMovie[]> {
+export async function getRelatedMovies(bookTitle: string, author: string, signal?: AbortSignal): Promise<RelatedMovie[]> {
   console.log(`[getRelatedMovies] Fetching related movies for "${bookTitle}" by ${author}`);
 
   // Check database cache first
@@ -319,7 +319,8 @@ export async function getRelatedMovies(bookTitle: string, author: string): Promi
         "Authorization": `Bearer ${grokApiKey}`,
         "Accept": "application/json",
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal,
     }, 2, 3000);
 
     // Log usage
@@ -395,6 +396,9 @@ export async function getRelatedMovies(bookTitle: string, author: string): Promi
 
     return tmdbEnrichedMovies;
   } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw err;
+    }
     console.error('[getRelatedMovies] Error:', err);
     return [];
   }
