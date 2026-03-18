@@ -14,7 +14,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-async function logUsage(req: Request, functionName: string, usage: any): Promise<void> {
+async function logUsage(req: Request, functionName: string, usage: any, model: string, startTime: number): Promise<void> {
   if (!usage || typeof usage.prompt_tokens !== 'number') return
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -36,6 +36,9 @@ async function logUsage(req: Request, functionName: string, usage: any): Promise
       completion_tokens: completionTokens,
       total_tokens: usage.total_tokens || (promptTokens + completionTokens),
       estimated_cost: estimatedCost,
+      source: 'edge',
+      model,
+      duration_ms: Math.round(Date.now() - startTime),
     })
   } catch (_) { /* fire-and-forget */ }
 }
@@ -449,6 +452,8 @@ These are 3 short (under 8 words each) contextual follow-up prompts the user mig
         ]
       }
 
+      const charModel = 'grok-4-1-fast-non-reasoning'
+      const charStart = Date.now()
       const response = await fetch(GROK_CHAT_URL, {
         method: 'POST',
         headers: {
@@ -458,7 +463,7 @@ These are 3 short (under 8 words each) contextual follow-up prompts the user mig
         },
         body: JSON.stringify({
           messages: grokMessages,
-          model: 'grok-4-1-fast-non-reasoning',
+          model: charModel,
           stream: false,
           temperature: 0.8,
         }),
@@ -468,7 +473,7 @@ These are 3 short (under 8 words each) contextual follow-up prompts the user mig
       const assistantContent = data.choices?.[0]?.message?.content || ''
 
       const charFn = mode === 'greeting' ? 'character_chat_greeting' : 'character_chat'
-      logUsage(req, charFn, data.usage)
+      logUsage(req, charFn, data.usage, charModel, charStart)
 
       return new Response(
         JSON.stringify({ content: assistantContent, usage: data.usage }),
@@ -582,6 +587,8 @@ RULES
       ]
     }
 
+    const bookModel = 'grok-4-1-fast-non-reasoning'
+    const bookStart = Date.now()
     const response = await fetch(GROK_CHAT_URL, {
       method: 'POST',
       headers: {
@@ -591,7 +598,7 @@ RULES
       },
       body: JSON.stringify({
         messages: grokMessages,
-        model: 'grok-4-1-fast-non-reasoning',
+        model: bookModel,
         stream: false,
         temperature: 0.7,
       }),
@@ -602,7 +609,7 @@ RULES
     const assistantContent = data.choices?.[0]?.message?.content || ''
 
     const bookFn = mode === 'greeting' ? 'book_chat_greeting' : mode === 'proactive' ? 'proactive_message' : 'book_chat'
-    logUsage(req, bookFn, data.usage)
+    logUsage(req, bookFn, data.usage, bookModel, bookStart)
 
     return new Response(
       JSON.stringify({ content: assistantContent, usage: data.usage }),

@@ -165,7 +165,12 @@ export const GROK_INPUT_PRICE_PER_M = 0.20;  // $0.20 per million input tokens
 export const GROK_OUTPUT_PRICE_PER_M = 0.50;  // $0.50 per million output tokens
 export const GROK_WEB_SEARCH_PRICE_PER_CALL = 0.005;  // $0.005 per web search call (estimate)
 
-export async function logGrokUsage(functionName: string, usage: GrokUsageInput | undefined, webSearchCalls?: number): Promise<void> {
+export async function logGrokUsage(
+  functionName: string,
+  usage: GrokUsageInput | undefined,
+  webSearchCalls?: number,
+  opts?: { model?: string; tools?: string[]; startTime?: number }
+): Promise<void> {
   if (!usage || typeof usage.prompt_tokens !== 'number' || typeof usage.completion_tokens !== 'number') {
     return;
   }
@@ -199,7 +204,11 @@ export async function logGrokUsage(functionName: string, usage: GrokUsageInput |
         completion_tokens: completionTokens,
         total_tokens: totalTokens,
         estimated_cost: estimatedCost,
+        source: 'client',
         ...(searchCalls > 0 ? { web_search_calls: searchCalls } : {}),
+        ...(opts?.model ? { model: opts.model } : {}),
+        ...(opts?.tools?.length ? { tools: opts.tools } : {}),
+        ...(opts?.startTime ? { duration_ms: Math.round(Date.now() - opts.startTime) } : {}),
       });
 
     if (error) {
@@ -232,6 +241,8 @@ export async function logImageGeneration(functionName: string, imageCount: numbe
         completion_tokens: 0,
         total_tokens: 0,
         estimated_cost: estimatedCost,
+        source: 'client',
+        model: 'flux-2-klein-4b',
       });
 
     if (error) {

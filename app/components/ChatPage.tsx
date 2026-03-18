@@ -226,6 +226,45 @@ export default function ChatPage({
     return ctx;
   }, [books, relatedBooks]);
 
+  // --- Memoized book chat context ---
+  const activeBookId = activeBook?.id;
+  const activeBookContext = useMemo((): BookChatContext | null => {
+    if (!activeBook) return null;
+    const ctx: BookChatContext = {
+      title: activeBook.title,
+      author: activeBook.author,
+      genre: activeBook.genre,
+      publishYear: activeBook.publish_year,
+      summary: activeBook.summary,
+      readingStatus: activeBook.reading_status || null,
+      userNotes: activeBook.notes,
+      userRatings: activeBook.ratings,
+    };
+    const ins: BookChatContext['insights'] = {};
+    const authorFacts = activeBook.author_facts;
+    if (authorFacts?.length) ins.authorFacts = authorFacts;
+    const influences = bookInfluences.get(activeBook.id);
+    if (influences?.length) ins.influences = influences;
+    const domain = bookDomain.get(activeBook.id);
+    if (domain) ins.domain = domain;
+    const context = bookContext.get(activeBook.id);
+    if (context?.length) ins.context = context;
+    const dyk = didYouKnow.get(activeBook.id);
+    if (dyk?.length) ins.didYouKnow = dyk;
+    if (Object.keys(ins).length) ctx.insights = ins;
+    if (combinedPodcastEpisodes?.length) ctx.podcasts = combinedPodcastEpisodes.map(p => ({ title: p.title, podcast_name: p.podcast_name, url: p.url, thumbnail: p.thumbnail, length: p.length, audioUrl: p.audioUrl }));
+    const videos = youtubeVideos.get(activeBook.id);
+    if (videos?.length) ctx.videos = videos.map(v => ({ title: v.title, channelTitle: v.channelTitle, videoId: v.videoId }));
+    const articles = analysisArticles.get(activeBook.id);
+    if (articles?.length) ctx.articles = articles.map(a => ({ title: a.title, url: a.url, snippet: a.snippet, authors: a.authors, year: a.year }));
+    const related = relatedBooks.get(activeBook.id);
+    if (related?.length) ctx.relatedBooks = related.map(b => ({ title: b.title, author: b.author, reason: b.reason, cover_url: b.cover_url, thumbnail: b.thumbnail }));
+    const movies = relatedMovies.get(activeBook.id);
+    if (movies?.length) ctx.relatedWorks = movies.map(m => ({ title: m.title, director: m.director, reason: m.reason, type: m.type, poster_url: m.poster_url, release_year: m.release_year, wikipedia_url: m.wikipedia_url, itunes_url: m.itunes_url, itunes_artwork: m.itunes_artwork, music_links: m.music_links }));
+    if (discussionQuestions?.length) ctx.discussionQuestions = discussionQuestions.map(q => ({ question: q.question, category: q.category }));
+    return ctx;
+  }, [activeBookId, activeBook?.title, activeBook?.author, activeBook?.genre, activeBook?.publish_year, activeBook?.summary, activeBook?.reading_status, activeBook?.notes, activeBook?.ratings, activeBook?.author_facts, bookInfluences, bookDomain, bookContext, didYouKnow, combinedPodcastEpisodes, youtubeVideos, analysisArticles, relatedBooks, relatedMovies, discussionQuestions]);
+
   // --- Render ---
   return (
     <motion.main
@@ -354,41 +393,7 @@ export default function ChatPage({
       ) : chatBookSelected && activeBook ? (
         <BookChat
           book={activeBook}
-          bookContext={(() => {
-            const ctx: BookChatContext = {
-              title: activeBook.title,
-              author: activeBook.author,
-              genre: activeBook.genre,
-              publishYear: activeBook.publish_year,
-              summary: activeBook.summary,
-              readingStatus: activeBook.reading_status || null,
-              userNotes: activeBook.notes,
-              userRatings: activeBook.ratings,
-            };
-            const insights: BookChatContext['insights'] = {};
-            const authorFacts = activeBook.author_facts;
-            if (authorFacts?.length) insights.authorFacts = authorFacts;
-            const influences = bookInfluences.get(activeBook.id);
-            if (influences?.length) insights.influences = influences;
-            const domain = bookDomain.get(activeBook.id);
-            if (domain) insights.domain = domain;
-            const context = bookContext.get(activeBook.id);
-            if (context?.length) insights.context = context;
-            const dyk = didYouKnow.get(activeBook.id);
-            if (dyk?.length) insights.didYouKnow = dyk;
-            if (Object.keys(insights).length) ctx.insights = insights;
-            if (combinedPodcastEpisodes?.length) ctx.podcasts = combinedPodcastEpisodes.map(p => ({ title: p.title, podcast_name: p.podcast_name, url: p.url, thumbnail: p.thumbnail, length: p.length, audioUrl: p.audioUrl }));
-            const videos = youtubeVideos.get(activeBook.id);
-            if (videos?.length) ctx.videos = videos.map(v => ({ title: v.title, channelTitle: v.channelTitle, videoId: v.videoId }));
-            const articles = analysisArticles.get(activeBook.id);
-            if (articles?.length) ctx.articles = articles.map(a => ({ title: a.title, url: a.url, snippet: a.snippet, authors: a.authors, year: a.year }));
-            const related = relatedBooks.get(activeBook.id);
-            if (related?.length) ctx.relatedBooks = related.map(b => ({ title: b.title, author: b.author, reason: b.reason, cover_url: b.cover_url, thumbnail: b.thumbnail }));
-            const movies = relatedMovies.get(activeBook.id);
-            if (movies?.length) ctx.relatedWorks = movies.map(m => ({ title: m.title, director: m.director, reason: m.reason, type: m.type, poster_url: m.poster_url, release_year: m.release_year, wikipedia_url: m.wikipedia_url, itunes_url: m.itunes_url, itunes_artwork: m.itunes_artwork, music_links: m.music_links }));
-            if (discussionQuestions?.length) ctx.discussionQuestions = discussionQuestions.map(q => ({ question: q.question, category: q.category }));
-            return ctx;
-          })()}
+          bookContext={activeBookContext!}
           onBack={() => {
             setChatBookSelected(false);
             setScrollY(0);
