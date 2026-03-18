@@ -360,6 +360,7 @@ const SpotlightSection = React.memo(function SpotlightSection({
       case 'podcast': {
         const pods = podcastEpisodes.get(spotBookId);
         const allPods = [...(pods?.curated || []), ...(pods?.apple || [])];
+
         if (idx >= allPods.length) return null;
         return <PodcastEpisodes episodes={[allPods[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} showSend={showSend} renderAction={() => {
           const hash = getContentHash('podcast', allPods[idx]?.url || '');
@@ -374,6 +375,7 @@ const SpotlightSection = React.memo(function SpotlightSection({
       }
       case 'video': {
         const vids = youtubeVideos.get(spotBookId);
+
         if (!vids || idx >= vids.length) return null;
         return <YouTubeVideos videos={[vids[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showComment={showComment} showSend={showSend} renderAction={() => {
           const hash = getContentHash('youtube', vids[idx]?.videoId || '');
@@ -388,6 +390,7 @@ const SpotlightSection = React.memo(function SpotlightSection({
       }
       case 'article': {
         const arts = analysisArticles.get(spotBookId);
+
         if (!arts) return null;
         const realArts = arts.filter((a: any) => !a.url?.includes('scholar.google.com/scholar?q='));
         if (idx >= realArts.length) return null;
@@ -404,6 +407,7 @@ const SpotlightSection = React.memo(function SpotlightSection({
       }
       case 'movie': {
         const movies = relatedMovies.get(spotBookId);
+
         if (!movies || idx >= movies.length) return null;
         return <RelatedMovies movies={[movies[idx]]} bookId={`${keyPrefix}-${spotBookId}-${idx}`} isLoading={false} showPlayButtons={showMoviePlayButtons} showComment={showComment} showSend={showSend} renderAction={() => {
           const hash = getContentHash('movie', movies[idx]?.title || '');
@@ -605,6 +609,47 @@ export default function App() {
   // Book infographic state
   const [bookInfographics, setBookInfographics] = useState<Map<string, BookInfographic>>(new Map());
   const [loadingInfographicForBookId, setLoadingInfographicForBookId] = useState<string | null>(null);
+
+  // Safety net: auto-clear any loading state stuck longer than 10 seconds.
+  // Prevents permanent skeleton if a service hangs or silently fails.
+  const loadingTimestamps = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    const loadingStates = [
+      { key: 'facts', value: loadingFactsForBookId, clear: setLoadingFactsForBookId },
+      { key: 'influences', value: loadingInfluencesForBookId, clear: setLoadingInfluencesForBookId },
+      { key: 'domain', value: loadingDomainForBookId, clear: setLoadingDomainForBookId },
+      { key: 'context', value: loadingContextForBookId, clear: setLoadingContextForBookId },
+      { key: 'didYouKnow', value: loadingDidYouKnowForBookId, clear: setLoadingDidYouKnowForBookId },
+      { key: 'podcasts', value: loadingPodcastsForBookId, clear: setLoadingPodcastsForBookId },
+      { key: 'analysis', value: loadingAnalysisForBookId, clear: setLoadingAnalysisForBookId },
+      { key: 'videos', value: loadingVideosForBookId, clear: setLoadingVideosForBookId },
+      { key: 'related', value: loadingRelatedForBookId, clear: setLoadingRelatedForBookId },
+      { key: 'relatedMovies', value: loadingRelatedMoviesForBookId, clear: setLoadingRelatedMoviesForBookId },
+      { key: 'summary', value: loadingSummaryForBookId, clear: setLoadingSummaryForBookId },
+      { key: 'avatars', value: loadingAvatarsForBookId, clear: setLoadingAvatarsForBookId },
+    ];
+    // Track when each loading state started
+    for (const { key, value } of loadingStates) {
+      if (value) {
+        if (!loadingTimestamps.current.has(key)) loadingTimestamps.current.set(key, Date.now());
+      } else {
+        loadingTimestamps.current.delete(key);
+      }
+    }
+    const timer = setInterval(() => {
+      const now = Date.now();
+      for (const { key, value, clear } of loadingStates) {
+        const started = loadingTimestamps.current.get(key);
+        if (value && started && now - started > 30_000) {
+          console.warn(`[LoadingTimeout] Clearing stuck loading state: ${key}`);
+          loadingTimestamps.current.delete(key);
+          clear(null);
+        }
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  });
+
   const [showInfographicModal, setShowInfographicModal] = useState(false);
   const [infographicSection, setInfographicSection] = useState<'characters' | 'timeline'>('characters');
   const [isInfographicDropdownOpen, setIsInfographicDropdownOpen] = useState(false);
@@ -2143,69 +2188,8 @@ export default function App() {
     return episodes;
   }, [activeBook?.id, podcastEpisodes]);
 
-  const bookPageSectionsResolved = useMemo(() => {
-    if (!activeBook) return true;
-
-    const hasFacts = activeBook.author_facts && activeBook.author_facts.length > 0;
-    const research = researchData.get(activeBook.id) || null;
-    const hasResearch = !!(research && research.pillars && research.pillars.length > 0);
-    const influences = bookInfluences.get(activeBook.id) || [];
-    const hasInfluences = influences.length > 0;
-    const domainData = bookDomain.get(activeBook.id);
-    const hasDomain = !!(domainData && domainData.facts && domainData.facts.length > 0);
-    const contextInsights = bookContext.get(activeBook.id) || [];
-    const hasContext = contextInsights.length > 0;
-
-    const isLoadingFacts = loadingFactsForBookId === activeBook.id && !hasFacts;
-    const isLoadingResearch = loadingResearchForBookId === activeBook.id && !hasResearch;
-    const isLoadingInfluences = loadingInfluencesForBookId === activeBook.id && !hasInfluences;
-    const isLoadingDomain = loadingDomainForBookId === activeBook.id && !hasDomain;
-    const isLoadingContext = loadingContextForBookId === activeBook.id && !hasContext;
-    const isInsightsLoading = isLoadingFacts || isLoadingResearch || isLoadingInfluences || isLoadingDomain || isLoadingContext;
-
-    const hasEpisodes = combinedPodcastEpisodes.length > 0;
-    const isPodcastsLoading = loadingPodcastsForBookId === activeBook.id && !hasEpisodes;
-
-    const videos = youtubeVideos.get(activeBook.id) || [];
-    const hasVideos = videos.length > 0;
-    const isVideosLoading = loadingVideosForBookId === activeBook.id && !hasVideos;
-
-    const articles = analysisArticles.get(activeBook.id) || [];
-    const hasRealArticles = articles.length > 0 && articles.some(article => {
-      const isFallback = article.title?.includes('Search Google Scholar') ||
-                         (article.url && article.url.includes('scholar.google.com/scholar?q='));
-      return !isFallback;
-    });
-    const hasOnlyFallback = articles.length > 0 && !hasRealArticles;
-    const hasArticles = hasRealArticles;
-    const isAnalysisLoading = loadingAnalysisForBookId === activeBook.id && !hasArticles && !hasOnlyFallback;
-
-    const related = relatedBooks.get(activeBook.id);
-    const hasData = related !== undefined;
-    const isRelatedLoading = loadingRelatedForBookId === activeBook.id && !hasData;
-
-    return !(isInsightsLoading || isPodcastsLoading || isVideosLoading || isAnalysisLoading || isRelatedLoading);
-  }, [
-    activeBook?.id,
-    activeBook?.author_facts,
-    combinedPodcastEpisodes.length,
-    researchData,
-    bookInfluences,
-    bookDomain,
-    bookContext,
-    youtubeVideos,
-    analysisArticles,
-    relatedBooks,
-    loadingFactsForBookId,
-    loadingResearchForBookId,
-    loadingInfluencesForBookId,
-    loadingDomainForBookId,
-    loadingContextForBookId,
-    loadingPodcastsForBookId,
-    loadingVideosForBookId,
-    loadingAnalysisForBookId,
-    loadingRelatedForBookId,
-  ]);
+  // No all-or-nothing gate for book page sections — each section independently
+  // manages its own loading skeleton so one slow/failing service never blocks the rest.
 
   const bookDetailInsightsState = useMemo(() => {
     const emptyState = {
@@ -2238,12 +2222,12 @@ export default function App() {
     const hasContext = contextInsights.length > 0;
     const didYouKnowInsights = didYouKnow.get(activeBook.id) || [];
     const hasDidYouKnow = didYouKnowInsights.length > 0;
-    const isLoadingFacts = !bookPageSectionsResolved && loadingFactsForBookId === activeBook.id && !hasFacts;
-    const isLoadingResearch = !bookPageSectionsResolved && loadingResearchForBookId === activeBook.id && !hasResearch;
-    const isLoadingInfluences = !bookPageSectionsResolved && loadingInfluencesForBookId === activeBook.id && !hasInfluences;
-    const isLoadingDomain = !bookPageSectionsResolved && loadingDomainForBookId === activeBook.id && !hasDomain;
-    const isLoadingContext = !bookPageSectionsResolved && loadingContextForBookId === activeBook.id && !hasContext;
-    const isLoadingDidYouKnow = !bookPageSectionsResolved && loadingDidYouKnowForBookId === activeBook.id && !hasDidYouKnow;
+    const isLoadingFacts = loadingFactsForBookId === activeBook.id && !hasFacts;
+    const isLoadingResearch = loadingResearchForBookId === activeBook.id && !hasResearch;
+    const isLoadingInfluences = loadingInfluencesForBookId === activeBook.id && !hasInfluences;
+    const isLoadingDomain = loadingDomainForBookId === activeBook.id && !hasDomain;
+    const isLoadingContext = loadingContextForBookId === activeBook.id && !hasContext;
+    const isLoadingDidYouKnow = loadingDidYouKnowForBookId === activeBook.id && !hasDidYouKnow;
 
     const categories: { id: string; label: string; count: number }[] = [];
     if (featureFlags.insights.author_facts && (hasFacts || isLoadingFacts)) {
@@ -2338,7 +2322,6 @@ export default function App() {
     bookDomain,
     bookContext,
     didYouKnow,
-    bookPageSectionsResolved,
     loadingFactsForBookId,
     loadingResearchForBookId,
     loadingInfluencesForBookId,
@@ -2465,6 +2448,8 @@ export default function App() {
       if (movies) {
         movies.forEach((movie, i) => {
           if (!movie.poster_url && !movie.itunes_artwork) return;
+          // Albums without itunes_url are filtered out by RelatedMovies — skip them here too
+          if (movie.type === 'album' && !movie.itunes_url) return;
           const icon = movie.type === 'album' ? Music : movie.type === 'show' ? Tv : Film;
           const label = movie.type === 'album' ? 'Music' : movie.type === 'show' ? 'TV Show' : 'Movie';
           candidates.push({ type: 'movie', icon, label, title: movie.title, subtitle: `${movie.director} — ${movie.reason}`, imageUrl: movie.itunes_artwork || movie.poster_url, url: movie.itunes_url || movie.wikipedia_url, itemIndex: i });
@@ -2476,13 +2461,14 @@ export default function App() {
       // Keep showing last valid spotlight during transitions
       return lastSpotlightRef.current;
     }
-    // Seeded shuffle so order is stable per book but randomized across types
+    // Seeded sort so order is stable per book AND stable when new candidates arrive
+    // (Fisher-Yates shuffle changes order when array length changes; hash-based sort doesn't)
     const seed = activeBook.id.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
-    const shuffled = [...candidates];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = ((seed * (i + 1) * 2654435761) >>> 0) % (i + 1);
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
+    const shuffled = [...candidates].sort((a, b) => {
+      const hashA = ((seed * 2654435761) ^ (a.type.charCodeAt(0) * 31 + a.itemIndex * 997)) >>> 0;
+      const hashB = ((seed * 2654435761) ^ (b.type.charCodeAt(0) * 31 + b.itemIndex * 997)) >>> 0;
+      return hashA - hashB;
+    });
     const current = shuffled[spotlightIndex % shuffled.length];
     const next = shuffled.length > 1 ? shuffled[(spotlightIndex + 1) % shuffled.length] : null;
     const result = { item: current, next, total: shuffled.length, bookId: activeBook.id };
@@ -3634,7 +3620,8 @@ export default function App() {
     }
 
     let cancelled = false;
-    
+    const abortController = new AbortController();
+
     // Mark this book as being fetched (to prevent concurrent fetches)
     fetchingPodcastsForBooksRef.current.add(bookId);
 
@@ -3645,21 +3632,21 @@ export default function App() {
     // Add a delay to avoid rate limits when scrolling through books
     const fetchTimer = setTimeout(() => {
       if (cancelled) return;
-      
+
       console.log(`[Podcast Episodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${bookAuthor}...`);
-      getPodcastEpisodes(bookTitle, bookAuthor).then((allEpisodes) => {
+      getPodcastEpisodes(bookTitle, bookAuthor, abortController.signal).then((allEpisodes) => {
         if (cancelled || !isActiveBookRequest('podcasts', bookId, requestToken)) {
           fetchingPodcastsForBooksRef.current.delete(bookId);
           return;
         }
-        
+
         // Clear loading state and remove from fetching set
         setLoadingPodcastsForBookId(null);
         fetchingPodcastsForBooksRef.current.delete(bookId);
-        
+
         if (allEpisodes.length > 0) {
           console.log(`[Podcast Episodes] ✅ Received ${allEpisodes.length} combined episodes for "${bookTitle}"`);
-          
+
           // Separate episodes by source
           const curated: PodcastEpisode[] = [];
           const apple: PodcastEpisode[] = [];
@@ -3682,10 +3669,16 @@ export default function App() {
           console.log(`[Podcast Episodes] ⚠️ No episodes found for "${bookTitle}"`);
         }
       }).catch(err => {
-        if (!cancelled && isActiveBookRequest('podcasts', bookId, requestToken)) {
-          setLoadingPodcastsForBookId(null);
-          console.error('Error fetching podcast episodes:', err);
+        if (cancelled || !isActiveBookRequest('podcasts', bookId, requestToken)) {
+          fetchingPodcastsForBooksRef.current.delete(bookId);
+          return;
         }
+        if ((err as any)?.name === 'AbortError') {
+          fetchingPodcastsForBooksRef.current.delete(bookId);
+          return;
+        }
+        setLoadingPodcastsForBookId(null);
+        console.error('Error fetching podcast episodes:', err);
         // Remove from fetching set on error so we can retry
         fetchingPodcastsForBooksRef.current.delete(bookId);
       });
@@ -3698,6 +3691,7 @@ export default function App() {
         setLoadingPodcastsForBookId(null);
         clearBookRequest('podcasts', bookId, requestToken);
       }
+      abortController.abort();
       clearTimeout(fetchTimer);
     };
   }, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded
@@ -4123,10 +4117,11 @@ export default function App() {
     }, 300); // Short debounce for scroll; above-the-fold content
 
     // Also fetch character avatars
+    const avatarAbortController = new AbortController();
     if (!characterAvatars.has(bookId)) {
       setLoadingAvatarsForBookId(bookId);
       const avatarToken = beginBookRequest('avatars', bookId);
-      getCharacterAvatars(currentBook.title, currentBook.author).then((avatars) => {
+      getCharacterAvatars(currentBook.title, currentBook.author, avatarAbortController.signal).then((avatars) => {
         if (cancelled || !isActiveBookRequest('avatars', bookId, avatarToken)) return;
         setLoadingAvatarsForBookId(null);
         if (avatars.length > 0) {
@@ -4138,6 +4133,7 @@ export default function App() {
         }
       }).catch((err) => {
         if (cancelled || !isActiveBookRequest('avatars', bookId, avatarToken)) return;
+        if ((err as any)?.name === 'AbortError') return;
         setLoadingAvatarsForBookId(null);
         console.error('[CharacterAvatars] Error:', err);
       });
@@ -4151,6 +4147,7 @@ export default function App() {
         clearBookRequest('summary', bookId, summaryToken);
       }
       abortController.abort();
+      avatarAbortController.abort();
       const activeAvatar = activeBookRequestsRef.current.get('avatars');
       if (activeAvatar?.bookId === bookId) {
         setLoadingAvatarsForBookId(null);
@@ -8390,33 +8387,8 @@ export default function App() {
             {/* Insights Section - Show below cover with spacing */}
             {!showRatingOverlay && (
               <>
-                {!bookPageSectionsResolved ? (
-                  <motion.div
-                    animate={{ opacity: [0.5, 0.8, 0.5] }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                    className="w-full space-y-6"
-                  >
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <div key={`book-page-skeleton-${i}`} className="rounded-xl p-4" style={glassmorphicStyle}>
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="w-24 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
-                          <div className="w-12 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
-                        </div>
-                        <div className="space-y-2">
-                          <div className="w-full h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
-                          <div className="w-5/6 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
-                          <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded" />
-                        </div>
-                      </div>
-                    ))}
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ duration: 0.3, ease: "easeInOut" }}
-                    className="w-full space-y-6"
-                  >
+                  <div className="w-full space-y-6">
+
                 {/* Insights: Show if we have facts, research, or are loading */}
                 {(() => {
                   if (!bookDetailInsightsState.hasEnabledInsights) return null;
@@ -8502,7 +8474,7 @@ export default function App() {
                           }
                         }}
                       >
-                        {shouldBlurInsights && (
+                        {shouldBlurInsights && !isLoading && (
                           <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
                             <div className="flex items-center gap-2 px-3 py-2 rounded-full bg-white/80 dark:bg-white/15 backdrop-blur-sm shadow-sm">
                               <Lightbulb size={14} className="text-slate-600 dark:text-slate-400" />
@@ -8510,7 +8482,7 @@ export default function App() {
                             </div>
                           </div>
                         )}
-                        <div className={`[&_p]:transition-[filter] [&_p]:duration-300 [&_span]:transition-[filter] [&_span]:duration-300 [&_button]:transition-[filter] [&_button]:duration-300 ${shouldBlurInsights ? '[&_p]:blur-[5px] [&_span]:blur-[5px] [&_button]:blur-[5px] select-none pointer-events-none' : ''}`}>
+                        <div className={`[&_p]:transition-[filter] [&_p]:duration-300 [&_span]:transition-[filter] [&_span]:duration-300 [&_button]:transition-[filter] [&_button]:duration-300 ${shouldBlurInsights && !isLoading ? '[&_p]:blur-[5px] [&_span]:blur-[5px] [&_button]:blur-[5px] select-none pointer-events-none' : ''}`}>
                           {isLoading ? (
                             <motion.div
                               animate={{ opacity: [0.5, 0.8, 0.5] }}
@@ -8549,7 +8521,7 @@ export default function App() {
                   const episodes = combinedPodcastEpisodes;
                   const hasEpisodes = episodes.length > 0;
                   // Only show loading if we don't have episodes yet. Once loaded, always show.
-                  const isLoading = !bookPageSectionsResolved && activeBook && loadingPodcastsForBookId === activeBook.id && !hasEpisodes;
+                  const isLoading = activeBook && loadingPodcastsForBookId === activeBook.id && !hasEpisodes;
                   
                   // Only show the podcast section if loading or has episodes
                   if (!isLoading && !hasEpisodes) return null;
@@ -8609,7 +8581,7 @@ export default function App() {
                   if (contentPreferences.youtube === false) return null;
                   const videos = activeVideos;
                   const hasVideos = videos.length > 0;
-                  const isLoading = !bookPageSectionsResolved && loadingVideosForBookId === activeBook.id && !hasVideos;
+                  const isLoading = loadingVideosForBookId === activeBook.id && !hasVideos;
 
                   // Only show the videos section if loading or has videos
                   if (!isLoading && !hasVideos) return null;
@@ -8676,7 +8648,7 @@ export default function App() {
                   });
                   const hasOnlyFallback = articles.length > 0 && !hasRealArticles;
                   const hasArticles = hasRealArticles;
-                  const isLoading = !bookPageSectionsResolved && loadingAnalysisForBookId === activeBook.id && !hasArticles && !hasOnlyFallback;
+                  const isLoading = loadingAnalysisForBookId === activeBook.id && !hasArticles && !hasOnlyFallback;
 
                   // Only show the analysis section if loading or has articles
                   if (!isLoading && !hasArticles) return null;
@@ -8734,7 +8706,7 @@ export default function App() {
                   const movies = activeRelatedMovies;
                   const hasData = relatedMovies.get(activeBook.id) !== undefined;
                   const hasMovies = movies.length > 0;
-                  const isLoading = !bookPageSectionsResolved && loadingRelatedMoviesForBookId === activeBook.id && !hasData;
+                  const isLoading = loadingRelatedMoviesForBookId === activeBook.id && !hasData;
 
                   if (!isLoading && !hasMovies) return null;
 
@@ -8815,7 +8787,7 @@ export default function App() {
                   const related = activeRelatedBooks;
                   const hasData = relatedBooks.get(activeBook.id) !== undefined;
                   const hasRelated = related.length > 0;
-                  const isLoading = !bookPageSectionsResolved && loadingRelatedForBookId === activeBook.id && !hasData;
+                  const isLoading = loadingRelatedForBookId === activeBook.id && !hasData;
 
                   if (!isLoading && !hasRelated) return null;
 
@@ -8878,8 +8850,7 @@ export default function App() {
                   );
                 })()}
 
-                  </motion.div>
-                )}
+                  </div>
               </>
             )}
           </div>

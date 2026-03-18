@@ -148,7 +148,7 @@ interface GrokCharacterResponse {
 }
 
 // Step 1: Get character prompts from Grok
-async function getCharacterPrompts(bookTitle: string, author: string): Promise<GrokCharacterResponse | null> {
+async function getCharacterPrompts(bookTitle: string, author: string, signal?: AbortSignal): Promise<GrokCharacterResponse | null> {
   if (!grokApiKey || grokApiKey.length < 20) {
     console.warn('[getCharacterPrompts] Grok API key not found');
     return null;
@@ -174,7 +174,8 @@ async function getCharacterPrompts(bookTitle: string, author: string): Promise<G
       "Authorization": `Bearer ${grokApiKey}`,
       "Accept": "application/json",
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal,
   }, 2, 3000);
 
   if (data.usage) {
@@ -196,7 +197,7 @@ async function getCharacterPrompts(bookTitle: string, author: string): Promise<G
 }
 
 // Step 2: Generate image via Replicate (proxy on web, direct on native)
-async function generateCharacterImage(prompt: string): Promise<string | null> {
+async function generateCharacterImage(prompt: string, signal?: AbortSignal): Promise<string | null> {
   const style = getActiveStyle();
 
   const imageInput = {
@@ -225,6 +226,7 @@ async function generateCharacterImage(prompt: string): Promise<string | null> {
           'Authorization': `Bearer ${REPLICATE_API_KEY}`,
         },
         body: JSON.stringify({ input: imageInput }),
+        signal,
       });
       if (!createRes.ok) {
         console.error('[generateCharacterImage] Create failed:', await createRes.text());
@@ -240,6 +242,7 @@ async function generateCharacterImage(prompt: string): Promise<string | null> {
           'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
         },
         body: JSON.stringify({ action: 'create', input: imageInput }),
+        signal,
       });
       if (!createRes.ok) {
         console.error('[generateCharacterImage] Proxy create failed:', await createRes.text());
@@ -259,10 +262,12 @@ async function generateCharacterImage(prompt: string): Promise<string | null> {
       }
 
       await new Promise(r => setTimeout(r, 1000));
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
       if (isNativePlatform) {
         const pollRes = await fetch(prediction.urls.get, {
           headers: { 'Authorization': `Bearer ${REPLICATE_API_KEY}` },
+          signal,
         });
         prediction = await pollRes.json();
       } else {
@@ -273,6 +278,7 @@ async function generateCharacterImage(prompt: string): Promise<string | null> {
             'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
           },
           body: JSON.stringify({ action: 'poll', prediction_url: prediction.urls.get }),
+          signal,
         });
         prediction = await pollRes.json();
       }
@@ -318,7 +324,7 @@ async function uploadToStorage(imageUrl: string, bookTitle: string, characterNam
 }
 
 // Main function: Get character avatars (with caching)
-export async function getCharacterAvatars(bookTitle: string, author: string): Promise<CharacterAvatar[]> {
+export async function getCharacterAvatars(bookTitle: string, author: string, signal?: AbortSignal): Promise<CharacterAvatar[]> {
   console.log(`[getCharacterAvatars] Fetching for "${bookTitle}" by ${author}`);
 
   const normalizedTitle = bookTitle.toLowerCase().trim();
@@ -361,16 +367,21 @@ export async function getCharacterAvatars(bookTitle: string, author: string): Pr
     console.warn('[getCharacterAvatars] Cache check error:', err);
   }
 
+  // Check if already aborted before starting expensive operations
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
   // 2. Get character descriptions from Grok
-  const grokResult = await getCharacterPrompts(bookTitle, author);
+  const grokResult = await getCharacterPrompts(bookTitle, author, signal);
   if (!grokResult) return [];
 
   // 3. Generate images for each character (in parallel)
   const avatars: CharacterAvatar[] = [];
 
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
   const imageResults = await Promise.all(
     grokResult.characters.slice(0, 3).map(async (char) => {
-      const imageUrl = await generateCharacterImage(char.prompt);
+      const imageUrl = await generateCharacterImage(char.prompt, signal);
       if (!imageUrl) return null;
 
       // Upload to Supabase Storage for permanent URL

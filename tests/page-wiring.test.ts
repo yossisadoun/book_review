@@ -23,6 +23,8 @@ const relatedMoviesServiceSource = readFileSync(join(__dirname, '../app/services
 const summaryServiceSource = readFileSync(join(__dirname, '../app/services/book-summary-service.ts'), 'utf-8');
 const apiUtilsServiceSource = readFileSync(join(__dirname, '../app/services/api-utils.ts'), 'utf-8');
 const insightsServiceSource = readFileSync(join(__dirname, '../app/services/insights-service.ts'), 'utf-8');
+const podcastServiceSource = readFileSync(join(__dirname, '../app/services/podcast-service.ts'), 'utf-8');
+const avatarsServiceSource = readFileSync(join(__dirname, '../app/services/character-avatars-service.ts'), 'utf-8');
 
 describe('AccountPage wiring in page.tsx', () => {
   it('should not contain orphaned AccountPage state variables', () => {
@@ -271,6 +273,8 @@ describe('Book detail request cancellation wiring', () => {
     expect(pageSource).toContain('getRelatedBooks(bookTitle, bookAuthor, abortController.signal)');
     expect(pageSource).toContain('getRelatedMovies(bookTitle, bookAuthor, abortController.signal)');
     expect(pageSource).toContain('getBookSummary(currentBook.title, currentBook.author, abortController.signal)');
+    expect(pageSource).toContain('getPodcastEpisodes(bookTitle, bookAuthor, abortController.signal)');
+    expect(pageSource).toContain('getCharacterAvatars(currentBook.title, currentBook.author, avatarAbortController.signal)');
   });
 
   it('supports signal argument in service fetch entry points', () => {
@@ -279,6 +283,8 @@ describe('Book detail request cancellation wiring', () => {
     expect(relatedBooksServiceSource).toContain('signal?: AbortSignal');
     expect(relatedMoviesServiceSource).toContain('signal?: AbortSignal');
     expect(summaryServiceSource).toContain('signal?: AbortSignal');
+    expect(podcastServiceSource).toContain('signal?: AbortSignal');
+    expect(avatarsServiceSource).toContain('signal?: AbortSignal');
   });
 
   it('stops retry loop immediately on abort in fetchWithRetry', () => {
@@ -310,6 +316,39 @@ describe('Book detail request cancellation wiring', () => {
     const block = pageSource.slice(start - 300, start + 120);
     expect(block).toContain("if ((err as any)?.name === 'AbortError')");
     expect(block).toContain('return;');
+  });
+
+  it('podcast effect creates AbortController and aborts on cleanup', () => {
+    const start = pageSource.indexOf("console.log(`[Podcast Episodes]");
+    expect(start).toBeGreaterThan(-1);
+    const effectStart = pageSource.lastIndexOf('useEffect(', start);
+    const effectEnd = pageSource.indexOf('}, [activeBook?.id])', effectStart);
+    const block = pageSource.slice(effectStart, effectEnd);
+    expect(block).toContain('const abortController = new AbortController()');
+    expect(block).toContain('abortController.abort()');
+    expect(block).toContain("if ((err as any)?.name === 'AbortError')");
+  });
+
+  it('avatar fetch creates separate AbortController and aborts on cleanup', () => {
+    const start = pageSource.indexOf('const avatarAbortController = new AbortController()');
+    expect(start).toBeGreaterThan(-1);
+    const effectEnd = pageSource.indexOf('}, [activeBook?.id])', start);
+    const block = pageSource.slice(start, effectEnd);
+    expect(block).toContain('avatarAbortController.signal');
+    expect(block).toContain('avatarAbortController.abort()');
+  });
+
+  it('podcast service passes signal through to Apple fetch', () => {
+    const start = podcastServiceSource.indexOf('export async function getPodcastEpisodes');
+    expect(start).toBeGreaterThan(-1);
+    const block = podcastServiceSource.slice(start, start + 2000);
+    expect(block).toContain('signal?: AbortSignal');
+    expect(block).toContain("signal?.aborted");
+  });
+
+  it('avatar service passes signal through to Grok and image generation', () => {
+    expect(avatarsServiceSource).toContain('getCharacterPrompts(bookTitle, author, signal)');
+    expect(avatarsServiceSource).toContain('generateCharacterImage(char.prompt, signal)');
   });
 });
 

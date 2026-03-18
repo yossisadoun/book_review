@@ -99,7 +99,7 @@ const PRIORITIZED_PODCAST_SHOWS: Record<string, number> = {
 // Create a Set of prioritized collectionIds for fast lookup
 const PRIORITIZED_COLLECTION_IDS = new Set(Object.values(PRIORITIZED_PODCAST_SHOWS));
 
-async function getApplePodcastEpisodes(bookTitle: string, author: string): Promise<PodcastEpisode[]> {
+async function getApplePodcastEpisodes(bookTitle: string, author: string, signal?: AbortSignal): Promise<PodcastEpisode[]> {
   try {
     console.log(`[getApplePodcastEpisodes] 🔄 Searching Apple Podcasts for episodes about "${bookTitle}" by ${author}...`);
 
@@ -107,7 +107,7 @@ async function getApplePodcastEpisodes(bookTitle: string, author: string): Promi
     const searchTerm = `${bookTitle} ${author}`;
     const searchUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&media=podcast&entity=podcastEpisode&limit=20`;
 
-    const searchData = await fetchWithRetry(searchUrl);
+    const searchData = await fetchWithRetry(searchUrl, { signal });
     console.log('[getApplePodcastEpisodes] 🍎 RAW APPLE PODCASTS EPISODES SEARCH RESPONSE:', JSON.stringify(searchData, null, 2));
     const episodes = searchData?.results || [];
 
@@ -434,7 +434,7 @@ function deduplicateEpisodes(...sources: PodcastEpisode[][]): PodcastEpisode[] {
   return combined;
 }
 
-export async function getPodcastEpisodes(bookTitle: string, author: string): Promise<PodcastEpisode[]> {
+export async function getPodcastEpisodes(bookTitle: string, author: string, signal?: AbortSignal): Promise<PodcastEpisode[]> {
   console.log(`[getPodcastEpisodes] 🔄 Fetching podcast episodes for "${bookTitle}" by ${author}`);
 
   // Check database cache first
@@ -469,13 +469,19 @@ export async function getPodcastEpisodes(bookTitle: string, author: string): Pro
     // Continue to fetch
   }
 
+  // Check if already aborted before starting network requests
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
   // Fetch both sources in parallel
   const [curatedEpisodes, appleEpisodes] = await Promise.all([
     getCuratedPodcastEpisodes(bookTitle, author).catch(err => {
       console.error('[getPodcastEpisodes] ⚠️ Error fetching curated episodes:', err);
       return [];
     }),
-    getApplePodcastEpisodes(bookTitle, author).catch(err => {
+    getApplePodcastEpisodes(bookTitle, author, signal).catch(err => {
+      if ((err as any)?.name === 'AbortError') throw err;
       console.error('[getPodcastEpisodes] ⚠️ Error fetching Apple episodes:', err);
       return [];
     })

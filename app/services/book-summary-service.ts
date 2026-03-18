@@ -185,7 +185,7 @@ export async function getBookSummary(bookTitle: string, author: string, signal?:
     const result = parseSummaryJson(content, bookTitle, author);
 
     if (!result || !result.title || !result.summary) {
-      console.warn('[getBookSummary] Invalid response structure');
+      console.warn('[getBookSummary] Invalid response structure:', JSON.stringify({ content: content.slice(0, 500), result }));
       return null;
     }
 
