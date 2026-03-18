@@ -40,12 +40,12 @@ All pages (bookshelf, feed, chat, account, following, book detail, trivia, notes
 
 ### Current Structure
 ```
-App() [~7,682 lines — down from ~12,913]
-├── ~122 useState declarations (down from 170; 32 moved to useBookDetailData hook, 16 moved to BookDetailView)
-├── ~36 useEffect hooks (down from 56; 14 moved to useBookDetailData hook, 6 moved to BookDetailView)
-├── 1 useMemo hooks (down from 8; 7 moved to useBookDetailData hook)
+App() [~5,906 lines — down from ~12,913]
+├── ~114 useState declarations (down from 170; 32 moved to useBookDetailData, 16 to BookDetailView, 8 to BookshelfView)
+├── ~34 useEffect hooks (down from 56; 14 moved to useBookDetailData, 6 to BookDetailView, 2 to BookshelfView)
+├── ~1 useMemo hooks (down from 8; 7 moved to useBookDetailData, 2 to BookshelfView — groupedBooksForBookshelf, allListNames)
 ├── 0 useCallback hooks
-├── ~26 useRef hooks (down from 47; 15 moved to useBookDetailData hook, 6 moved to BookDetailView)
+├── ~23 useRef hooks (down from 47; 15 moved to useBookDetailData, 6 to BookDetailView, 3 to BookshelfView)
 └── All UI rendering
     ├── Account page → EXTRACTED to app/components/AccountPage.tsx (~520 lines)
     ├── Following page → EXTRACTED to app/components/FollowingPage.tsx (~190 lines)
@@ -54,10 +54,9 @@ App() [~7,682 lines — down from ~12,913]
     ├── Chat page → EXTRACTED to app/components/ChatPage.tsx (~970 lines)
     ├── Book detail DATA → EXTRACTED to app/hooks/useBookDetailData.ts (~1,784 lines)
     ├── Book detail RENDER → EXTRACTED to app/components/BookDetailView.tsx (~2,142 lines)
+    ├── Bookshelf + Lists → EXTRACTED to app/components/BookshelfView.tsx (~1,550 lines)
     ├── Sorting results (~110 lines)
     ├── Notes view (~175 lines)
-    ├── Bookshelf covers (~630 lines)
-    ├── Bookshelf spines (~420 lines)
     ├── Bottom navigation (~750 lines)
     └── About screen (~16 lines)
 ```
@@ -73,8 +72,7 @@ Each page becomes its own file with its own state. Only shared state (books, use
 | `FollowingPage` | ~~6326-6445~~ | **DONE** — extracted to `app/components/FollowingPage.tsx` |
 | `FeedPage` | 6446-8411 | personalizedFeedItems, feedTypeFilter, feedPullDistance |
 | `ChatPage` | 7610-8411 | chatList, characterChatList, chatPullDistance |
-| `BookshelfCovers` | 8832-9460 | bookshelfGrouping, showAddBookTooltip |
-| `BookshelfSpines` | 9461-9879 | (same grouping state) |
+| `BookshelfCovers` + Lists | ~~830 lines~~ | **DONE** — extracted to `app/components/BookshelfView.tsx` |
 | `BookDetail` | ~~9880-11597~~ | **DONE** — extracted to `app/components/BookDetailView.tsx` |
 | `TriviaGame` | ~~12472-12833~~ | **DONE** — extracted to `app/components/TriviaGame.tsx` |
 
@@ -330,7 +328,7 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 12. **Extract frosted glass styles** — many already module-level constants, finish the rest
 
 ### Suggested Next Step (Highest ROI)
-**Extract `BookshelfCovers` and `BookshelfSpines`** — these are the last large render sections (~1,050 lines combined). They share bookshelf grouping state. Strategy: extract both into a single `BookshelfView.tsx` component, or extract separately with grouping state passed as props.
+**Memoize chat context building** — `ChatPage.tsx` sorts the entire bookshelf and maps notes/ratings on every render to build `BookChatContext`. Wrap in `useMemo` keyed on `activeBook.id` + relevant Maps. Also: batch `handleUpdateBookLists` into a single Supabase call instead of per-book updates.
 
 ### Medium-term (Architecture Changes)
 13. **State management** — Context API or Zustand for shared state, local state per page
@@ -441,13 +439,17 @@ For each bug found during extraction, add a targeted test:
 | ChatPage | ~970 | orphanedChatBook, swipe/delete, pull-to-refresh, chat list rendering | chat-page-extraction tests |
 | useBookDetailData (hook) | ~1,600 | 32 useState, 14 useEffect, 7 useMemo, 15 useRef | 7 wiring guard tests |
 | BookDetailView | ~1,672 | 16 useState, 6 useEffect, 6 useRef, ~1,500 lines render JSX | updated wiring + memo tests |
+| BookshelfView | ~1,550 | 8 useState, 2 useEffect, 2 useMemo, 3 useRef, ~830 lines render + lists feature | tsc + vitest clean |
 
 ### Next Targets
 
-| Component | Est. Lines | Key Risk |
-|-----------|-----------|----------|
-| BookshelfCovers | ~630 | bookshelf grouping state shared with spines |
-| BookshelfSpines | ~420 | same grouping state |
+All major page sections have been extracted. Remaining in page.tsx:
+- Sorting results (~110 lines)
+- Notes view (~175 lines)
+- Bottom navigation (~750 lines)
+- About screen (~16 lines)
+
+*BookshelfSpines removed — was deprecated/unreachable, deleted in `760b26c`.*
 
 ---
 
@@ -478,7 +480,7 @@ For each bug found during extraction, add a targeted test:
 - [ ] Keep extraction guardrails/tests in lockstep as remaining monolith sections are split
 
 ### Next (priority order)
-- [ ] Extract `BookshelfCovers` and `BookshelfSpines` with shared grouping state strategy
+- [x] Extract `BookshelfCovers` + Lists feature into `BookshelfView.tsx` (select mode, list sheet, handleUpdateBookLists, grouping state)
 - [ ] Memoize/optimize chat context building to avoid full bookshelf sorts each render
 - [ ] Add feed local cache (stale-while-revalidate) similar to books cache
 - [ ] Add chat list local cache + refresh strategy

@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase';
 import type { ReadingStatus, MusicLinks } from '../types';
-import { logGrokUsage } from './api-utils';
 
 export interface ChatListItem {
   book_id: string;
@@ -159,8 +158,6 @@ export async function sendChatMessage(
     throw new Error('Failed to send message');
   }
 
-  logGrokUsage('book_chat', data?.usage);
-
   const content = data?.content || '';
   console.log('[sendChatMessage] Raw response:', JSON.stringify(content));
   return content;
@@ -182,8 +179,6 @@ export async function generateGreeting(
     console.error('[generateGreeting] Error:', error);
     throw new Error('Failed to generate greeting');
   }
-
-  logGrokUsage('book_chat_greeting', data?.usage);
 
   return data?.content || '';
 }
@@ -269,7 +264,6 @@ export async function sendCharacterChatMessage(
     throw new Error('Failed to send message');
   }
 
-  logGrokUsage('character_chat', data?.usage);
   return data?.content || '';
 }
 
@@ -290,7 +284,6 @@ export async function generateCharacterGreeting(
     throw new Error('Failed to generate greeting');
   }
 
-  logGrokUsage('character_chat_greeting', data?.usage);
   return data?.content || '';
 }
 
@@ -533,8 +526,6 @@ export async function generateProactiveMessage(
       console.error('[generateProactiveMessage] Error:', error);
       return null;
     }
-
-    logGrokUsage('proactive_message', data?.usage);
 
     const content = data?.content || '';
     if (!content) return null;

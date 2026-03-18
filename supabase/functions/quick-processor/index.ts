@@ -1,11 +1,43 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const GROK_API_KEY = Deno.env.get('GROK_API_KEY') || ''
 const GROK_CHAT_URL = 'https://api.x.ai/v1/chat/completions'
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || ''
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || ''
+
+const GROK_INPUT_PRICE_PER_M = 0.20
+const GROK_OUTPUT_PRICE_PER_M = 0.50
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+async function logUsage(req: Request, functionName: string, usage: any): Promise<void> {
+  if (!usage || typeof usage.prompt_tokens !== 'number') return
+  try {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: req.headers.get('Authorization') || '' } },
+    })
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const promptTokens = usage.prompt_tokens || 0
+    const completionTokens = usage.completion_tokens || 0
+    const estimatedCost =
+      (promptTokens / 1_000_000) * GROK_INPUT_PRICE_PER_M +
+      (completionTokens / 1_000_000) * GROK_OUTPUT_PRICE_PER_M
+
+    await supabase.from('grok_usage_logs').insert({
+      user_id: user.id,
+      function_name: functionName,
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      total_tokens: usage.total_tokens || (promptTokens + completionTokens),
+      estimated_cost: estimatedCost,
+    })
+  } catch (_) { /* fire-and-forget */ }
 }
 
 function buildSystemPrompt(bookContext: any): string {
@@ -435,6 +467,9 @@ These are 3 short (under 8 words each) contextual follow-up prompts the user mig
       const data = await response.json()
       const assistantContent = data.choices?.[0]?.message?.content || ''
 
+      const charFn = mode === 'greeting' ? 'character_chat_greeting' : 'character_chat'
+      logUsage(req, charFn, data.usage)
+
       return new Response(
         JSON.stringify({ content: assistantContent, usage: data.usage }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -565,6 +600,9 @@ RULES
     const data = await response.json()
 
     const assistantContent = data.choices?.[0]?.message?.content || ''
+
+    const bookFn = mode === 'greeting' ? 'book_chat_greeting' : mode === 'proactive' ? 'proactive_message' : 'book_chat'
+    logUsage(req, bookFn, data.usage)
 
     return new Response(
       JSON.stringify({ content: assistantContent, usage: data.usage }),
