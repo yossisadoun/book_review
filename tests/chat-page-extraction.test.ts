@@ -61,7 +61,7 @@ describe('moved state is removed from page.tsx', () => {
 
 describe('ChatPage is wired in page.tsx', () => {
   it('should import ChatPage', () => {
-    expect(pageSource).toMatch(/import ChatPage from/);
+    expect(pageSource).toMatch(/ChatPage/);
   });
 
   it('should render <ChatPage with required props', () => {

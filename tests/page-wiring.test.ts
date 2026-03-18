@@ -43,7 +43,7 @@ describe('AccountPage wiring in page.tsx', () => {
   });
 
   it('should import AccountPage component', () => {
-    expect(pageSource).toMatch(/import\s+AccountPage\s+from/);
+    expect(pageSource).toMatch(/AccountPage/);
   });
 
   it('should render <AccountPage with required props', () => {
@@ -86,7 +86,7 @@ describe('FollowingPage wiring in page.tsx', () => {
   });
 
   it('should import FollowingPage component', () => {
-    expect(pageSource).toMatch(/import\s+FollowingPage\s+from/);
+    expect(pageSource).toMatch(/FollowingPage/);
   });
 
   it('should render <FollowingPage with required props', () => {

@@ -47,7 +47,7 @@ App() [~12,913 lines]
     ├── Following page → EXTRACTED to app/components/FollowingPage.tsx (~190 lines)
     ├── Trivia game → EXTRACTED to app/components/TriviaGame.tsx (~780 lines)
     ├── Feed page → EXTRACTED to app/components/FeedPage.tsx (~1,520 lines)
-    ├── Chat page (~800 lines)
+    ├── Chat page → EXTRACTED to app/components/ChatPage.tsx (~970 lines)
     ├── Sorting results (~110 lines)
     ├── Notes view (~175 lines)
     ├── Bookshelf covers (~630 lines)
@@ -98,7 +98,7 @@ Pull-to-refresh converted from useState to useRef with direct DOM manipulation:
 |----------|-----------------|---------|-----------|
 | `feedPullDistance` | 60x/sec (touch) | ~~useState~~ **useRef** | **DONE** |
 | `chatPullDistance` | 60x/sec (touch) | ~~useState~~ **useRef** | **DONE** |
-| `scrollY` | 30x/sec (scroll) | useState | useRef |
+| `scrollY` | 30x/sec (scroll) | ~~useState~~ **useRef** | **DONE** — converted to useRef + direct DOM manipulation for header opacity/pointerEvents |
 | `touchStart`/`touchEnd` | Per touch event | useState | useRef |
 
 ### Components Not Memoized
@@ -165,19 +165,15 @@ Still missing for:
 | html2canvas | ~40KB | Screenshot only | Yes |
 | @capacitor/* | ~50KB | Mobile only | Platform-conditional |
 
-### No Dynamic Imports
-Zero `lazy()` calls in the entire codebase. Everything is statically imported:
-```typescript
-// Current — all loaded upfront
-import AddBookSheet from './components/AddBookSheet';
-import BookChat from './components/BookChat';
-import NotesEditorOverlay from './components/NotesEditorOverlay';
+### Dynamic Imports — DONE
+7 components now lazy-loaded via `React.lazy()` + `Suspense`:
+- `AccountPage`, `FollowingPage`, `FeedPage`, `ChatPage` (page components)
+- `AddBookSheet`, `ConnectAccountModal`, `NotesEditorOverlay` (modals/sheets)
 
-// Should be
-const AddBookSheet = lazy(() => import('./components/AddBookSheet'));
-const BookChat = lazy(() => import('./components/BookChat'));
-const NotesEditorOverlay = lazy(() => import('./components/NotesEditorOverlay'));
-```
+Remaining candidates for lazy loading:
+- `TriviaGame` — uses `forwardRef`/`useImperativeHandle`, needs wrapper for lazy
+- `BookChat` — loaded inside ChatPage (could lazy there)
+- `OnboardingScreen` — only shown once
 
 ### Image Optimization Disabled
 `next.config.ts` line 17: `images: { unoptimized: true }`
@@ -321,8 +317,8 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 7. ~~**Reduce API call debounce delays**~~ ✅ DONE — Reduced staggered timeouts from 500-5000ms to 3-tier system: 300ms (above-fold: summary, facts, did-you-know), 600ms (mid-page: podcasts, articles, videos), 1000ms (below-fold: related books/movies, influences, context). Services already check Supabase cache first (~50ms), so long delays were unnecessary. Saves 1.5-4s on book page load.
 
 ### Short-term (Refactoring Required)
-8. **Extract page components** — ~~AccountPage~~ ✓, ~~FollowingPage~~ ✓, ~~FeedPage~~ ✓, ChatPage as separate files with own state. FeedPage extraction removed ~1,400 lines from page.tsx (11,497 lines remaining). Moved 20+ useState, 10+ useRef, feed rendering, pull-to-refresh, modals (MusicModal, WatchModal, podcast tooltip), and filter logic.
-9. **Add code splitting** — lazy-load modals, sheets, chat, trivia
+8. **Extract page components** — ~~AccountPage~~ ✓, ~~FollowingPage~~ ✓, ~~FeedPage~~ ✓, ~~ChatPage~~ ✓ as separate files with own state. ChatPage extraction removed ~800 lines. Remaining: BookshelfCovers, BookshelfSpines, BookDetail.
+9. ~~**Add code splitting**~~ ✅ DONE — 7 components lazy-loaded via `React.lazy()` + `Suspense` (AccountPage, FollowingPage, FeedPage, ChatPage, AddBookSheet, ConnectAccountModal, NotesEditorOverlay)
 10. **Memoize chat context building** — sorts entire bookshelf on every render
 11. **Implement request deduplication** — prevent simultaneous identical API calls
 12. **Extract frosted glass styles** — many already module-level constants, finish the rest
@@ -428,10 +424,12 @@ For each bug found during extraction, add a targeted test:
 | FollowingPage | ~160 | 3 useState, 1 useEffect | 7 component + 6 wiring |
 | TriviaGame | ~740 | 17 useState, 7 useEffect, 4 refs | 18 guard tests |
 | FeedPage | ~1,400 | 20+ useState, 10+ useRef, modals, filters, pull-to-refresh | feed-bugs + pull-to-refresh tests |
+| ChatPage | ~970 | orphanedChatBook, swipe/delete, pull-to-refresh, chat list rendering | chat-page-extraction tests |
 
 ### Next Targets
 
 | Component | Est. Lines | Key Risk |
 |-----------|-----------|----------|
-| ChatPage | ~800 | chatList state, proactive messages, keyboard listeners |
-| BookDetail | ~1,720 | Largest — insights/podcasts/videos/articles state Maps, many card component integrations |
+| BookDetail | ~1,720 | Largest — insights/podcasts/videos/articles state Maps, many card component integrations. Plan: extract sub-sections first (BookDetailHeader, BookDetailSections) then compose. |
+| BookshelfCovers | ~630 | bookshelf grouping state shared with spines |
+| BookshelfSpines | ~420 | same grouping state |

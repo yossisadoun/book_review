@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { Share as CapacitorShare } from '@capacitor/share';
 import {
@@ -141,13 +141,13 @@ import ResearchSection from './components/ResearchSection';
 import ArrowAnimation from './components/ArrowAnimation';
 import LightbulbAnimation from './components/LightbulbAnimation';
 import RatingStars, { RATING_FEEDBACK } from './components/RatingStars';
-import AddBookSheet from './components/AddBookSheet';
-import ConnectAccountModal from './components/ConnectAccountModal';
-import NotesEditorOverlay from './components/NotesEditorOverlay';
-import AccountPage from './components/AccountPage';
-import FeedPage from './components/FeedPage';
-import ChatPage from './components/ChatPage';
-import FollowingPage from './components/FollowingPage';
+const AddBookSheet = lazy(() => import('./components/AddBookSheet'));
+const ConnectAccountModal = lazy(() => import('./components/ConnectAccountModal'));
+const NotesEditorOverlay = lazy(() => import('./components/NotesEditorOverlay'));
+const AccountPage = lazy(() => import('./components/AccountPage'));
+const FeedPage = lazy(() => import('./components/FeedPage'));
+const ChatPage = lazy(() => import('./components/ChatPage'));
+const FollowingPage = lazy(() => import('./components/FollowingPage'));
 import { getChatList, getCharacterChatList, lookupOrphanedChatCoverUrls, reassignChatsToBook, getProactiveCandidates, generateProactiveMessage, markProactiveReplied, type ChatListItem, type CharacterChatListItem, type BookChatContext } from './services/chat-service';
 import { getCached, setCache, CACHE_KEYS } from './services/cache-service';
 import HeartButton from './components/HeartButton';
@@ -611,9 +611,30 @@ export default function App() {
   const [infographicSection, setInfographicSection] = useState<'characters' | 'timeline'>('characters');
   const [isInfographicDropdownOpen, setIsInfographicDropdownOpen] = useState(false);
   const bookshelfGroupingDropdownRef = useRef<HTMLDivElement>(null);
-  const [scrollY, setScrollY] = useState(0);
+  const scrollY = useRef(0);
+  const headerLogoRef = useRef<HTMLDivElement | null>(null);
+  const headerBarRef = useRef<HTMLDivElement | null>(null);
+  const bookDetailHeaderRef = useRef<HTMLDivElement | null>(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
+
+  // Update scrollY ref and header opacity via direct DOM manipulation (avoids ~30 re-renders/sec)
+  const updateScrollY = useCallback((value: number) => {
+    scrollY.current = value;
+    const opacity = value > 20 ? Math.max(0, 1 - (value - 20) / 40) : 1;
+    const pointerEvents = value > 60 ? 'none' : 'auto';
+    if (headerLogoRef.current) {
+      headerLogoRef.current.style.opacity = String(opacity);
+    }
+    if (headerBarRef.current) {
+      headerBarRef.current.style.opacity = String(opacity);
+      headerBarRef.current.style.pointerEvents = pointerEvents;
+    }
+    if (bookDetailHeaderRef.current) {
+      bookDetailHeaderRef.current.style.opacity = String(opacity);
+      bookDetailHeaderRef.current.style.pointerEvents = pointerEvents;
+    }
+  }, []);
 
   // Scroll to top when status bar area is tapped (iOS pattern)
   const scrollToTop = () => {
@@ -719,7 +740,7 @@ export default function App() {
     if (typeof window === 'undefined') return new Set();
     try { return new Set(JSON.parse(localStorage.getItem('dismissedChatIds') || '[]')); } catch { return new Set(); }
   });
-  const headerPullRef = useRef<HTMLDivElement>(null);
+  const headerPullRef = useRef<HTMLDivElement | null>(null);
   const [showAboutScreen, setShowAboutScreen] = useState(false);
   const [showBookPageOnboarding, setShowBookPageOnboarding] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -1883,7 +1904,7 @@ export default function App() {
       if (s.showFollowingPage) { setShowFollowingPage(false); setShowBookshelfCovers(true); return; }
       if (s.showFeedPage) { setShowFeedPage(false); setShowBookshelfCovers(true); return; }
       if (s.showChatPage && s.chatBookSelected) {
-        setChatBookSelected(false); setChatGeneralMode(false); setCharacterChatContext(null); setScrollY(0);
+        setChatBookSelected(false); setChatGeneralMode(false); setCharacterChatContext(null); updateScrollY(0);
         if (chatOpenedFromBookPage.current) { chatOpenedFromBookPage.current = false; setShowChatPage(false); }
         return;
       }
@@ -5184,10 +5205,9 @@ export default function App() {
       {/* Logo text header - shows on main views (bookshelf, feed, following, notes, book details) */}
       {!showAccountPage && !showSortingResults && !viewingUserId && (
         <motion.div
+          ref={headerLogoRef}
           initial={{ opacity: 0 }}
-          animate={{
-            opacity: scrollY > 20 ? Math.max(0, 1 - (scrollY - 20) / 40) : 1,
-          }}
+          animate={{ opacity: 1 }}
           className="fixed top-[20px] left-0 right-0 flex justify-center z-40 pointer-events-none"
         >
           <img
@@ -5204,13 +5224,10 @@ export default function App() {
         <motion.div
           key={showSortingResults ? 'sorting-results-header' : showNotesView ? 'notes-header' : showBookshelf ? 'bookshelf-header' : 'books-header'}
           initial={{ opacity: 0 }}
-          animate={{
-            opacity: scrollY > 20 ? Math.max(0, 1 - (scrollY - 20) / 40) : 1,
-            pointerEvents: scrollY > 60 ? 'none' : 'auto'
-          }}
+          animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.3, ease: "easeInOut" }}
-          ref={headerPullRef}
+          ref={(el) => { headerPullRef.current = el; headerBarRef.current = el; }}
           className="w-full z-40 fixed top-[50px] left-0 right-0 px-4 py-3 flex items-center justify-between"
           style={{
             background: 'transparent',
@@ -5242,7 +5259,7 @@ export default function App() {
             ) : (showNotesView || showFollowingPage || showAccountPage) && (
               <button
                 onClick={() => {
-                  setScrollY(0);
+                  updateScrollY(0);
                   if (showAccountPage) {
                     restorePreviousView();
                   } else {
@@ -5392,6 +5409,7 @@ export default function App() {
       </AnimatePresence>
       )}
 
+      <Suspense fallback={null}>
       <AnimatePresence mode="wait">
         {showAccountPage ? (
           <AccountPage
@@ -5413,14 +5431,14 @@ export default function App() {
             }}
             onClose={() => setShowAccountPage(false)}
             scrollContainerRef={scrollContainerRef}
-            onScroll={(scrollTop) => setScrollY(scrollTop)}
+            onScroll={(scrollTop) => updateScrollY(scrollTop)}
           />
         ) : showFollowingPage ? (
           <FollowingPage
             user={user!}
             supabase={supabase}
             scrollContainerRef={scrollContainerRef}
-            onScroll={(scrollTop) => setScrollY(scrollTop)}
+            onScroll={(scrollTop) => updateScrollY(scrollTop)}
             onUserClick={(userId) => {
               capturePreviousView();
               setViewingUserId(userId);
@@ -5447,7 +5465,7 @@ export default function App() {
             remoteFlags={remoteFlags}
             glassmorphicStyle={glassmorphicStyle}
             scrollContainerRef={scrollContainerRef}
-            setScrollY={setScrollY}
+            setScrollY={updateScrollY}
             headerPullRef={headerPullRef}
             refreshAnimation={refreshAnimation}
             setViewingBookFromOtherUser={setViewingBookFromOtherUser}
@@ -5484,7 +5502,7 @@ export default function App() {
             unreadChatCounts={unreadChatCounts}
             setUnreadChatCounts={setUnreadChatCounts}
             scrollContainerRef={scrollContainerRef}
-            setScrollY={setScrollY}
+            setScrollY={updateScrollY}
             headerPullRef={headerPullRef}
             refreshAnimation={refreshAnimation}
             handleAddBook={handleAddBook}
@@ -5613,7 +5631,7 @@ export default function App() {
                       setShowSortingResults(false);
                       setShowChatPage(false);
                       setChatBookSelected(false);
-                      setScrollY(0);
+                      updateScrollY(0);
                     }}
                     className="px-5 py-2 rounded-full font-bold text-[15px] text-white transition-all active:scale-95 disabled:opacity-40"
                     style={{
@@ -5643,7 +5661,7 @@ export default function App() {
             style={{ backgroundColor: '#f5f5f1', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
-              setScrollY(target.scrollTop);
+              updateScrollY(target.scrollTop);
             }}
           >
             {/* Sorting Results View */}
@@ -5755,7 +5773,7 @@ export default function App() {
             style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
-              setScrollY(target.scrollTop);
+              updateScrollY(target.scrollTop);
             }}
           >
             {/* Notes View */}
@@ -5931,7 +5949,7 @@ export default function App() {
             style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
-              setScrollY(target.scrollTop);
+              updateScrollY(target.scrollTop);
             }}
           >
             {/* Arrow Animation Overlay - only show on own bookshelf when grouped by status and no books in Reading */}
@@ -6425,7 +6443,7 @@ export default function App() {
                                 // When viewing another user's bookshelf, show quick view
                                 setViewingBookFromOtherUser(book);
                               } else if (bookIndex !== -1) {
-                                setScrollY(0);
+                                updateScrollY(0);
                                 setSelectedIndex(bookIndex);
                                 setShowBookshelfCovers(false);
                                 setTimeout(() => {
@@ -6560,7 +6578,7 @@ export default function App() {
             style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
             onScroll={(e) => {
               const target = e.currentTarget;
-              setScrollY(target.scrollTop);
+              updateScrollY(target.scrollTop);
             }}
           >
             {/* Bookshelf View */}
@@ -6879,7 +6897,7 @@ export default function App() {
                                 // When viewing another user's bookshelf, show quick view
                                 setViewingBookFromOtherUser(book);
                               } else if (bookIndex !== -1) {
-                                setScrollY(0); // Reset scroll when switching views
+                                updateScrollY(0); // Reset scroll when switching views
                                 setSelectedIndex(bookIndex);
                                 setShowBookshelf(false);
                                 setTimeout(() => {
@@ -6982,13 +7000,13 @@ export default function App() {
                 (el.style as any).webkitOverflowScrolling = 'touch';
                 // Reset scroll position when entering book details
                 el.scrollTop = 0;
-                setScrollY(0);
+                updateScrollY(0);
               }
             }}
             className={`flex-1 flex flex-col items-center justify-start p-4 relative pt-28 pb-20 ios-scroll min-h-0 ${showBookPageOnboarding ? 'overflow-hidden' : 'overflow-y-auto'}`}
             onScroll={(e) => {
               const target = e.currentTarget;
-              setScrollY(target.scrollTop);
+              updateScrollY(target.scrollTop);
             }}
             onTouchStart={(e) => {
               // Track touch start for book navigation swipe
@@ -7022,16 +7040,14 @@ export default function App() {
           >
           {/* Back button and book info header */}
           <motion.div
+            ref={bookDetailHeaderRef}
             className="fixed top-[62px] left-4 right-4 z-50 flex items-center gap-3"
-            animate={{
-              opacity: scrollY > 20 ? Math.max(0, 1 - (scrollY - 20) / 40) : 1,
-              pointerEvents: scrollY > 60 ? 'none' : 'auto'
-            }}
+            animate={{ opacity: 1 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
           >
             <button
               onClick={() => {
-                setScrollY(0); // Reset scroll when switching views
+                updateScrollY(0); // Reset scroll when switching views
                 setShowBookshelfCovers(true);
                 setShowBookshelf(false);
                 setShowNotesView(false);
@@ -8601,7 +8617,7 @@ export default function App() {
                           <EyeOff size={14} className="text-slate-400 flex-shrink-0" />
                           <span className="text-xs text-slate-400 truncate">{hiddenSections.map(s => s.label).join(', ')} hidden</span>
                         </div>
-                        <button onClick={() => { capturePreviousView(); setScrollY(0); setShowAccountPage(true); }} className="text-xs font-medium text-blue-500 active:opacity-70 flex-shrink-0 ml-2">Settings</button>
+                        <button onClick={() => { capturePreviousView(); updateScrollY(0); setShowAccountPage(true); }} className="text-xs font-medium text-blue-500 active:opacity-70 flex-shrink-0 ml-2">Settings</button>
                       </div>
                     </div>
                   );
@@ -8696,6 +8712,7 @@ export default function App() {
           </motion.main>
         )}
       </AnimatePresence>
+      </Suspense>
 
       {/* Avatar expand transition — grows avatar to full screen then reveals chat */}
       <AnimatePresence>
@@ -8865,7 +8882,7 @@ export default function App() {
                 return; // Already on bookshelf, do nothing
               }
               analytics.trackEvent('nav', 'tap', { destination: 'bookshelf' });
-              setScrollY(0); // Reset scroll when switching views
+              updateScrollY(0); // Reset scroll when switching views
               setViewingUserId(null);
               setViewingUserBooks([]);
               setViewingUserName('');
@@ -8903,7 +8920,7 @@ export default function App() {
                   triggerLightHaptic();
                   if (showChatPage) return;
                   analytics.trackEvent('nav', 'tap', { destination: 'chat_list' });
-                  setScrollY(0);
+                  updateScrollY(0);
                   setChatBookSelected(false);
                   setShowChatPage(true);
                   setShowFeedPage(false);
@@ -8943,7 +8960,7 @@ export default function App() {
               triggerLightHaptic();
               if (showCreatePost) return;
               analytics.trackEvent('nav', 'tap', { destination: 'create_post' });
-              setScrollY(0);
+              updateScrollY(0);
               setCreatePostText('');
               setShowCreatePost(true);
               setShowChatPage(false);
@@ -8970,7 +8987,7 @@ export default function App() {
               triggerLightHaptic();
               if (showFeedPage) return; // Already on feed, do nothing
               analytics.trackEvent('nav', 'tap', { destination: 'feed' });
-              setScrollY(0);
+              updateScrollY(0);
               setViewingUserId(null);
               setViewingUserBooks([]);
               setViewingUserName('');
@@ -9358,7 +9375,7 @@ export default function App() {
                                   setShowBookshelfCovers(false);
                                   setShowNotesView(false);
                                   // Reset scroll to top
-                                  setScrollY(0);
+                                  updateScrollY(0);
                                   const main = document.querySelector('main');
                                   if (main) {
                                     main.scrollTo({ top: 0, behavior: 'smooth' });
@@ -9507,6 +9524,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Notes Editor Overlay */}
+      <Suspense fallback={null}>
       <AnimatePresence>
         {isShowingNotes && activeBook && (
           <NotesEditorOverlay
@@ -9554,13 +9572,16 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+      </Suspense>
 
+      <Suspense fallback={null}>
       <ConnectAccountModal
         isOpen={showConnectAccountModal}
         onClose={() => setShowConnectAccountModal(false)}
         reason={connectAccountReason}
         bookCount={books.length}
       />
+      </Suspense>
 
       {/* Migration success toast */}
       <AnimatePresence>
@@ -9617,6 +9638,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      <Suspense fallback={null}>
       <AnimatePresence>
           {isAdding && (
             <AddBookSheet
@@ -9725,6 +9747,7 @@ export default function App() {
             />
           )}
       </AnimatePresence>
+      </Suspense>
 
 
         {/* Book Discussion Modal */}
@@ -10404,7 +10427,7 @@ export default function App() {
                 onClick={() => {
                   analytics.trackEvent('nav', 'tap', { destination: 'account' });
                   capturePreviousView();
-                  setScrollY(0);
+                  updateScrollY(0);
                   setShowAccountPage(true);
                   setShowChatPage(false);
                   setChatBookSelected(false);
@@ -10431,7 +10454,7 @@ export default function App() {
                   onClick={() => {
                     setShowProfileMenu(false);
                     capturePreviousView();
-                    setScrollY(0);
+                    updateScrollY(0);
                     setShowAccountPage(true);
                     setShowChatPage(false);
                     setChatBookSelected(false);
