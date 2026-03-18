@@ -11,7 +11,7 @@ interface HeartButtonProps {
   size?: number;
 }
 
-const HeartButton = React.memo(function HeartButton({ contentHash, count, isHearted, onToggle, size = 14 }: HeartButtonProps) {
+const HeartButton = React.memo(function HeartButton({ contentHash, count, isHearted, onToggle, size = 17 }: HeartButtonProps) {
   return (
     <button
       onClick={(e) => {

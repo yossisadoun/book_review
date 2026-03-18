@@ -15,7 +15,7 @@ const read = (rel: string) => readFileSync(join(__dirname, '..', rel), 'utf-8');
 
 const feedCore = read('packages/core/src/supabase/feed.ts');
 const feedService = read('app/services/feed-service.ts');
-const pageSource = read('app/page.tsx');
+const feedPageSource = read('app/components/FeedPage.tsx');
 
 describe('createFriendBookItem hash bug', () => {
   it('should use generateContentHashSync, not async generateContentHash', () => {
@@ -35,20 +35,18 @@ describe('createFriendBookItem hash bug', () => {
 
 describe('render-time book_summary_cache fetch', () => {
   it('should preload feed summaries in a useEffect, not during render', () => {
-    // The useEffect should contain the book_summary_cache fetch
-    expect(pageSource).toMatch(/useEffect\(\(\) => \{[\s\S]*?friend_book[\s\S]*?book_summary_cache/);
+    // The useEffect should contain the book_summary_cache fetch (now in FeedPage)
+    expect(feedPageSource).toMatch(/useEffect\(\(\) => \{[\s\S]*?friend_book[\s\S]*?book_summary_cache/);
   });
 
   it('should not have book_summary_cache fetch in the friend_book render block', () => {
-    // Find the friend_book card render section (after summaryKey, before the JSX return)
-    // The old pattern was: if (!feedSummaryFetchedRef.current.has(summaryKey)) { supabase.from('book_summary_cache')...
-    // It should now just read from the preloaded map
-    const renderSection = pageSource.match(/friendBookSummary = feedBookSummaries\.get/);
+    // The friend_book render should read from the preloaded map
+    const renderSection = feedPageSource.match(/friendBookSummary = feedBookSummaries\.get/);
     expect(renderSection).toBeTruthy();
 
     // There should be no supabase.from('book_summary_cache') near the feedBookSummaries.get call
-    const feedBookSummaryIdx = pageSource.indexOf("friendBookSummary = feedBookSummaries.get");
-    const surroundingCode = pageSource.substring(feedBookSummaryIdx - 200, feedBookSummaryIdx + 50);
+    const feedBookSummaryIdx = feedPageSource.indexOf("friendBookSummary = feedBookSummaries.get");
+    const surroundingCode = feedPageSource.substring(feedBookSummaryIdx - 200, feedBookSummaryIdx + 50);
     expect(surroundingCode).not.toMatch(/supabase\.from\('book_summary_cache'\)/);
   });
 });

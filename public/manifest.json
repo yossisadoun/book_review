@@ -2,13 +2,13 @@
   "name": "Book.luv - Book Review App",
   "short_name": "Book.luv",
   "description": "A mobile-first book review app",
-  "start_url": "/book_review/",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#ffffff",
   "icons": [
     {
-      "src": "/book_review/icon.png",
+      "src": "icon.png",
       "sizes": "180x180",
       "type": "image/png",
       "purpose": "any maskable"

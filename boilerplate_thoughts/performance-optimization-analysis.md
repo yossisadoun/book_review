@@ -1,6 +1,6 @@
 # Performance & Load Optimization Analysis
 
-*Last updated: 2026-03-17*
+*Last updated: 2026-03-18*
 
 ## Executive Summary
 
@@ -46,7 +46,7 @@ App() [~12,913 lines]
     ├── Account page → EXTRACTED to app/components/AccountPage.tsx (~520 lines)
     ├── Following page → EXTRACTED to app/components/FollowingPage.tsx (~190 lines)
     ├── Trivia game → EXTRACTED to app/components/TriviaGame.tsx (~780 lines)
-    ├── Feed page (~1,960 lines)
+    ├── Feed page → EXTRACTED to app/components/FeedPage.tsx (~1,520 lines)
     ├── Chat page (~800 lines)
     ├── Sorting results (~110 lines)
     ├── Notes view (~175 lines)
@@ -113,7 +113,7 @@ Every card component re-renders on any parent state change:
 | RelatedBooks | app/components/RelatedBooks.tsx | No |
 | RelatedMovies | app/components/RelatedMovies.tsx | No |
 | RatingStars | app/components/RatingStars.tsx | No |
-| HeartButton | app/components/HeartButton.tsx | No |
+| HeartButton | app/components/HeartButton.tsx | **Yes** (React.memo) |
 | BookSummary | app/components/BookSummary.tsx | No |
 | NotesEditorOverlay | app/components/NotesEditorOverlay.tsx | No |
 | SpotlightSection | app/page.tsx line 261 | **Yes** (only one) |
@@ -321,7 +321,7 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 7. ~~**Reduce API call debounce delays**~~ ✅ DONE — Reduced staggered timeouts from 500-5000ms to 3-tier system: 300ms (above-fold: summary, facts, did-you-know), 600ms (mid-page: podcasts, articles, videos), 1000ms (below-fold: related books/movies, influences, context). Services already check Supabase cache first (~50ms), so long delays were unnecessary. Saves 1.5-4s on book page load.
 
 ### Short-term (Refactoring Required)
-8. **Extract page components** — ~~AccountPage~~ ✓, ~~FollowingPage~~ ✓, FeedPage, ChatPage as separate files with own state
+8. **Extract page components** — ~~AccountPage~~ ✓, ~~FollowingPage~~ ✓, ~~FeedPage~~ ✓, ChatPage as separate files with own state. FeedPage extraction removed ~1,400 lines from page.tsx (11,497 lines remaining). Moved 20+ useState, 10+ useRef, feed rendering, pull-to-refresh, modals (MusicModal, WatchModal, podcast tooltip), and filter logic.
 9. **Add code splitting** — lazy-load modals, sheets, chat, trivia
 10. **Memoize chat context building** — sorts entire bookshelf on every render
 11. **Implement request deduplication** — prevent simultaneous identical API calls
@@ -333,6 +333,19 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 15. **Cache invalidation with TTL** — replace naive localStorage caching
 16. **Reduce useEffect count** — consolidate into service hooks, from 63 to ~15
 17. **Audit Lottie/framer-motion usage** — lazy-load animation libraries per page
+
+### Caching & Data Loading (NEW)
+
+**Current state:** Only the books list uses client-side caching (localStorage stale-while-revalidate). Everything else hits Supabase on every load. Server-side DB cache tables never expire.
+
+| # | Task | Impact | Effort |
+|---|------|--------|--------|
+| 18 | **Cache feed items in localStorage** — same stale-while-revalidate pattern as books. Feed appears instantly, fresh data loads in background. | High | Low |
+| 19 | **Cache chat list in localStorage** — every chat page open currently hits Supabase. Cache list, refresh on pull-to-refresh. | Medium | Low |
+| 20 | **Add cache expiration to DB tables** — add `updated_at` column to all `*_cache` tables + TTL check (re-fetch if > 60-90 days). Prevents permanently stale podcast/article/insight data. | Medium | Medium |
+| 21 | **Track feed generation completion** — add a `feed_generated_at` column to books or a separate tracking table. Skip `generateFeedItemsForBook()` (which queries ~10 cache tables) if feed was already generated for that book. | High | Medium |
+| 22 | **Request deduplication** — use AbortController + in-flight request Map to prevent duplicate simultaneous API calls when user rapidly switches books. | Medium | Low |
+| 23 | **Persist in-session Maps to localStorage** — podcasts, YouTube, articles, related books Maps are lost on refresh. Cache them keyed by book title+author for instant re-display. | Medium | Medium |
 
 ### Metrics to Track
 - **Bundle size** (target: <200KB gzip initial)
@@ -413,13 +426,12 @@ For each bug found during extraction, add a targeted test:
 |-----------|--------------|-------------|-------|
 | AccountPage | ~540 | 7 useState, 2 useEffect, 3 refs | 19 component + 8 wiring |
 | FollowingPage | ~160 | 3 useState, 1 useEffect | 7 component + 6 wiring |
+| TriviaGame | ~740 | 17 useState, 7 useEffect, 4 refs | 18 guard tests |
+| FeedPage | ~1,400 | 20+ useState, 10+ useRef, modals, filters, pull-to-refresh | feed-bugs + pull-to-refresh tests |
 
 ### Next Targets
 
 | Component | Est. Lines | Key Risk |
 |-----------|-----------|----------|
-| FollowingPage | ~120 | followingUsers state, API waterfall |
-| FeedPage | ~1,960 | feedTypeFilter, pull-to-refresh touch handlers, feed generation |
 | ChatPage | ~800 | chatList state, proactive messages, keyboard listeners |
 | BookDetail | ~1,720 | Largest — insights/podcasts/videos/articles state Maps, many card component integrations |
-| TriviaGame | ~360 | Modal overlay, trivia state, timer refs |

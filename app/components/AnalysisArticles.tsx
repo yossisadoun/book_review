@@ -198,7 +198,7 @@ const AnalysisArticles = React.memo(function AnalysisArticles({ articles, bookId
                   <div className="px-3.5 py-3">
                     {articleDomain && (
                       <div className="flex items-center gap-1.5 mb-1.5">
-                        <img src={`https://www.google.com/s2/favicons?domain=${articleDomain}&sz=32`} alt="" className="w-4 h-4 rounded-sm" />
+                        <img src={`https://www.google.com/s2/favicons?domain=${articleDomain}&sz=32`} alt="" className="w-4 h-4 rounded-sm" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                         <span className="text-[13px] text-slate-500 dark:text-slate-400">{articleDomain}</span>
                       </div>
                     )}
