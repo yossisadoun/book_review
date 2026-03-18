@@ -217,7 +217,6 @@ export interface BookDetailViewProps {
   setShowAccountPage: (val: boolean | ((prev: boolean) => boolean)) => void;
   showAccountPage: boolean;
   setShowBookshelfCovers: (val: boolean) => void;
-  setShowBookshelf: (val: boolean) => void;
   setShowNotesView: (val: boolean) => void;
   setShowSortingResults: (val: boolean) => void;
 
@@ -419,7 +418,6 @@ export default function BookDetailView({
   setShowAccountPage,
   showAccountPage,
   setShowBookshelfCovers,
-  setShowBookshelf,
   setShowNotesView,
   setShowSortingResults,
   handleRate,
@@ -795,7 +793,6 @@ export default function BookDetailView({
             onClick={() => {
               updateScrollY(0);
               setShowBookshelfCovers(true);
-              setShowBookshelf(false);
               setShowNotesView(false);
               setShowSortingResults(false);
             }}

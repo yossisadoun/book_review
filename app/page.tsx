@@ -640,16 +640,15 @@ export default function App() {
   };
   
   // Helper function to get last page from localStorage
-  const getLastPageState = (): { showBookshelf: boolean; showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean; showFollowingPage: boolean; showFeedPage: boolean } => {
+  const getLastPageState = (): { showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean; showFollowingPage: boolean; showFeedPage: boolean } => {
     if (typeof window === 'undefined') {
-      return { showBookshelf: false, showBookshelfCovers: false, showNotesView: false, showAccountPage: false, showFollowingPage: false, showFeedPage: false };
+      return { showBookshelfCovers: false, showNotesView: false, showAccountPage: false, showFollowingPage: false, showFeedPage: false };
     }
     try {
       const saved = localStorage.getItem('lastPageState');
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
-          showBookshelf: parsed.showBookshelf === true,
           showBookshelfCovers: parsed.showBookshelfCovers === true,
           showNotesView: parsed.showNotesView === true,
           showAccountPage: parsed.showAccountPage === true,
@@ -660,11 +659,11 @@ export default function App() {
     } catch (err) {
       console.error('[getLastPageState] Error reading from localStorage:', err);
     }
-    return { showBookshelf: false, showBookshelfCovers: false, showNotesView: false, showAccountPage: false, showFollowingPage: false, showFeedPage: false };
+    return { showBookshelfCovers: false, showNotesView: false, showAccountPage: false, showFollowingPage: false, showFeedPage: false };
   };
 
   // Helper function to save current page state to localStorage
-  const savePageState = (state: { showBookshelf: boolean; showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean; showFollowingPage: boolean; showFeedPage: boolean }) => {
+  const savePageState = (state: { showBookshelfCovers: boolean; showNotesView: boolean; showAccountPage: boolean; showFollowingPage: boolean; showFeedPage: boolean }) => {
     if (typeof window === 'undefined') return;
     try {
       localStorage.setItem('lastPageState', JSON.stringify(state));
@@ -682,7 +681,6 @@ export default function App() {
     else if (showChatPage) previousViewRef.current = 'chat';
     else if (showNotesView) previousViewRef.current = 'notes';
     else if (showBookshelfCovers) previousViewRef.current = 'bookshelf-covers';
-    else if (showBookshelf) previousViewRef.current = 'bookshelf-spines';
     else previousViewRef.current = 'book-detail';
   };
   const restorePreviousView = (): void => {
@@ -692,7 +690,6 @@ export default function App() {
     setShowCreatePost(false);
     const target = previousViewRef.current;
     if (target === 'book-detail') {
-      setShowBookshelf(false);
       setShowBookshelfCovers(false);
     } else if (target === 'feed') {
       setShowFeedPage(true);
@@ -703,7 +700,6 @@ export default function App() {
     } else if (target === 'notes') {
       setShowNotesView(true);
     } else if (target === 'bookshelf-spines') {
-      setShowBookshelf(true);
     } else {
       setShowBookshelfCovers(true);
     }
@@ -712,7 +708,7 @@ export default function App() {
 
   // Initialize page states from localStorage
   const [showAccountPage, setShowAccountPage] = useState(() => getLastPageState().showAccountPage);
-  const [showBookshelf, setShowBookshelf] = useState(() => getLastPageState().showBookshelf);
+  // showBookshelf (spines view) removed — was deprecated, unreachable UI
   const [showBookshelfCovers, setShowBookshelfCovers] = useState(() => getLastPageState().showBookshelfCovers);
   const [showNotesView, setShowNotesView] = useState(() => getLastPageState().showNotesView);
   const [showFollowingPage, setShowFollowingPage] = useState(() => getLastPageState().showFollowingPage);
@@ -744,14 +740,14 @@ export default function App() {
   });
   const [showAddBookTooltip, setShowAddBookTooltip] = useState(false);
   useEffect(() => {
-    if ((showBookshelfCovers || showBookshelf) && books.length < 5 && books.length > 0) {
+    if (showBookshelfCovers && books.length < 5 && books.length > 0) {
       setShowAddBookTooltip(true);
       const timer = setTimeout(() => setShowAddBookTooltip(false), 5000);
       return () => clearTimeout(timer);
     } else {
       setShowAddBookTooltip(false);
     }
-  }, [showBookshelfCovers, showBookshelf, books.length]);
+  }, [showBookshelfCovers, books.length]);
   const moreBelowAnimRef = useRef<HTMLDivElement>(null);
   const defaultContentPrefs = { fun_facts: true, podcasts: true, youtube: true, related_work: true, articles: true, related_books: true, _order: ['fun_facts', 'podcasts', 'youtube', 'related_work', 'articles', 'related_books'] };
   const [contentPreferences, setContentPreferences] = useState<Record<string, any>>(() => {
@@ -1763,12 +1759,12 @@ export default function App() {
 
   // Set default view to bookshelf covers when user has no books (first-time user)
   useEffect(() => {
-    if (isLoaded && books.length === 0 && !showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showFollowingPage) {
+    if (isLoaded && books.length === 0 && !showBookshelfCovers && !showNotesView && !showAccountPage && !showFollowingPage) {
       // First-time user: default to bookshelf covers view
       setShowBookshelfCovers(true);
       setBookshelfGrouping('reading_status'); // Ensure it's grouped by status
     }
-  }, [isLoaded, books.length, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage]);
+  }, [isLoaded, books.length, showBookshelfCovers, showNotesView, showAccountPage]);
 
   // Show intro screen for new users who haven't seen it (per-account)
   useEffect(() => {
@@ -1817,7 +1813,6 @@ export default function App() {
   useEffect(() => {
     if (isLoaded) {
       savePageState({
-        showBookshelf,
         showBookshelfCovers,
         showNotesView,
         showAccountPage,
@@ -1825,38 +1820,37 @@ export default function App() {
         showFeedPage,
       });
     }
-  }, [isLoaded, showBookshelf, showBookshelfCovers, showNotesView, showAccountPage, showFollowingPage, showFeedPage]);
+  }, [isLoaded, showBookshelfCovers, showNotesView, showAccountPage, showFollowingPage, showFeedPage]);
 
   // Analytics: track view changes
   useEffect(() => {
     if (showBookshelfCovers) analytics.trackEvent('bookshelf', 'view', { view_type: 'covers', book_count: books.length });
-    else if (showBookshelf) analytics.trackEvent('bookshelf', 'view', { view_type: 'spines', book_count: books.length });
-  }, [showBookshelfCovers, showBookshelf]);
+  }, [showBookshelfCovers]);
 
   useEffect(() => {
     if (showFeedPage) analytics.trackView('feed');
   }, [showFeedPage]);
 
   useEffect(() => {
-    if (!showBookshelf && !showBookshelfCovers && !showFeedPage && !showAccountPage && !showFollowingPage && !showNotesView && !showChatPage && books.length > 0 && selectedIndex >= 0 && selectedIndex < books.length) {
+    if (!showBookshelfCovers && !showFeedPage && !showAccountPage && !showFollowingPage && !showNotesView && !showChatPage && books.length > 0 && selectedIndex >= 0 && selectedIndex < books.length) {
       const book = books[selectedIndex];
       if (book) analytics.trackEvent('book', 'view', { book_title: book.title, book_author: book.author });
     }
-  }, [selectedIndex, showBookshelf, showBookshelfCovers, showFeedPage, showAccountPage, showFollowingPage, showNotesView, showChatPage]);
+  }, [selectedIndex, showBookshelfCovers, showFeedPage, showAccountPage, showFollowingPage, showNotesView, showChatPage]);
 
   // Android hardware back button
   const backButtonStateRef = useRef({
     showAboutScreen, isAdding, showShareDialog, showBookMenu,
     isEditing, isShowingNotes, isConfirmingDelete,
     showAccountPage, showFollowingPage, showFeedPage, showChatPage, chatBookSelected, showCreatePost, showSortingResults, showNotesView,
-    showBookshelf, showBookshelfCovers,
+    showBookshelfCovers,
   });
   useEffect(() => {
     backButtonStateRef.current = {
       showAboutScreen, isAdding, showShareDialog, showBookMenu,
       isEditing, isShowingNotes, isConfirmingDelete,
       showAccountPage, showFollowingPage, showFeedPage, showChatPage, chatBookSelected, showCreatePost, showSortingResults, showNotesView,
-      showBookshelf, showBookshelfCovers,
+      showBookshelfCovers,
     };
   });
   useEffect(() => {
@@ -1886,9 +1880,8 @@ export default function App() {
       if (s.showSortingResults) { setShowSortingResults(false); setShowBookshelfCovers(true); return; }
       if (s.showNotesView) { setShowNotesView(false); setShowBookshelfCovers(true); return; }
       // 4. Book detail → bookshelf covers
-      if (!s.showBookshelf && !s.showBookshelfCovers) { setShowBookshelfCovers(true); return; }
+      if (!s.showBookshelfCovers) { setShowBookshelfCovers(true); return; }
       // 5. Spines view → covers view
-      if (s.showBookshelf && !s.showBookshelfCovers) { setShowBookshelf(false); setShowBookshelfCovers(true); return; }
       // 6. At root (bookshelf covers) → exit app
       exitApp();
     });
@@ -2872,7 +2865,6 @@ export default function App() {
           setSelectedIndex(existingBookIndex);
           setPendingBookMeta(null);
           // Make sure we're on the books view (not bookshelf/notes)
-          setShowBookshelf(false);
           setShowBookshelfCovers(false);
           setShowNotesView(false);
         } else {
@@ -2892,7 +2884,6 @@ export default function App() {
             }
           }
           setPendingBookMeta(null);
-          setShowBookshelf(false);
           setShowBookshelfCovers(false);
           setShowNotesView(false);
         }
@@ -3015,7 +3006,6 @@ export default function App() {
           // Generate trivia questions if not already cached (fire-and-forget)
           ensureTriviaQuestionsForBook(newBook.title, newBook.author || '');
           // Switch to books view (in case we're on bookshelf/notes screen)
-          setShowBookshelf(false);
           setShowBookshelfCovers(false);
           setShowNotesView(false);
           
@@ -3067,7 +3057,6 @@ export default function App() {
       setSelectedIndex(0);
       setIsAdding(false);
       // Switch to books view (in case we're on bookshelf/notes screen)
-      setShowBookshelf(false);
       setShowBookshelfCovers(false);
       setShowNotesView(false);
 
@@ -3716,10 +3705,10 @@ export default function App() {
       )}
 
       {/* Simple header - fades on scroll and during transitions (hidden on book pages) */}
-      {!(!showBookshelf && !showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults && !showFollowingPage && !showFeedPage && (!showChatPage || chatBookSelected) && !showCreatePost) && (
+      {!(!showBookshelfCovers && !showNotesView && !showAccountPage && !showSortingResults && !showFollowingPage && !showFeedPage && (!showChatPage || chatBookSelected) && !showCreatePost) && (
       <AnimatePresence mode="wait">
         <motion.div
-          key={showSortingResults ? 'sorting-results-header' : showNotesView ? 'notes-header' : showBookshelf ? 'bookshelf-header' : 'books-header'}
+          key={showSortingResults ? 'sorting-results-header' : showNotesView ? 'notes-header' : 'books-header'}
           ref={attachHeaderBarRef}
           className="w-full z-40 fixed top-[50px] left-0 right-0 px-4 py-3 flex items-center justify-between"
           style={{
@@ -3779,7 +3768,6 @@ export default function App() {
                   showSortingResults ? 'sorted' :
                   showNotesView ? 'notes' :
                   showBookshelfCovers ? 'bookshelf-covers' :
-                  showBookshelf ? 'bookshelf' :
                   'books'
                 }
                 initial={{ opacity: 0 }}
@@ -3814,12 +3802,6 @@ export default function App() {
                   ) : (
                     <Library size={24} className="text-slate-950 dark:text-slate-50" />
                   )
-                ) : showBookshelf ? (
-                  featureFlags.hand_drawn_icons ? (
-                    <img src={getAssetPath("/library.svg")} alt="Library" className="w-[24px] h-[24px]" />
-                  ) : (
-                    <Library size={24} className="text-slate-950 dark:text-slate-50" />
-                  )
                 ) : (
                   <BookOpen size={24} className="text-slate-950 dark:text-slate-50" />
                 )}
@@ -3842,8 +3824,6 @@ export default function App() {
                               ? 'NOTES'
                               : showBookshelfCovers
                                 ? 'BOOKSHELF'
-                                : showBookshelf
-                                  ? 'BOOKSHELF'
                                   : 'BOOKS'}
                 </h1>
               </motion.div>
@@ -3890,7 +3870,7 @@ export default function App() {
         )}
 
         {/* Info button when on bookshelf (not when viewing another user) */}
-        {(showBookshelf || showBookshelfCovers) && !showAccountPage && !showSortingResults && !showFollowingPage && !showNotesView && !showFeedPage && !showChatPage && !viewingUserId && (
+        {(showBookshelfCovers) && !showAccountPage && !showSortingResults && !showFollowingPage && !showNotesView && !showFeedPage && !showChatPage && !viewingUserId && (
           <button
             onClick={() => { setShowAboutScreen(true); }}
             className="w-8 h-8 rounded-full flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
@@ -3937,7 +3917,6 @@ export default function App() {
               setViewingUserId(userId);
               setShowFollowingPage(false);
               setShowFeedPage(false);
-              setShowBookshelf(false);
               setShowBookshelfCovers(true);
               setShowNotesView(false);
               setShowAccountPage(false);
@@ -4117,7 +4096,6 @@ export default function App() {
                       setCreatePostText('');
                       setShowCreatePost(false);
                       setShowFeedPage(true);
-                      setShowBookshelf(false);
                       setShowBookshelfCovers(false);
                       setShowNotesView(false);
                       setShowAccountPage(false);
@@ -4329,7 +4307,6 @@ export default function App() {
                         const bookIndex = books.findIndex(b => b.id === book.id);
                         if (bookIndex !== -1) {
                           setShowNotesView(false);
-                          setShowBookshelf(false);
                           setShowBookshelfCovers(false);
                           setShowAccountPage(false);
                           setShowFollowingPage(false);
@@ -5059,425 +5036,6 @@ export default function App() {
               )}
             </div>
           </motion.main>
-        ) : showBookshelf ? (
-          <motion.main
-            key="bookshelf"
-            ref={(el) => { scrollContainerRef.current = el; }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="flex-1 flex flex-col items-center relative pt-20 overflow-y-auto ios-scroll"
-            style={{ backgroundColor: 'transparent', paddingBottom: 'calc(1rem + 50px + 4rem + var(--safe-area-bottom, 0px))' }}
-            onScroll={(e) => {
-              const target = e.currentTarget;
-              updateScrollY(target.scrollTop);
-            }}
-          >
-            {/* Bookshelf View */}
-            <div 
-              className="w-full flex flex-col items-center px-4"
-            >
-              {booksForBookshelf.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6 py-20">
-                  <img src={getAssetPath("/logo.png")} alt="Book.luv" className="object-contain mx-auto mb-4" />
-                  {viewingUserId ? (
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      {viewingUserIsPrivate ? "This user's bookshelf is private." : "This user hasn't added any books yet."}
-                    </p>
-                  ) : (
-                    <button
-                      onClick={() => openAddBookSheet()}
-                      className="px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
-                    >
-                      Add first book
-                    </button>
-                  )}
-                </div>
-              ) : (
-              <div className="w-full max-w-[1600px] flex flex-col gap-2.5 py-8">
-                {/* Grouping Selector - Dropdown */}
-                <div className="flex items-center justify-start px-4 mb-1.5">
-                  <div className="relative" ref={bookshelfGroupingDropdownRef}>
-                  <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setIsBookshelfGroupingDropdownOpen(!isBookshelfGroupingDropdownOpen);
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all text-slate-700 dark:text-slate-300 hover:opacity-80"
-                      style={glassmorphicStyle}
-                    >
-                      <span className="text-slate-400 font-normal">Group by</span>
-                      <span>
-                        {bookshelfGrouping === 'reading_status' ? 'Status' :
-                         bookshelfGrouping === 'added' ? 'Added' :
-                         bookshelfGrouping === 'rating' ? 'Rating' :
-                         bookshelfGrouping === 'title' ? 'Title' :
-                         bookshelfGrouping === 'author' ? 'Author' :
-                         bookshelfGrouping === 'genre' ? 'Genre' :
-                         bookshelfGrouping === 'publication_year' ? 'Year' :
-                         bookshelfGrouping === 'list' ? 'List' : 'Status'}
-                      </span>
-                      <ChevronDown 
-                        size={16} 
-                        className={`transition-transform ${isBookshelfGroupingDropdownOpen ? 'rotate-180' : ''}`}
-                      />
-                  </button>
-                    {isBookshelfGroupingDropdownOpen && (
-                      <>
-                        {/* Backdrop to close menu */}
-                        <div
-                          className="fixed inset-0 z-30"
-                          onClick={() => setIsBookshelfGroupingDropdownOpen(false)}
-                        />
-                        {/* Menu */}
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                          transition={{ duration: 0.2 }}
-                          className="absolute top-full left-0 mt-1 z-40 rounded-lg min-w-[140px] overflow-hidden"
-                          style={glassmorphicStyle}
-                        >
-                          {[
-                            { value: 'reading_status', label: 'Status' },
-                            { value: 'list', label: 'List' },
-                            { value: 'added', label: 'Added' },
-                            { value: 'rating', label: 'Rating' },
-                            { value: 'title', label: 'Title' },
-                            { value: 'author', label: 'Author' },
-                            { value: 'publication_year', label: 'Year' },
-                          ].map((option, idx) => (
-                  <button
-                              key={option.value}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setBookshelfGrouping(option.value as 'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year' | 'list');
-                                setIsBookshelfGroupingDropdownOpen(false);
-                              }}
-                              className={`w-full px-4 py-3 flex items-center gap-2 text-sm font-medium transition-colors ${
-                                idx > 0 ? 'border-t border-white/20 dark:border-white/10' : ''
-                              } ${
-                                bookshelfGrouping === option.value
-                                  ? 'text-slate-950 dark:text-slate-50 bg-white/20 dark:bg-white/8'
-                                  : 'text-slate-700 dark:text-slate-300 hover:bg-white/20 dark:bg-white/8 active:bg-white/30 dark:bg-white/12'
-                              }`}
-                            >
-                              {option.label}
-                  </button>
-                          ))}
-                        </motion.div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Summary Section */}
-                <div className="flex items-center justify-center gap-4 px-4 mb-2.5">
-                  {(() => {
-                    // Calculate KPIs
-                    const totalBooks = books.length;
-                    const booksWithRatings = books.filter(book => {
-                      const values = Object.values(book.ratings).filter(v => v != null) as number[];
-                      return values.length > 0;
-                    });
-                    const totalUnrated = totalBooks - booksWithRatings.length;
-                    
-                    // Calculate average score across all books
-                    let avgScore = 0;
-                    if (booksWithRatings.length > 0) {
-                      const totalScore = booksWithRatings.reduce((sum, book) => {
-                        return sum + calculateScore(book.ratings);
-                      }, 0);
-                      avgScore = totalScore / booksWithRatings.length;
-                    }
-
-                    return (
-                      <>
-                        {/* Total Books KPI */}
-                        <div className="rounded-xl p-4 flex flex-col items-center min-w-[100px]" style={glassmorphicStyle}>
-                          <span className="text-lg font-bold text-slate-950 dark:text-slate-50 mb-1">
-                            {totalBooks}
-                          </span>
-                          <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Total</span>
-                        </div>
-
-                        {/* Average Score KPI */}
-                        <div className="rounded-xl p-4 flex flex-col items-center min-w-[100px]" style={glassmorphicStyle}>
-                          <div className="flex items-center gap-1 mb-1">
-                            <Heart size={16} className="fill-pink-500 text-pink-500" />
-                            <span className="text-lg font-bold text-slate-950 dark:text-slate-50">
-                              {avgScore > 0 ? avgScore.toFixed(1) : '—'}
-                            </span>
-                          </div>
-                          <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Avg Score</span>
-                        </div>
-
-                        {/* Total Unrated KPI */}
-                        <div className="rounded-xl p-4 flex flex-col items-center min-w-[100px]" style={glassmorphicStyle}>
-                          <span className="text-lg font-bold text-slate-950 dark:text-slate-50 mb-1">
-                            {totalUnrated}
-                          </span>
-                          <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Unrated</span>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-                
-                {groupedBooksForBookshelf.map((group, groupIdx) => (
-                  <div
-                    key={group.label || `group-${groupIdx}`}
-                    className="flex flex-col gap-4 rounded-2xl overflow-hidden"
-                    style={{
-                      ...glassmorphicStyle,
-                      padding: '2rem 0',
-                    }}
-                  >
-                    {/* Shelf Label */}
-                    <h2 className="text-xl font-bold text-slate-950 dark:text-slate-50 px-[10vw] flex items-center gap-2">
-                      {group.label}
-                      <span className="text-xs font-medium text-slate-400">{group.books.length}</span>
-                      {bookshelfGrouping === 'reading_status' && (
-                        <>
-                          {group.label === 'Read it' && <CheckCircle2 size={20} className="text-slate-950 dark:text-slate-50" />}
-                          {group.label === 'Reading' && <BookOpen size={20} className="text-slate-950 dark:text-slate-50" />}
-                          {group.label === 'Want to read' && <BookMarked size={20} className="text-slate-950 dark:text-slate-50" />}
-                          {group.label === 'TBD' && <span className="w-5 h-5" />}
-                        </>
-                      )}
-                    </h2>
-                    
-                    {/* Shelf Container */}
-                    <div 
-                      className="bookshelf-scroll scrollbar-hide flex items-end justify-start overflow-x-auto overflow-y-hidden px-[10vw] ios-horizontal-scroll"
-                      style={{
-                        scrollSnapType: 'x proximity',
-                        cursor: 'grab',
-                      } as React.CSSProperties}
-                      onMouseDown={(e) => {
-                        const shelf = e.currentTarget;
-                        const startX = e.pageX - shelf.offsetLeft;
-                        const scrollLeft = shelf.scrollLeft;
-                        let isDown = true;
-
-                        const handleMouseMove = (e: MouseEvent) => {
-                          if (!isDown) return;
-                          e.preventDefault();
-                          const x = e.pageX - shelf.offsetLeft;
-                          const walk = (x - startX) * 2;
-                          shelf.scrollLeft = scrollLeft - walk;
-                        };
-
-                        const handleMouseUp = () => {
-                          isDown = false;
-                          document.removeEventListener('mousemove', handleMouseMove);
-                          document.removeEventListener('mouseup', handleMouseUp);
-                        };
-
-                        document.addEventListener('mousemove', handleMouseMove);
-                        document.addEventListener('mouseup', handleMouseUp);
-                      }}
-                    >
-                      <div className="flex items-end gap-1 min-h-[400px]">
-                        {group.books.map((book, idx) => {
-                      const score = calculateScore(book.ratings);
-                      const avgScore = calculateAvg(book.ratings);
-                      
-                      // Generate consistent colors and fonts based on book ID
-                      const hash = (book.id || `${idx}`).split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-                      const colorSets = [
-                        { main: "#5199fc", accent: "#afd7fb" },
-                        { main: "#ff9868", accent: "#d06061" },
-                        { main: "#ff5068", accent: "#d93368" },
-                        { main: "#A1D821", accent: "#7ca81a" },
-                        { main: "#FCCF47", accent: "#d4af3b" },
-                        { main: "#5856d6", accent: "#4543a8" },
-                        { main: "#1c1c1e", accent: "#48484a" }
-                      ];
-                      const fonts = ["'Bebas Neue'", "'Oswald'", "'Antonio'", "'Archivo Narrow'"];
-                      const styleSet = colorSets[hash % colorSets.length];
-                      const bookFont = fonts[hash % fonts.length];
-                      
-                      // Calculate text color for THIS specific book's color: 50% darker or brighter based on background luminance
-                      const bookColorHex = styleSet.main; // This book's specific color
-                      const r = parseInt(bookColorHex.slice(1, 3), 16);
-                      const g = parseInt(bookColorHex.slice(3, 5), 16);
-                      const b = parseInt(bookColorHex.slice(5, 7), 16);
-                      
-                      // Calculate relative luminance (0-1) for this book's color
-                      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-                      
-                      // If this book's background is light (luminance > 0.5), make text 50% darker
-                      // If this book's background is dark (luminance <= 0.5), make text 50% brighter
-                      const factor = luminance > 0.5 ? -0.5 : 0.5;
-                      
-                      const textR = Math.max(0, Math.min(255, Math.round(r * (1 + factor))));
-                      const textG = Math.max(0, Math.min(255, Math.round(g * (1 + factor))));
-                      const textB = Math.max(0, Math.min(255, Math.round(b * (1 + factor))));
-                      
-                      const textColor = `rgb(${textR}, ${textG}, ${textB})`;
-                      
-                      // Height based on score (224-336px range, 20% smaller)
-                      const height = score > 0 ? (280 + (score * 28)) * 0.8 : 280 * 0.8;
-                      // Width varies (44-68px, 20% smaller)
-                      const width = (55 + (hash % 30)) * 0.8;
-                      
-                      // Font sizing logic - Maximal sizing for vertical text
-                      const availableHeight = height - 80; // 40px buffer for decoration and margin
-                      const availableWidth = width - 10; // 5px padding on each side
-                      let fontSize = availableWidth;
-                      
-                      // If showing author, account for both title and author height
-                      if (bookshelfGrouping === 'author' && book.author) {
-                        const titleHeight = book.title.length * (fontSize * 0.55);
-                        const authorHeight = book.author.length * (fontSize * 0.5 * 0.55); // 50% size
-                        const gap = fontSize * 0.1; // Small gap between title and author
-                        const totalHeight = titleHeight + authorHeight + gap;
-                        
-                        if (totalHeight > availableHeight) {
-                          // Scale down to fit both
-                          fontSize = (availableHeight / (book.title.length * 0.55 + book.author.length * 0.5 * 0.55 + 0.1));
-                        }
-                      } else {
-                        // Only title, use original logic
-                        const estimatedTextLength = book.title.length * (fontSize * 0.55);
-                        if (estimatedTextLength > availableHeight) {
-                          fontSize = (availableHeight / book.title.length) / 0.55;
-                        }
-                      }
-                      
-                      fontSize = Math.max(fontSize, 20);
-                      
-                      // Find book index in original array for navigation
-                      const bookIndex = books.findIndex(b => b.id === book.id);
-                      
-                      return (
-                        <motion.div
-                          key={book.id || `book-${groupIdx}-${idx}`}
-                          initial={{ opacity: 0, y: 200 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{
-                            delay: (groupIdx * 0.1) + (idx * 0.05),
-                            duration: 0.6,
-                            type: "spring",
-                            stiffness: 100,
-                            damping: 15
-                          }}
-                          className="flex flex-col items-center"
-                        >
-                          {/* Rating - Above the book */}
-                          {avgScore && (
-                            <div className="flex items-center gap-1 mb-3">
-                              <Heart size={14} className="fill-pink-500 text-pink-500" />
-                              <span className="font-black text-sm text-slate-950 dark:text-slate-50">
-                                {avgScore}
-                              </span>
-                            </div>
-                          )}
-                          
-                          {/* Book Spine */}
-                          <div
-                            className="book-spine relative flex-shrink-0 cursor-pointer group"
-                            style={{
-                              height: `${height}px`,
-                              width: `${width}px`,
-                              backgroundColor: styleSet.main,
-                              color: textColor,
-                            } as React.CSSProperties}
-                            onClick={() => {
-                              if (viewingUserId) {
-                                // When viewing another user's bookshelf, show quick view
-                                setViewingBookFromOtherUser(book);
-                              } else if (bookIndex !== -1) {
-                                updateScrollY(0); // Reset scroll when switching views
-                                setSelectedIndex(bookIndex);
-                                setShowBookshelf(false);
-                                setTimeout(() => {
-                                  const main = document.querySelector('main');
-                                  if (main) {
-                                    main.scrollTo({ top: 0, behavior: 'smooth' });
-                                  }
-                                }, 100);
-                              }
-                            }}
-                          >
-                            {/* Tooltip */}
-                            {avgScore && (
-                              <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full mb-2 opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none whitespace-nowrap z-50"
-                                style={{
-                                  top: '-65px',
-                                  background: '#1d1d1f',
-                                  color: '#fff',
-                                  padding: '8px 14px',
-                                  borderRadius: '10px',
-                                  fontSize: '0.8rem',
-                                  fontWeight: '700',
-                                  boxShadow: '0 10px 20px rgba(0,0,0,0.1)',
-                                }}
-                              >
-                                <span className="text-pink-500 mr-1">
-                                  {'♥'.repeat(Math.floor(parseFloat(avgScore)))}
-                                  {'♡'.repeat(5 - Math.floor(parseFloat(avgScore)))}
-                                </span>
-                                {avgScore}
-                              </div>
-                            )}
-                            
-                            {/* Decoration Stripes */}
-                            <div
-                              className="absolute top-[15px] left-1/2 -translate-x-1/2 flex flex-col gap-1 opacity-30 z-10"
-                              style={{ width: '60%', color: styleSet.accent }}
-                            >
-                              <div className="h-[3px] w-full rounded-sm" style={{ background: 'currentColor' }} />
-                              <div className="h-[3px] w-full rounded-sm" style={{ background: 'currentColor' }} />
-                            </div>
-                            
-                            {/* Spine Content */}
-                            <div
-                              className="absolute inset-0 flex items-center justify-center p-2 pointer-events-none z-0"
-                              style={{
-                                writingMode: 'vertical-rl',
-                                textOrientation: 'mixed',
-                                transform: 'rotate(180deg)',
-                                fontFamily: bookFont,
-                              }}
-                            >
-                              <div className="flex flex-col items-center gap-1">
-                                <div
-                                  className="text-center leading-[0.85] whitespace-nowrap"
-                                  style={{
-                                    fontSize: `${fontSize}px`,
-                                  }}
-                                >
-                                  {bookshelfGrouping === 'author' 
-                                    ? (book.author || 'Unknown Author').toUpperCase()
-                                    : book.title.toUpperCase()}
-                                </div>
-                              </div>
-                            </div>
-                            
-                            {/* Bottom Shadow */}
-                            <div
-                              className="absolute bottom-0 left-0 right-0 h-6 pointer-events-none z-0"
-                              style={{
-                                background: 'linear-gradient(to bottom, rgba(0, 0, 0, 0.15), transparent)',
-                                filter: 'blur(10px)',
-                                transform: 'translateY(50%)',
-                              }}
-                            />
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              )}
-            </div>
-          </motion.main>
         ) : (
           <BookDetailView
             activeBook={activeBook}
@@ -5558,7 +5116,6 @@ export default function App() {
             onNavigateToBookshelf={() => {
               updateScrollY(0);
               setShowBookshelfCovers(true);
-              setShowBookshelf(false);
               setShowNotesView(false);
               setShowAccountPage(false);
               setShowSortingResults(false);
@@ -5568,7 +5125,6 @@ export default function App() {
             setShowAccountPage={setShowAccountPage}
             showAccountPage={showAccountPage}
             setShowBookshelfCovers={setShowBookshelfCovers}
-            setShowBookshelf={setShowBookshelf}
             setShowNotesView={setShowNotesView}
             setShowSortingResults={setShowSortingResults}
             handleRate={handleRate}
@@ -5815,7 +5371,6 @@ export default function App() {
               setViewingUserFullName(null);
               setViewingUserAvatar(null);
               setShowBookshelfCovers(true);
-              setShowBookshelf(false);
               setShowNotesView(false);
               setShowAccountPage(false);
               setShowSortingResults(false);
@@ -5850,7 +5405,6 @@ export default function App() {
                   setChatBookSelected(false);
                   setShowChatPage(true);
                   setShowFeedPage(false);
-                  setShowBookshelf(false);
                   setShowBookshelfCovers(false);
                   setShowNotesView(false);
                   setShowAccountPage(false);
@@ -5892,7 +5446,6 @@ export default function App() {
               setShowChatPage(false);
               setChatBookSelected(false);
               setShowFeedPage(false);
-              setShowBookshelf(false);
               setShowBookshelfCovers(false);
               setShowNotesView(false);
               setShowAccountPage(false);
@@ -5920,7 +5473,6 @@ export default function App() {
               setViewingUserFullName(null);
               setViewingUserAvatar(null);
               setShowFeedPage(true);
-              setShowBookshelf(false);
               setShowBookshelfCovers(false);
               setShowNotesView(false);
               setShowAccountPage(false);
@@ -6297,7 +5849,6 @@ export default function App() {
                                   setSelectedIndex(bookIndex);
                                   setIsPlayingGame(false);
                                   setShowGameResults(false);
-                                  setShowBookshelf(false);
                                   setShowBookshelfCovers(false);
                                   setShowNotesView(false);
                                   // Reset scroll to top
@@ -6540,13 +6091,11 @@ export default function App() {
                     setChatGeneralMode(false);
                     setChatBookSelected(true);
                     setShowChatPage(true);
-                    setShowBookshelf(false);
                     setShowBookshelfCovers(false);
                     setShowNotesView(false);
                     setShowFeedPage(false);
                   } else {
                     setSelectedIndex(bookIndex);
-                    setShowBookshelf(false);
                     setShowBookshelfCovers(false);
                     setShowNotesView(false);
                     setShowFeedPage(false);
@@ -6569,14 +6118,12 @@ export default function App() {
                 setChatGeneralMode(true);
                 setChatBookSelected(true);
                 setShowChatPage(true);
-                setShowBookshelf(false);
                 setShowBookshelfCovers(false);
                 setShowNotesView(false);
                 setShowFeedPage(false);
               }}
               onSelectUser={(userId) => {
                 setViewingUserId(userId);
-                setShowBookshelf(false);
                 setShowBookshelfCovers(true);
                 setShowNotesView(false);
                 setShowAccountPage(false);
@@ -6608,7 +6155,6 @@ export default function App() {
                     });
                     setChatBookSelected(true);
                     setShowChatPage(true);
-                    setShowBookshelf(false);
                     setShowBookshelfCovers(false);
                     setShowNotesView(false);
                     setShowFeedPage(false);
@@ -7181,7 +6727,6 @@ export default function App() {
 
                     // Close bookshelf views
                     setViewingUserId(null);
-                    setShowBookshelf(false);
                     setShowBookshelfCovers(false);
                     setShowNotesView(false);
                     setShowAccountPage(false);
