@@ -3805,7 +3805,7 @@ export default function App() {
                 ) : (
                   <BookOpen size={24} className="text-slate-950 dark:text-slate-50" />
                 )}
-                <h1 className="text-2xl font-bold text-slate-950 dark:text-slate-50 drop-shadow-sm">
+                <h1 className={`text-2xl font-bold text-slate-950 dark:text-slate-50 drop-shadow-sm ${viewingUserId ? 'truncate max-w-[60vw]' : ''}`}>
                   {viewingUserId
                     ? (viewingUserFullName || viewingUserName).toUpperCase()
                     : showAccountPage
