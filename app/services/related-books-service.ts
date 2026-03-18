@@ -100,7 +100,23 @@ export async function getRelatedBooks(bookTitle: string, author: string, signal?
     // Try to extract JSON from the response (Grok might wrap it in markdown)
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     const jsonStr = jsonMatch ? jsonMatch[0] : content;
-    const result = JSON.parse(jsonStr);
+    let result: any;
+    try {
+      result = JSON.parse(jsonStr);
+    } catch {
+      console.warn('[getRelatedBooks] ⚠️ Failed to parse JSON, attempting fix:', jsonStr.slice(0, 200));
+      // Try fixing common issues: trailing commas, smart quotes
+      const fixed = jsonStr
+        .replace(/,\s*([\]}])/g, '$1')
+        .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
+        .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
+      try {
+        result = JSON.parse(fixed);
+      } catch {
+        console.error('[getRelatedBooks] ❌ JSON parse failed after fix attempt');
+        return [];
+      }
+    }
 
     const relatedBooks: RelatedBook[] = Array.isArray(result) ? result : [];
     console.log('[getRelatedBooks] ✅ Received', relatedBooks.length, 'related books from Grok');

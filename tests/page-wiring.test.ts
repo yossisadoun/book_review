@@ -25,6 +25,7 @@ const apiUtilsServiceSource = readFileSync(join(__dirname, '../app/services/api-
 const insightsServiceSource = readFileSync(join(__dirname, '../app/services/insights-service.ts'), 'utf-8');
 const podcastServiceSource = readFileSync(join(__dirname, '../app/services/podcast-service.ts'), 'utf-8');
 const avatarsServiceSource = readFileSync(join(__dirname, '../app/services/character-avatars-service.ts'), 'utf-8');
+const bookDetailDataHookSource = readFileSync(join(__dirname, '../app/hooks/useBookDetailData.ts'), 'utf-8');
 
 describe('AccountPage wiring in page.tsx', () => {
   it('should not contain orphaned AccountPage state variables', () => {
@@ -246,35 +247,35 @@ describe('Book detail navigation controls', () => {
 });
 
 describe('Book detail request stale-response guards', () => {
-  it('defines request token guard helpers in page.tsx', () => {
-    expect(pageSource).toContain('const activeBookRequestsRef = useRef<Map<BookRequestType');
-    expect(pageSource).toContain('const beginBookRequest = useCallback');
-    expect(pageSource).toContain('const isActiveBookRequest = useCallback');
+  it('defines request token guard helpers in useBookDetailData hook', () => {
+    expect(bookDetailDataHookSource).toContain('const activeBookRequestsRef = useRef<Map<BookRequestType');
+    expect(bookDetailDataHookSource).toContain('const beginBookRequest = useCallback');
+    expect(bookDetailDataHookSource).toContain('const isActiveBookRequest = useCallback');
   });
 
   it('guards async book-detail fetch handlers against stale responses', () => {
-    expect(pageSource).toContain("isActiveBookRequest('podcasts', bookId, requestToken)");
-    expect(pageSource).toContain("isActiveBookRequest('videos', bookId, requestToken)");
-    expect(pageSource).toContain("isActiveBookRequest('articles', bookId, requestToken)");
-    expect(pageSource).toContain("isActiveBookRequest('related_books', bookId, requestToken)");
-    expect(pageSource).toContain("isActiveBookRequest('related_movies', bookId, requestToken)");
+    expect(bookDetailDataHookSource).toContain("isActiveBookRequest('podcasts', bookId, requestToken)");
+    expect(bookDetailDataHookSource).toContain("isActiveBookRequest('videos', bookId, requestToken)");
+    expect(bookDetailDataHookSource).toContain("isActiveBookRequest('articles', bookId, requestToken)");
+    expect(bookDetailDataHookSource).toContain("isActiveBookRequest('related_books', bookId, requestToken)");
+    expect(bookDetailDataHookSource).toContain("isActiveBookRequest('related_movies', bookId, requestToken)");
   });
 });
 
 describe('Book detail request cancellation wiring', () => {
   it('creates AbortController per fetch effect and aborts on cleanup', () => {
-    expect(pageSource).toContain('const abortController = new AbortController();');
-    expect(pageSource).toContain('abortController.abort();');
+    expect(bookDetailDataHookSource).toContain('const abortController = new AbortController();');
+    expect(bookDetailDataHookSource).toContain('abortController.abort();');
   });
 
   it('passes AbortController signal to cancellable book-detail services', () => {
-    expect(pageSource).toContain('getGoogleScholarAnalysis(bookTitle, bookAuthor, abortController.signal)');
-    expect(pageSource).toContain('getYouTubeVideos(bookTitle, bookAuthor, abortController.signal)');
-    expect(pageSource).toContain('getRelatedBooks(bookTitle, bookAuthor, abortController.signal)');
-    expect(pageSource).toContain('getRelatedMovies(bookTitle, bookAuthor, abortController.signal)');
-    expect(pageSource).toContain('getBookSummary(currentBook.title, currentBook.author, abortController.signal)');
-    expect(pageSource).toContain('getPodcastEpisodes(bookTitle, bookAuthor, abortController.signal)');
-    expect(pageSource).toContain('getCharacterAvatars(currentBook.title, currentBook.author, avatarAbortController.signal)');
+    expect(bookDetailDataHookSource).toContain('getGoogleScholarAnalysis(bookTitle, bookAuthor, abortController.signal)');
+    expect(bookDetailDataHookSource).toContain('getYouTubeVideos(bookTitle, bookAuthor, abortController.signal)');
+    expect(bookDetailDataHookSource).toContain('getRelatedBooks(bookTitle, bookAuthor, abortController.signal)');
+    expect(bookDetailDataHookSource).toContain('getRelatedMovies(bookTitle, bookAuthor, abortController.signal)');
+    expect(bookDetailDataHookSource).toContain('getBookSummary(currentBook.title, currentBook.author, abortController.signal)');
+    expect(bookDetailDataHookSource).toContain('getPodcastEpisodes(bookTitle, bookAuthor, abortController.signal)');
+    expect(bookDetailDataHookSource).toContain('getCharacterAvatars(currentBook.title, currentBook.author, avatarAbortController.signal)');
   });
 
   it('supports signal argument in service fetch entry points', () => {
@@ -293,11 +294,11 @@ describe('Book detail request cancellation wiring', () => {
   });
 
   it('declares analysis abort controller in same effect scope', () => {
-    const start = pageSource.indexOf('// Load analysis articles from Google Scholar');
+    const start = bookDetailDataHookSource.indexOf('// Load analysis articles from Google Scholar');
     expect(start).toBeGreaterThan(-1);
-    const end = pageSource.indexOf('}, [activeBook?.id]); // Depend on activeBook.id to trigger when book changes or books are first loaded', start);
+    const end = bookDetailDataHookSource.indexOf('}, [activeBook?.id])', start);
     expect(end).toBeGreaterThan(start);
-    const block = pageSource.slice(start, end);
+    const block = bookDetailDataHookSource.slice(start, end);
     expect(block).toContain('const abortController = new AbortController();');
     expect(block).toContain('getGoogleScholarAnalysis(bookTitle, bookAuthor, abortController.signal)');
     expect(block).toContain('abortController.abort();');
@@ -311,29 +312,29 @@ describe('Book detail request cancellation wiring', () => {
   });
 
   it('ignores expected AbortError in analysis catch before logging', () => {
-    const start = pageSource.indexOf("console.error('Error fetching analysis articles:', err);");
+    const start = bookDetailDataHookSource.indexOf("console.error('Error fetching analysis articles:', err);");
     expect(start).toBeGreaterThan(-1);
-    const block = pageSource.slice(start - 300, start + 120);
+    const block = bookDetailDataHookSource.slice(start - 300, start + 120);
     expect(block).toContain("if ((err as any)?.name === 'AbortError')");
     expect(block).toContain('return;');
   });
 
   it('podcast effect creates AbortController and aborts on cleanup', () => {
-    const start = pageSource.indexOf("console.log(`[Podcast Episodes]");
+    const start = bookDetailDataHookSource.indexOf("console.log(`[Podcast Episodes]");
     expect(start).toBeGreaterThan(-1);
-    const effectStart = pageSource.lastIndexOf('useEffect(', start);
-    const effectEnd = pageSource.indexOf('}, [activeBook?.id])', effectStart);
-    const block = pageSource.slice(effectStart, effectEnd);
+    const effectStart = bookDetailDataHookSource.lastIndexOf('useEffect(', start);
+    const effectEnd = bookDetailDataHookSource.indexOf('}, [activeBook?.id])', effectStart);
+    const block = bookDetailDataHookSource.slice(effectStart, effectEnd);
     expect(block).toContain('const abortController = new AbortController()');
     expect(block).toContain('abortController.abort()');
     expect(block).toContain("if ((err as any)?.name === 'AbortError')");
   });
 
   it('avatar fetch creates separate AbortController and aborts on cleanup', () => {
-    const start = pageSource.indexOf('const avatarAbortController = new AbortController()');
+    const start = bookDetailDataHookSource.indexOf('const avatarAbortController = new AbortController()');
     expect(start).toBeGreaterThan(-1);
-    const effectEnd = pageSource.indexOf('}, [activeBook?.id])', start);
-    const block = pageSource.slice(start, effectEnd);
+    const effectEnd = bookDetailDataHookSource.indexOf('}, [activeBook?.id])', start);
+    const block = bookDetailDataHookSource.slice(start, effectEnd);
     expect(block).toContain('avatarAbortController.signal');
     expect(block).toContain('avatarAbortController.abort()');
   });
@@ -360,5 +361,87 @@ describe('First issue year schema compatibility', () => {
   it('does not write first_issue_year into author_facts_cache payloads', () => {
     expect(insightsServiceSource).not.toContain('first_issue_year: year');
     expect(insightsServiceSource).not.toContain('Saved first_issue_year');
+  });
+});
+
+describe('useBookDetailData hook extraction wiring', () => {
+  // Verify page.tsx calls the hook and destructures its return
+  it('imports and calls useBookDetailData in page.tsx', () => {
+    expect(pageSource).toContain("import { useBookDetailData } from './hooks/useBookDetailData'");
+    expect(pageSource).toContain('} = useBookDetailData({');
+  });
+
+  // Verify no orphaned data-fetching state declarations remain in page.tsx
+  it('does not declare moved data Map states in page.tsx', () => {
+    const movedMaps = [
+      'bookInfluences', 'bookDomain', 'bookContext', 'didYouKnow',
+      'podcastEpisodes', 'analysisArticles', 'youtubeVideos',
+      'relatedBooks', 'relatedMovies', 'researchData',
+      'bookSummaries', 'characterAvatars', 'bookInfographics',
+    ];
+    for (const name of movedMaps) {
+      expect(pageSource).not.toMatch(new RegExp(`\\[${name},\\s*set${name[0].toUpperCase()}${name.slice(1)}`));
+    }
+  });
+
+  it('does not declare moved loading states in page.tsx', () => {
+    const movedLoading = [
+      'loadingFactsForBookId', 'loadingInfluencesForBookId', 'loadingDomainForBookId',
+      'loadingContextForBookId', 'loadingDidYouKnowForBookId', 'loadingPodcastsForBookId',
+      'loadingAnalysisForBookId', 'loadingVideosForBookId', 'loadingRelatedForBookId',
+      'loadingRelatedMoviesForBookId', 'loadingResearchForBookId',
+      'loadingSummaryForBookId', 'loadingAvatarsForBookId', 'loadingInfographicForBookId',
+    ];
+    for (const name of movedLoading) {
+      expect(pageSource).not.toMatch(new RegExp(`\\[${name},\\s*set`));
+    }
+  });
+
+  it('does not declare moved fetchingRefs in page.tsx', () => {
+    const movedRefs = [
+      'fetchingFactsForBooksRef', 'fetchingInfluencesForBooksRef',
+      'fetchingDomainForBooksRef', 'fetchingContextForBooksRef',
+      'fetchingDidYouKnowForBooksRef', 'fetchingPodcastsForBooksRef',
+      'fetchingAnalysisForBooksRef', 'fetchingVideosForBooksRef',
+      'fetchingRelatedForBooksRef', 'fetchingRelatedMoviesRef',
+      'activeBookRequestsRef', 'nextBookRequestTokenRef',
+      'generatedFeedForBooksRef', 'loadingTimestamps',
+    ];
+    for (const name of movedRefs) {
+      expect(pageSource).not.toMatch(new RegExp(`const ${name}\\s*=\\s*useRef`));
+    }
+  });
+
+  it('does not declare moved useMemos in page.tsx', () => {
+    expect(pageSource).not.toContain('const combinedPodcastEpisodes = useMemo');
+    expect(pageSource).not.toContain('const bookDetailInsightsState = useMemo');
+    expect(pageSource).not.toContain('const spotlightRecommendation = useMemo');
+    expect(pageSource).not.toContain('const activeVideos = useMemo');
+    expect(pageSource).not.toContain('const activeArticles = useMemo');
+    expect(pageSource).not.toContain('const activeRelatedMovies = useMemo');
+    expect(pageSource).not.toContain('const activeRelatedBooks = useMemo');
+  });
+
+  // Verify the hook file contains all expected data-fetching effects
+  it('hook contains all data-fetching effects', () => {
+    expect(bookDetailDataHookSource).toContain('getAuthorFacts(');
+    expect(bookDetailDataHookSource).toContain('getBookInfluences(');
+    expect(bookDetailDataHookSource).toContain('getBookDomain(');
+    expect(bookDetailDataHookSource).toContain('getBookContext(');
+    expect(bookDetailDataHookSource).toContain('getDidYouKnow(');
+    expect(bookDetailDataHookSource).toContain('getPodcastEpisodes(');
+    expect(bookDetailDataHookSource).toContain('getGoogleScholarAnalysis(');
+    expect(bookDetailDataHookSource).toContain('getYouTubeVideos(');
+    expect(bookDetailDataHookSource).toContain('getRelatedBooks(');
+    expect(bookDetailDataHookSource).toContain('getRelatedMovies(');
+    expect(bookDetailDataHookSource).toContain('getBookSummary(');
+    expect(bookDetailDataHookSource).toContain('getCharacterAvatars(');
+    expect(bookDetailDataHookSource).toContain('generateFeedItemsForBook(');
+  });
+
+  // Verify the hook contains the loading timeout safety net
+  it('hook contains loading timeout safety net', () => {
+    expect(bookDetailDataHookSource).toContain('[LoadingTimeout] Clearing stuck loading state');
+    expect(bookDetailDataHookSource).toContain('30_000');
   });
 });

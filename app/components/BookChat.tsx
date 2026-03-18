@@ -1199,8 +1199,6 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
             </button>
           </div>
           <button
-            onTouchStart={(e) => { e.preventDefault(); }}
-            onTouchEnd={(e) => { e.preventDefault(); handleSend(); }}
             onClick={() => handleSend()}
             disabled={isLoading || streamingSegments !== null || !hasText}
             className="w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-all shrink-0 disabled:opacity-30"

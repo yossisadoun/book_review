@@ -40,23 +40,24 @@ All pages (bookshelf, feed, chat, account, following, book detail, trivia, notes
 
 ### Current Structure
 ```
-App() [~12,913 lines]
-├── 170 useState declarations
-├── 56 useEffect hooks
-├── 8 useMemo hooks
+App() [~9,354 lines — down from ~12,913]
+├── ~138 useState declarations (down from 170; 32 moved to useBookDetailData hook)
+├── ~42 useEffect hooks (down from 56; 14 moved to useBookDetailData hook)
+├── 1 useMemo hooks (down from 8; 7 moved to useBookDetailData hook)
 ├── 0 useCallback hooks
-├── 47 useRef hooks
+├── ~32 useRef hooks (down from 47; 15 moved to useBookDetailData hook)
 └── All UI rendering
     ├── Account page → EXTRACTED to app/components/AccountPage.tsx (~520 lines)
     ├── Following page → EXTRACTED to app/components/FollowingPage.tsx (~190 lines)
     ├── Trivia game → EXTRACTED to app/components/TriviaGame.tsx (~780 lines)
     ├── Feed page → EXTRACTED to app/components/FeedPage.tsx (~1,520 lines)
     ├── Chat page → EXTRACTED to app/components/ChatPage.tsx (~970 lines)
+    ├── Book detail DATA → EXTRACTED to app/hooks/useBookDetailData.ts (~1,784 lines)
     ├── Sorting results (~110 lines)
     ├── Notes view (~175 lines)
     ├── Bookshelf covers (~630 lines)
     ├── Bookshelf spines (~420 lines)
-    ├── Book detail page (~1,720 lines)
+    ├── Book detail RENDER (~1,500 lines — still in page.tsx)
     ├── Bottom navigation (~750 lines)
     └── About screen (~16 lines)
 ```
@@ -206,17 +207,6 @@ const { data: usersData } = await supabase.from('users').in('id', followingIds).
 ### No Request Deduplication
 If multiple components request data for the same book simultaneously (e.g., podcasts + videos + articles all fire on book select), each makes independent API calls. No in-flight request deduplication.
 
-**Status update (2026-03-18):**
-- Core book-detail fetches now use request token guards plus `AbortController` cancellation:
-  - `articles`, `videos`, `related_books`, `related_movies`, `summary`
-- Shared fetch helper now stops retry loops on aborted requests.
-- Follow-up regressions were fixed and covered by new tests:
-  - analysis effect abort-controller scope checks
-  - abort noise suppression (`AbortError` ignored in expected cancellation path)
-  - summary parser resilience for variable/partially malformed LLM JSON
-  - schema-compat guard for `first_issue_year` cache column mismatch
-- Remaining cancellation scope: podcasts and character avatars are still mostly stale-response guarded rather than fully abort-propagated.
-
 ### Redundant Refetches
 | Data | Trigger | Cached? | Issue |
 |------|---------|---------|-------|
@@ -340,18 +330,7 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 12. **Extract frosted glass styles** — many already module-level constants, finish the rest
 
 ### Suggested Next Step (Highest ROI)
-**Finish cancellation coverage for remaining book-detail fetches (podcasts + character avatars), then add a compile gate in CI (`tsc --noEmit`).**
-
-Why this next:
-- It closes the last async race/cancellation gap in the same hotspot we just hardened.
-- It prevents wasted network and noisy logs when users rapidly switch books.
-- A compile gate catches declaration/scope regressions (like duplicate const declarations) before runtime.
-
-Concrete acceptance criteria:
-- `podcasts` and `avatars` service paths accept and honor `AbortSignal`.
-- Effect cleanups abort in-flight requests; expected `AbortError` does not log as failure.
-- Stale-response token guards remain in place as a second safety net.
-- CI includes `npx tsc --noEmit` and fails on parse/type regressions.
+**Extract `BookDetailView` component** — the data layer is done (in `useBookDetailData` hook). Next: move the ~1,500-line render section + ~15 UI-only state variables (isEditing, showShareDialog, showBookMenu, notes, discussion, infographic, etc.) into `app/components/BookDetailView.tsx`. The hook is called inside the component. Props surface: ~20-25 items (shared state, navigation callbacks, heart/pin system, styles).
 
 ### Medium-term (Architecture Changes)
 13. **State management** — Context API or Zustand for shared state, local state per page
@@ -370,7 +349,7 @@ Concrete acceptance criteria:
 | 19 | **Cache chat list in localStorage** — every chat page open currently hits Supabase. Cache list, refresh on pull-to-refresh. | Medium | Low |
 | 20 | **Add cache expiration to DB tables** — add `updated_at` column to all `*_cache` tables + TTL check (re-fetch if > 60-90 days). Prevents permanently stale podcast/article/insight data. | Medium | Medium |
 | 21 | **Track feed generation completion** — add a `feed_generated_at` column to books or a separate tracking table. Skip `generateFeedItemsForBook()` (which queries ~10 cache tables) if feed was already generated for that book. | High | Medium |
-| 22 | **Request deduplication** — use AbortController + in-flight request Map to prevent duplicate simultaneous API calls when user rapidly switches books. | Medium | Low |
+| 22 | ~~**Request deduplication**~~ ✅ DONE — AbortController + `fetchingXxxForBooksRef` Sets + request tokens across all 9 book-detail effects. | Medium | Low |
 | 23 | **Persist in-session Maps to localStorage** — podcasts, YouTube, articles, related books Maps are lost on refresh. Cache them keyed by book title+author for instant re-display. | Medium | Medium |
 
 ### Metrics to Track
@@ -395,6 +374,7 @@ Concrete acceptance criteria:
    - Other useEffects that read/write the component's state
 2. **Map callback semantics** — for each callback prop the parent will pass, document what value/behavior the parent should provide. Don't assume the obvious (e.g., "connect account" should use `reason: 'account'`, not `'book_limit'`)
 3. **Check for scroll/touch interactions** — if the component has touch handlers (drag, pull-to-refresh), verify they won't block parent scrolling after extraction
+4. **Check filter parity** — if a child component filters its input (e.g., `movies.filter(m => m.type !== 'album' || m.itunes_url)`), any upstream code that pre-selects items from that data must apply the same filter. Otherwise items pass selection but render empty. Add a guard test for each such filter.
 
 #### During Extraction
 4. **Create component file** with own state, effects, refs
@@ -445,6 +425,10 @@ For each bug found during extraction, add a targeted test:
 | Wrong connect reason | Assert `<AccountPage` block contains `'account'`, not `'book_limit'` |
 | Orphaned delete dialog | Assert page.tsx has zero occurrences of `"Delete Account?"` |
 | Orphaned state | Assert page.tsx has no `useState` for moved variable names |
+| Filter parity (spotlight empty item) | Assert spotlight candidate filters match child component filters (e.g., albums without `itunes_url` skipped in both useMemo and RelatedMovies) |
+| Unstable shuffle order | Assert spotlight uses hash-based `.sort()` not Fisher-Yates (order must be stable when candidate count changes from background fetches) |
+| Wiring tests read wrong file after hook extraction | When useMemos/effects move from page.tsx to a hook, update wiring tests to read the hook file. Pattern: add `bookDetailDataHookSource` alongside `pageSource` and update assertions. |
+| EMPTY_ARRAY guard becomes redundant with memos | useMemo returning `[]` is already stable — `|| EMPTY_ARRAY` is redundant. Update tests when removing it. |
 
 ### Completed Extractions
 
@@ -455,12 +439,13 @@ For each bug found during extraction, add a targeted test:
 | TriviaGame | ~740 | 17 useState, 7 useEffect, 4 refs | 18 guard tests |
 | FeedPage | ~1,400 | 20+ useState, 10+ useRef, modals, filters, pull-to-refresh | feed-bugs + pull-to-refresh tests |
 | ChatPage | ~970 | orphanedChatBook, swipe/delete, pull-to-refresh, chat list rendering | chat-page-extraction tests |
+| useBookDetailData (hook) | ~1,600 | 32 useState, 14 useEffect, 7 useMemo, 15 useRef | 7 wiring guard tests |
 
 ### Next Targets
 
 | Component | Est. Lines | Key Risk |
 |-----------|-----------|----------|
-| BookDetail | ~1,720 | Largest — insights/podcasts/videos/articles state Maps, many card component integrations. Plan: extract sub-sections first (BookDetailHeader, BookDetailSections) then compose. |
+| BookDetail RENDER | ~1,500 | Data layer extracted to `useBookDetailData` hook. Remaining: move render JSX + book-detail-only UI state (isEditing, showShareDialog, notes, discussion, infographic, etc.) into `BookDetailView.tsx`. Props surface is ~20-25 items. |
 | BookshelfCovers | ~630 | bookshelf grouping state shared with spines |
 | BookshelfSpines | ~420 | same grouping state |
 
@@ -482,20 +467,17 @@ For each bug found during extraction, add a targeted test:
 - [x] Fixed `PodcastEpisodes` audio unmount cleanup and validated with focused tests
 - [x] Cached `useImageBrightness` by URL
 - [x] Reduced staged book-detail fetch delays (300ms / 600ms / 1000ms tiers)
-- [x] Implemented request deduplication + cancellation for core book-detail fetches (`articles`, `videos`, `related_books`, `related_movies`, `summary`)
-- [x] Added cancellation wiring guards + schema-compat guards in `tests/page-wiring.test.ts`
-- [x] Added summary parser resilience tests in `tests/book-summary-service.test.ts`
+- [x] **Request deduplication + cancellation for book-detail fetches** — all 9 effects have AbortController (cancel stale), `fetchingXxxForBooksRef` Set (prevent concurrent), and `beginBookRequest`/`isActiveBookRequest` token system (reject stale responses). Also added `signal` passthrough to podcast, avatar, summary, youtube, articles, related-books, and related-movies services.
+- [x] **Extracted `useBookDetailData` hook** — moved 32 useState, 14 useEffect, 7 useMemo, 15 useRef from page.tsx into `app/hooks/useBookDetailData.ts` (1,784 lines). page.tsx reduced from 10,954 → 9,354 lines (-1,600). All data Maps, loading states, fetching effects, request token system, loading timeout safety net, spotlight memo, and feed generation trigger now live in the hook. Added 7 wiring guard tests.
+- [x] **Fixed related books JSON parse error** — `related-books-service.ts` now handles malformed Grok JSON (trailing commas, smart quotes) instead of throwing. Returns `[]` on unrecoverable parse failure.
+- [x] **Removed passive event listener warnings** — BookChat send button no longer calls `preventDefault()` inside passive touch listeners; `onClick` is sufficient.
 
 ### In Progress
 - [ ] Keep monitoring chunk-load reliability after lazy retry + timeout hardening (especially during active dev rebuilds)
 - [ ] Keep extraction guardrails/tests in lockstep as remaining monolith sections are split
-- [ ] Extend full cancellation propagation to remaining book-detail fetches (`podcasts`, `avatars`)
-- [ ] Add compile/type-check gate (`npx tsc --noEmit`) to CI/pre-push workflow
 
 ### Next (priority order)
-- [ ] **Complete cancellation coverage for `podcasts` + `avatars`** (propagate `AbortSignal` through service internals)
-- [ ] **Add compile/type-check gate** (`npx tsc --noEmit`) to catch runtime parse/type regressions before merge
-- [ ] **Extract `BookDetail`** into feature components (`BookDetailHeader`, `BookDetailSections`, then compose)
+- [ ] **Extract `BookDetailView` component** — move the ~1,500-line render section + book-detail-only UI state into `app/components/BookDetailView.tsx`. Data layer is already in the hook.
 - [ ] Extract `BookshelfCovers` and `BookshelfSpines` with shared grouping state strategy
 - [ ] Memoize/optimize chat context building to avoid full bookshelf sorts each render
 - [ ] Add feed local cache (stale-while-revalidate) similar to books cache

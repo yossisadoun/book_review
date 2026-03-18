@@ -77,9 +77,13 @@ describe('Stable array references', () => {
     expect(pageSource).toMatch(/const EMPTY_ARRAY.*never\[\].*=.*\[\]/);
   });
 
-  it('should use EMPTY_ARRAY instead of || [] for memoized component props', () => {
-    // RelatedMovies and RelatedBooks should use EMPTY_ARRAY, not || []
-    expect(pageSource).toMatch(/movies={movies \|\| EMPTY_ARRAY}/);
-    expect(pageSource).toMatch(/books={related \|\| EMPTY_ARRAY}/);
+  it('should not use inline || [] for memoized component props (memos guarantee stable arrays)', () => {
+    // activeRelatedMovies/activeRelatedBooks useMemos return [] (never undefined),
+    // so props use the memo value directly — no || [] or || EMPTY_ARRAY needed
+    expect(pageSource).toMatch(/movies={movies}/);
+    expect(pageSource).toMatch(/books={related}/);
+    // Should NOT have inline || [] which creates new array reference every render
+    expect(pageSource).not.toMatch(/movies={movies \|\| \[\]}/);
+    expect(pageSource).not.toMatch(/books={related \|\| \[\]}/);
   });
 });
