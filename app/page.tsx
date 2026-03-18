@@ -709,6 +709,8 @@ export default function App() {
   const chatOpenedFromBookPage = useRef(false);
   const [characterChatContext, setCharacterChatContext] = useState<CharacterChatContext | null>(null);
   const [loadingCharacterChat, setLoadingCharacterChat] = useState<string | false>(false);
+  const [avatarExpandTransition, setAvatarExpandTransition] = useState<{ imageUrl: string; rect: DOMRect; characterName: string } | null>(null);
+  const avatarButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const [chatList, setChatList] = useState<ChatListItem[]>([]);
   const [characterChatList, setCharacterChatList] = useState<CharacterChatListItem[]>([]);
   const [chatListLoading, setChatListLoading] = useState(false);
@@ -7524,6 +7526,7 @@ export default function App() {
                         return (
                         <motion.button
                           key={avatar.character}
+                          ref={(el) => { if (el) avatarButtonRefs.current.set(avatar.character, el); }}
                           initial={{ opacity: 0, scale: 0.8 }}
                           animate={{ opacity: 1, scale: 1 }}
                           transition={{ duration: 0.3, delay: i * 0.1 }}
@@ -7541,8 +7544,16 @@ export default function App() {
                                   avatarUrl: avatar.image_url,
                                 });
                                 chatOpenedFromBookPage.current = true;
-                                setChatBookSelected(true);
-                                setShowChatPage(true);
+                                // Capture avatar position and trigger expand transition
+                                const btn = avatarButtonRefs.current.get(avatar.character);
+                                const imgEl = btn?.querySelector('img');
+                                if (imgEl) {
+                                  const rect = imgEl.getBoundingClientRect();
+                                  setAvatarExpandTransition({ imageUrl: avatar.image_url, rect, characterName: avatar.character });
+                                } else {
+                                  setChatBookSelected(true);
+                                  setShowChatPage(true);
+                                }
                               }
                             } catch (err) {
                               console.error('[CharacterChat] Error loading context:', err);
@@ -8683,6 +8694,51 @@ export default function App() {
         )}
 
           </motion.main>
+        )}
+      </AnimatePresence>
+
+      {/* Avatar expand transition — grows avatar to full screen then reveals chat */}
+      <AnimatePresence>
+        {avatarExpandTransition && (
+          <motion.div
+            key="avatar-expand"
+            className="fixed inset-0 z-[200] flex items-center justify-center"
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <motion.div
+              className="absolute rounded-full overflow-hidden"
+              initial={{
+                top: avatarExpandTransition.rect.top,
+                left: avatarExpandTransition.rect.left,
+                width: avatarExpandTransition.rect.width,
+                height: avatarExpandTransition.rect.height,
+                borderRadius: 9999,
+              }}
+              animate={{
+                top: 0,
+                left: 0,
+                width: typeof window !== 'undefined' ? window.innerWidth : 400,
+                height: typeof window !== 'undefined' ? window.innerHeight : 800,
+                borderRadius: 0,
+              }}
+              transition={{ duration: 0.5, ease: [0.32, 0.72, 0, 1] }}
+              onAnimationComplete={() => {
+                setChatBookSelected(true);
+                setShowChatPage(true);
+                // Delay so chat renders behind, then clear overlay
+                setTimeout(() => setAvatarExpandTransition(null), 150);
+              }}
+            >
+              <img
+                src={avatarExpandTransition.imageUrl}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 

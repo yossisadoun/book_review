@@ -609,7 +609,13 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
                           </div>
                         )}
                         <div className="w-9 h-9 rounded-full overflow-hidden absolute bottom-0 right-0 bg-slate-200" style={{ border: '2px solid white', boxShadow: '0 1px 4px rgba(0,0,0,0.15)' }}>
-                          <img src={item.avatarUrl} alt={item.character} className="w-full h-full object-cover" />
+                          {item.avatarUrl ? (
+                            <img src={item.avatarUrl} alt={item.character} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+                              <span className="text-white text-xs font-bold">{item.character?.[0] || '?'}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex-1 min-w-0">
