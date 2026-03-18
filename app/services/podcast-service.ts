@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { PodcastEpisode, CuratedEpisodeResult } from '../types';
-import { fetchWithRetry, grokApiKey, logGrokUsage } from './api-utils';
+import { fetchWithRetry, grokApiKey, logGrokUsage, isCacheStale } from './api-utils';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 
 // Get podcast episodes from Grok
@@ -444,12 +444,12 @@ export async function getPodcastEpisodes(bookTitle: string, author: string, sign
 
     const { data: cachedData, error: cacheError } = await supabase
       .from('podcast_episodes_cache')
-      .select('podcast_episodes_curated, podcast_episodes_apple')
+      .select('podcast_episodes_curated, podcast_episodes_apple, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!cacheError && cachedData) {
+    if (!cacheError && cachedData && !isCacheStale(cachedData.updated_at)) {
       const curatedEpisodes = (cachedData.podcast_episodes_curated || []) as PodcastEpisode[];
       const appleEpisodes = (cachedData.podcast_episodes_apple || []) as PodcastEpisode[];
 

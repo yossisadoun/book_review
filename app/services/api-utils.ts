@@ -5,6 +5,18 @@ import type { GrokUsageInput, GrokUsageLog } from '../types';
 export const grokApiKey = process.env.NEXT_PUBLIC_GROK_API_KEY || "";
 export const youtubeApiKey = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY || "";
 
+// Cache TTL: entries older than this are considered stale and will be re-fetched
+const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+
+/**
+ * Check if a cached entry is stale based on its updated_at timestamp.
+ * Returns true if the entry should be re-fetched.
+ */
+export function isCacheStale(updatedAt: string | null | undefined): boolean {
+  if (!updatedAt) return true;
+  return Date.now() - new Date(updatedAt).getTime() > CACHE_TTL_MS;
+}
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const GROK_PROXY_URL = `${SUPABASE_URL}/functions/v1/grok-proxy`;

@@ -481,9 +481,9 @@ All major page sections have been extracted. Remaining in page.tsx:
 
 ### Next (priority order)
 - [x] Extract `BookshelfCovers` + Lists feature into `BookshelfView.tsx` (select mode, list sheet, handleUpdateBookLists, grouping state)
-- [ ] Memoize/optimize chat context building to avoid full bookshelf sorts each render
-- [ ] Add feed local cache (stale-while-revalidate) similar to books cache
-- [ ] Add chat list local cache + refresh strategy
+- [x] Memoize/optimize chat context building to avoid full bookshelf sorts each render
+- [x] Add feed local cache (stale-while-revalidate) similar to books cache — already implemented in page.tsx feed useEffect
+- [x] Add chat list local cache + refresh strategy — already implemented in page.tsx + ChatPage pull-to-refresh
 - [ ] Add cache TTL/invalidation policy for DB cache tables
 - [ ] Track feed generation completion (`feed_generated_at` or equivalent) to skip redundant generation
 - [ ] Persist selected in-session maps where beneficial (podcasts/videos/articles/related data)

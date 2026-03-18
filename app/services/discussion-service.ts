@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { DiscussionQuestion } from '../types';
-import { fetchWithRetry, grokApiKey, logGrokUsage } from './api-utils';
+import { fetchWithRetry, grokApiKey, logGrokUsage, isCacheStale } from './api-utils';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 
 async function getGrokDiscussionQuestions(bookTitle: string, author: string): Promise<DiscussionQuestion[]> {
@@ -75,12 +75,12 @@ export async function getDiscussionQuestions(bookTitle: string, author: string):
   try {
     const { data: cachedData, error: cacheError } = await supabase
       .from('discussion_questions_cache')
-      .select('questions')
+      .select('questions, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!cacheError && cachedData && cachedData.questions && Array.isArray(cachedData.questions)) {
+    if (!cacheError && cachedData && cachedData.questions && Array.isArray(cachedData.questions) && !isCacheStale(cachedData.updated_at)) {
       if (cachedData.questions.length > 0) {
         console.log(`[getDiscussionQuestions] ✅ Found ${cachedData.questions.length} cached questions in database`);
         return cachedData.questions as DiscussionQuestion[];

@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { isNativePlatform } from '@/lib/capacitor';
 import type { RelatedMovie, MusicLinks, WatchLinks } from '../types';
-import { fetchWithRetry, grokApiKey, logGrokUsage } from './api-utils';
+import { fetchWithRetry, grokApiKey, logGrokUsage, isCacheStale } from './api-utils';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 import { lookupMovieOnWikipedia } from './wikipedia-service';
 
@@ -230,12 +230,12 @@ export async function getRelatedMovies(bookTitle: string, author: string, signal
 
     const { data: cachedData, error: cacheError } = await supabase
       .from('related_movies')
-      .select('related_movies')
+      .select('related_movies, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!cacheError && cachedData && cachedData.related_movies && Array.isArray(cachedData.related_movies)) {
+    if (!cacheError && cachedData && cachedData.related_movies && Array.isArray(cachedData.related_movies) && !isCacheStale(cachedData.updated_at)) {
       if (cachedData.related_movies.length > 0) {
         console.log(`[getRelatedMovies] Found ${cachedData.related_movies.length} cached related movies in database`);
         const cached = cachedData.related_movies as RelatedMovie[];

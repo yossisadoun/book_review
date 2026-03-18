@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { BookWithRatings, TriviaNote } from '../types';
-import { fetchWithRetry, grokApiKey, logGrokUsage } from './api-utils';
+import { fetchWithRetry, grokApiKey, logGrokUsage, isCacheStale } from './api-utils';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 
 // Collect random trivia notes from books
@@ -161,18 +161,6 @@ export async function saveTriviaQuestionsToCache(bookTitle: string, bookAuthor: 
       return;
     }
 
-    // Check if questions already exist for this book
-    const { data: existing, error: checkError } = await supabase
-      .from('trivia_questions_cache')
-      .select('id')
-      .eq('book_title', normalizedTitle)
-      .eq('book_author', normalizedAuthor)
-      .maybeSingle();
-
-    if (checkError && checkError.code !== 'PGRST116') {
-      console.error('[saveTriviaQuestionsToCache] ❌ Error checking existing record:', checkError);
-    }
-
     const recordData = {
       book_title: normalizedTitle,
       book_author: normalizedAuthor,
@@ -180,20 +168,10 @@ export async function saveTriviaQuestionsToCache(bookTitle: string, bookAuthor: 
       updated_at: new Date().toISOString(),
     };
 
-    let result;
-    if (existing) {
-      // Update existing record
-      result = await supabase
-        .from('trivia_questions_cache')
-        .update(recordData)
-        .eq('book_title', normalizedTitle)
-        .eq('book_author', normalizedAuthor);
-    } else {
-      // Insert new record
-      result = await supabase
-        .from('trivia_questions_cache')
-        .insert(recordData);
-    }
+    // Upsert based on book_title + book_author (consistent with all other caches)
+    const result = await supabase
+      .from('trivia_questions_cache')
+      .upsert(recordData, { onConflict: 'book_title,book_author' });
 
     if (result.error) {
       console.error('[saveTriviaQuestionsToCache] ❌ Error saving trivia questions:', {
@@ -227,12 +205,12 @@ export async function ensureTriviaQuestionsForBook(bookTitle: string, bookAuthor
   try {
     const { data: existing } = await supabase
       .from('trivia_questions_cache')
-      .select('id')
+      .select('id, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (existing) {
+    if (existing && !isCacheStale(existing.updated_at)) {
       console.log(`[ensureTriviaQuestionsForBook] ✅ Trivia already cached for "${bookTitle}"`);
       return;
     }

@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { RelatedBook } from '../types';
-import { fetchWithRetry, grokApiKey, logGrokUsage } from './api-utils';
+import { fetchWithRetry, grokApiKey, logGrokUsage, isCacheStale } from './api-utils';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 import { lookupBooksOnAppleBooks } from './apple-books-service';
 
@@ -15,12 +15,12 @@ export async function getRelatedBooks(bookTitle: string, author: string, signal?
 
     const { data: cachedData, error: cacheError } = await supabase
       .from('related_books')
-      .select('related_books')
+      .select('related_books, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!cacheError && cachedData && cachedData.related_books && Array.isArray(cachedData.related_books)) {
+    if (!cacheError && cachedData && cachedData.related_books && Array.isArray(cachedData.related_books) && !isCacheStale(cachedData.updated_at)) {
       if (cachedData.related_books.length > 0) {
         const cached = (cachedData.related_books as RelatedBook[]).filter(b => b.google_books_url);
         console.log(`[getRelatedBooks] ✅ Found ${cached.length} cached related books in database (${cachedData.related_books.length - cached.length} without Apple Books filtered out)`);

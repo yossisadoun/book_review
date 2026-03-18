@@ -33,6 +33,10 @@ vi.mock('../app/services/api-utils', () => ({
   grokApiKey: 'x'.repeat(32),
   fetchWithRetry: fetchWithRetryMock,
   logGrokUsage: logGrokUsageMock,
+  isCacheStale: (updatedAt: string | null | undefined) => {
+    if (!updatedAt) return true;
+    return Date.now() - new Date(updatedAt).getTime() > 90 * 24 * 60 * 60 * 1000;
+  },
 }));
 
 import { getBookSummary } from '../app/services/book-summary-service';
@@ -59,7 +63,7 @@ describe('getBookSummary parser resilience', () => {
 
   it('returns cached summary without calling Grok', async () => {
     maybeSingleMock.mockResolvedValue({
-      data: { summary_data: { title: 'Cached', summary: 'Already cached' } },
+      data: { summary_data: { title: 'Cached', summary: 'Already cached' }, updated_at: new Date().toISOString() },
       error: null,
     });
 

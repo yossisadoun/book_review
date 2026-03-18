@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { YouTubeVideo } from '../types';
-import { youtubeApiKey } from './api-utils';
+import { youtubeApiKey, isCacheStale } from './api-utils';
 import { decodeHtmlEntities } from '../components/utils';
 
 // Parse ISO 8601 duration (e.g. "PT1H2M30S") to "1:02:30"
@@ -25,12 +25,12 @@ export async function getYouTubeVideos(bookTitle: string, author: string, signal
 
     const { data: cachedData, error: cacheError } = await supabase
       .from('youtube_videos')
-      .select('videos')
+      .select('videos, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!cacheError && cachedData && cachedData.videos && Array.isArray(cachedData.videos)) {
+    if (!cacheError && cachedData && cachedData.videos && Array.isArray(cachedData.videos) && !isCacheStale(cachedData.updated_at)) {
       if (cachedData.videos.length > 0) {
         console.log(`[getYouTubeVideos] ✅ Found ${cachedData.videos.length} cached videos in database`);
         return (cachedData.videos as YouTubeVideo[]).map(v => ({

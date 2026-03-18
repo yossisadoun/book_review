@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { isNativePlatform } from '@/lib/capacitor';
-import { grokApiKey, fetchWithRetry, logGrokUsage, logImageGeneration } from './api-utils';
+import { grokApiKey, fetchWithRetry, logGrokUsage, logImageGeneration, isCacheStale } from './api-utils';
 import { getCached, setCache, CACHE_KEYS } from './cache-service';
 import type { CharacterAvatar } from '../types';
 
@@ -347,12 +347,12 @@ export async function getCharacterAvatars(bookTitle: string, author: string, sig
   try {
     const { data: cached, error } = await supabase
       .from('character_avatars_cache')
-      .select('avatars')
+      .select('avatars, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!error && cached?.avatars) {
+    if (!error && cached?.avatars && !isCacheStale(cached.updated_at)) {
       const avatars = (cached.avatars as CharacterAvatar[]).filter(a =>
         a.image_url && !a.image_url.includes('replicate.delivery') && !a.image_url.includes('pbxt.replicate')
       );

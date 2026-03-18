@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
-import { grokApiKey, fetchWithRetry, logGrokUsage } from './api-utils';
+import { grokApiKey, fetchWithRetry, logGrokUsage, isCacheStale } from './api-utils';
 import type { BookSummary } from '../types';
 
 function safeJsonParse(jsonStr: string): any | null {
@@ -127,12 +127,12 @@ export async function getBookSummary(bookTitle: string, author: string, signal?:
   try {
     const { data: cachedData, error: cacheError } = await supabase
       .from('book_summary_cache')
-      .select('summary_data')
+      .select('summary_data, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!cacheError && cachedData?.summary_data) {
+    if (!cacheError && cachedData?.summary_data && !isCacheStale(cachedData.updated_at)) {
       console.log(`[getBookSummary] Found cached summary`);
       return cachedData.summary_data as BookSummary;
     } else if (cacheError && cacheError.code !== 'PGRST116') {

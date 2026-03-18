@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { AuthorFactsResult, DomainInsights, DidYouKnowItem, DidYouKnowResponse, DidYouKnowWithSourcesResult } from '../types';
-import { fetchWithRetry, grokApiKey, logGrokUsage, fetchGrokResponses } from './api-utils';
+import { fetchWithRetry, grokApiKey, logGrokUsage, fetchGrokResponses, isCacheStale } from './api-utils';
 import { loadPrompts, formatPrompt } from '@/lib/prompts';
 import { generateTriviaQuestionsForBook, saveTriviaQuestionsToCache } from './trivia-service';
 
@@ -118,12 +118,12 @@ export async function getAuthorFacts(bookTitle: string, author: string): Promise
 
     const { data: cachedData, error: cacheError } = await supabase
       .from('author_facts_cache')
-      .select('author_facts')
+      .select('author_facts, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!cacheError && cachedData && cachedData.author_facts && Array.isArray(cachedData.author_facts)) {
+    if (!cacheError && cachedData && cachedData.author_facts && Array.isArray(cachedData.author_facts) && !isCacheStale(cachedData.updated_at)) {
       if (cachedData.author_facts.length > 0) {
         console.log(`[getAuthorFacts] ✅ Found ${cachedData.author_facts.length} cached facts in database`);
         return { facts: cachedData.author_facts as string[] };
@@ -286,12 +286,12 @@ export async function getBookInfluences(bookTitle: string, author: string): Prom
 
     const { data: cachedData, error: cacheError } = await supabase
       .from('book_influences_cache')
-      .select('influences')
+      .select('influences, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!cacheError && cachedData && cachedData.influences && Array.isArray(cachedData.influences)) {
+    if (!cacheError && cachedData && cachedData.influences && Array.isArray(cachedData.influences) && !isCacheStale(cachedData.updated_at)) {
       if (cachedData.influences.length > 0) {
         console.log(`[getBookInfluences] ✅ Found ${cachedData.influences.length} cached influences in database`);
         return cachedData.influences as string[];
@@ -394,12 +394,12 @@ export async function getBookDomain(bookTitle: string, author: string): Promise<
 
     const { data: cachedData, error: cacheError } = await supabase
       .from('book_domain_cache')
-      .select('domain_label, domain_insights')
+      .select('domain_label, domain_insights, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!cacheError && cachedData && cachedData.domain_insights && Array.isArray(cachedData.domain_insights)) {
+    if (!cacheError && cachedData && cachedData.domain_insights && Array.isArray(cachedData.domain_insights) && !isCacheStale(cachedData.updated_at)) {
       if (cachedData.domain_insights.length > 0) {
         const label = cachedData.domain_label || 'Domain';
         console.log(`[getBookDomain] ✅ Found ${cachedData.domain_insights.length} cached domain insights in database with label: ${label}`);
@@ -504,12 +504,12 @@ export async function getBookContext(bookTitle: string, author: string): Promise
 
     const { data: cachedData, error: cacheError } = await supabase
       .from('book_context_cache')
-      .select('context_insights')
+      .select('context_insights, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!cacheError && cachedData && cachedData.context_insights && Array.isArray(cachedData.context_insights)) {
+    if (!cacheError && cachedData && cachedData.context_insights && Array.isArray(cachedData.context_insights) && !isCacheStale(cachedData.updated_at)) {
       if (cachedData.context_insights.length > 0) {
         console.log(`[getBookContext] ✅ Found ${cachedData.context_insights.length} cached context insights in database`);
         return cachedData.context_insights as string[];
@@ -686,12 +686,12 @@ export async function getDidYouKnow(bookTitle: string, author: string): Promise<
 
     const { data: cachedData, error: cacheError } = await supabase
       .from('did_you_know_cache')
-      .select('insights')
+      .select('insights, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!cacheError && cachedData && cachedData.insights && Array.isArray(cachedData.insights) && cachedData.insights.length > 0) {
+    if (!cacheError && cachedData && cachedData.insights && Array.isArray(cachedData.insights) && cachedData.insights.length > 0 && !isCacheStale(cachedData.updated_at)) {
       console.log(`[getDidYouKnow] ✅ Found ${cachedData.insights.length} cached insights in database`);
       return cachedData.insights as DidYouKnowItem[];
     } else if (cacheError && cacheError.code !== 'PGRST116') {

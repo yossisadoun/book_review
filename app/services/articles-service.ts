@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { AnalysisArticle } from '../types';
+import { isCacheStale } from './api-utils';
 
 // --- Google Scholar API ---
 export async function getGoogleScholarAnalysis(bookTitle: string, author: string, signal?: AbortSignal): Promise<AnalysisArticle[]> {
@@ -13,12 +14,12 @@ export async function getGoogleScholarAnalysis(bookTitle: string, author: string
   try {
     const { data: cachedData, error: cacheError } = await supabase
       .from('google_scholar_articles')
-      .select('articles')
+      .select('articles, updated_at')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!cacheError && cachedData && cachedData.articles && Array.isArray(cachedData.articles)) {
+    if (!cacheError && cachedData && cachedData.articles && Array.isArray(cachedData.articles) && !isCacheStale(cachedData.updated_at)) {
       // Check if it's a cached empty array (no results found)
       if (cachedData.articles.length === 0) {
         console.log(`[getGoogleScholarAnalysis] ✅ Found cached empty results (no articles available) in database`);
