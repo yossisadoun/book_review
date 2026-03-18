@@ -42,4 +42,6 @@ export const CACHE_KEYS = {
   feed: (userId: string) => `feed_${userId}`,
   chat: (bookId: string) => `chat_${bookId}`,
   avatars: (bookTitle: string, author: string) => `avatars_${bookTitle.toLowerCase().trim()}_${author.toLowerCase().trim()}`,
+  chatList: (userId: string) => `chatList_${userId}`,
+  characterChatList: (userId: string) => `characterChatList_${userId}`,
 } as const;
