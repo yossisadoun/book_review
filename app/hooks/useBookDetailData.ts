@@ -1304,13 +1304,13 @@ export function useBookDetailData({
       getCharacterAvatars(currentBook.title, currentBook.author, avatarAbortController.signal).then((avatars) => {
         if (cancelled || !isActiveBookRequest('avatars', bookId, avatarToken)) return;
         setLoadingAvatarsForBookId(null);
-        if (avatars.length > 0) {
-          setCharacterAvatars(prev => {
-            const next = new Map(prev);
-            next.set(bookId, avatars);
-            return next;
-          });
-        }
+        // Store result even if empty — prevents infinite retry loop.
+        // Empty results can be retried via retryCharacterAvatars().
+        setCharacterAvatars(prev => {
+          const next = new Map(prev);
+          next.set(bookId, avatars);
+          return next;
+        });
       }).catch((err) => {
         if (cancelled || !isActiveBookRequest('avatars', bookId, avatarToken)) return;
         if ((err as any)?.name === 'AbortError') return;
@@ -1721,6 +1721,18 @@ export function useBookDetailData({
     return result;
   }, [activeBook?.id, spotlightIndex, didYouKnow, podcastEpisodes, youtubeVideos, relatedBooks, analysisArticles, relatedMovies, contentPreferences]);
 
+  // Retry character avatars — clears cached empty result and re-fetches
+  const retryCharacterAvatars = useCallback(() => {
+    if (!activeBook) return;
+    const bookId = activeBook.id;
+    // Clear the cached empty result so the effect can re-fetch
+    setCharacterAvatars(prev => {
+      const next = new Map(prev);
+      next.delete(bookId);
+      return next;
+    });
+  }, [activeBook?.id]);
+
   return {
     // Data Maps
     bookInfluences,
@@ -1771,6 +1783,9 @@ export function useBookDetailData({
     setBookSummaries,
     setCharacterAvatars,
     setBookInfographics,
+
+    // Actions
+    retryCharacterAvatars,
 
     // Memos
     combinedPodcastEpisodes,

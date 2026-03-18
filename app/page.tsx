@@ -234,6 +234,7 @@ import { createFriendBookFeedItem, generateFeedItemsForBook, getPersonalizedFeed
 import { analytics } from './services/analytics-service';
 import { useBookDetailCardCallbacks } from './hooks/useBookDetailCardCallbacks';
 import { useBookDetailData } from './hooks/useBookDetailData';
+import BookDetailView from './components/BookDetailView';
 
 // Stable empty array to avoid creating new references on every render (for React.memo)
 const EMPTY_ARRAY: never[] = [];
@@ -2073,6 +2074,7 @@ export default function App() {
     setBookSummaries,
     setCharacterAvatars,
     setBookInfographics,
+    retryCharacterAvatars,
     combinedPodcastEpisodes,
     bookDetailInsightsState,
     activeVideos,
@@ -2553,29 +2555,7 @@ export default function App() {
   const showRatingOverlay = activeBook && isEditing;
   const showReadingStatusSelection = selectingReadingStatusInRating || selectingReadingStatusForExisting;
 
-  useEffect(() => {
-    setIsEditing(false);
-    setIsConfirmingDelete(false);
-    // Check if we should open notes after navigating from notes list
-    if (openNotesAfterNavRef.current) {
-      openNotesAfterNavRef.current = false;
-      setIsShowingNotes(true);
-    } else {
-      setIsShowingNotes(false);
-    }
-    setNewlyAddedNoteTimestamp(null);
-    setEditingDimension(null);
-    setSelectedInsightCategory('trivia'); // Reset to trivia when book changes
-    setIsInsightCategoryDropdownOpen(false); // Close dropdown when book changes
-
-    setIsMetaExpanded(true);
-    setIsSummaryExpanded(false); // Reset summary expansion when book changes
-    const timer = setTimeout(() => {
-      setIsMetaExpanded(false);
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, [selectedIndex]);
+  // Reset states on selectedIndex change — moved to BookDetailView
 
   // Close bookshelf grouping dropdown when clicking outside
   useEffect(() => {
@@ -2591,38 +2571,8 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isBookshelfGroupingDropdownOpen]);
 
-  // Close insight category dropdown when clicking outside
-  useEffect(() => {
-    if (!isInsightCategoryDropdownOpen) return;
-    
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest('.insight-category-dropdown')) {
-        setIsInsightCategoryDropdownOpen(false);
-      }
-    };
-    
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isInsightCategoryDropdownOpen]);
-
-  // Load note text when book changes
-  useEffect(() => {
-    if (activeBook) {
-      // Format notes for display with timestamps visible
-      const formattedNotes = formatNotesForDisplay(activeBook.notes ?? null);
-      setNoteText(formattedNotes);
-      lastSavedNoteTextRef.current = formattedNotes;
-      noteTextOnFocusRef.current = formattedNotes; // Track initial state
-    }
-    // Cleanup timeout on book change
-    return () => {
-      if (noteSaveTimeoutRef.current) {
-        clearTimeout(noteSaveTimeoutRef.current);
-        noteSaveTimeoutRef.current = null;
-      }
-    };
-  }, [activeBook?.id, activeBook?.notes]);
+  // Close insight category dropdown — moved to BookDetailView
+  // Load note text on book change — moved to BookDetailView
 
 
   // Update background gradient when book changes
@@ -2657,185 +2607,8 @@ export default function App() {
 
   // (Old data fetching effects removed — now in useBookDetailData hook)
 
-  // Fetch other users who have the same book (book readers)
-  useEffect(() => {
-    if (!user) return;
-
-    const currentBook = books[selectedIndex];
-    if (!currentBook || !currentBook.canonical_book_id) {
-      setBookReaders([]);
-      return;
-    }
-
-    let cancelled = false;
-    setIsLoadingBookReaders(true);
-
-    const fetchBookReaders = async () => {
-      try {
-        // 1. Get all books with the same canonical_book_id from other users
-        const { data: otherUsersBooks, error: booksError } = await supabase
-          .from('books')
-          .select('user_id')
-          .eq('canonical_book_id', currentBook.canonical_book_id)
-          .neq('user_id', user.id)
-          .limit(20);
-
-        if (booksError || !otherUsersBooks || otherUsersBooks.length === 0) {
-          if (!cancelled) {
-            setBookReaders([]);
-            setIsLoadingBookReaders(false);
-          }
-          return;
-        }
-
-        const userIds = [...new Set(otherUsersBooks.map(b => b.user_id))];
-
-        // 2. Get user profile info from users table
-        const { data: usersData, error: usersError } = await supabase
-          .from('users')
-          .select('id, full_name, avatar_url, is_public')
-          .in('id', userIds)
-          .eq('is_public', true);
-
-        if (usersError || !usersData || usersData.length === 0) {
-          if (!cancelled) {
-            setBookReaders([]);
-            setIsLoadingBookReaders(false);
-          }
-          return;
-        }
-
-        // 3. Get list of users current user follows
-        const { data: followsData } = await supabase
-          .from('follows')
-          .select('following_id')
-          .eq('follower_id', user.id);
-
-        const followingIds = new Set(followsData?.map(f => f.following_id) || []);
-
-        // 4. Build readers list with following status, sorted by following first
-        const readers: BookReader[] = (usersData || []).map(u => ({
-          id: u.id,
-          name: u.full_name || 'User',
-          avatar: u.avatar_url,
-          isFollowing: followingIds.has(u.id),
-        })).sort((a, b) => (b.isFollowing ? 1 : 0) - (a.isFollowing ? 1 : 0));
-
-        if (!cancelled) {
-          setBookReaders(readers);
-          setIsLoadingBookReaders(false);
-        }
-      } catch (err) {
-        console.error('[BookReaders] Error fetching:', err);
-        if (!cancelled) {
-          setBookReaders([]);
-          setIsLoadingBookReaders(false);
-        }
-      }
-    };
-
-    // Small delay to batch with other fetches
-    const timer = setTimeout(fetchBookReaders, 500);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [activeBook?.canonical_book_id, user]);
-
-  // Pre-fetch/create Telegram topic in the background when book loads
-  useEffect(() => {
-    if (!user || !activeBook?.canonical_book_id) return;
-
-    // Skip if already cached locally
-    if (telegramTopics.has(activeBook.canonical_book_id)) return;
-
-    let cancelled = false;
-
-    const prefetchTelegramTopic = async () => {
-      try {
-        // First check if topic exists in database
-        const existing = await getTelegramTopic(activeBook.canonical_book_id!);
-        if (existing) {
-          if (!cancelled) {
-            setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, existing));
-          }
-          return;
-        }
-
-        // Topic doesn't exist - create it in the background
-        const topic = await getOrCreateTelegramTopic(
-          activeBook.title,
-          activeBook.author,
-          activeBook.canonical_book_id!,
-          activeBook.cover_url || undefined,
-          activeBook.genre || undefined
-        );
-
-        if (topic && !cancelled) {
-          setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
-        }
-      } catch (err) {
-        console.error('[TelegramTopic] Error prefetching:', err);
-      }
-    };
-
-    // Small delay to not compete with other fetches
-    const timer = setTimeout(prefetchTelegramTopic, 1000);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [activeBook?.canonical_book_id, user]);
-
-  // Fetch discussion questions when the discussion modal opens
-  useEffect(() => {
-    if (!showBookDiscussion || !activeBook || !activeBook.canonical_book_id) {
-      return;
-    }
-
-    analytics.trackEvent('discussion', 'view', { book_title: activeBook.title });
-
-    // Don't fetch if we already have questions for this book
-    if (discussionQuestions.length > 0) {
-      return;
-    }
-
-    let cancelled = false;
-    setIsLoadingDiscussionQuestions(true);
-
-    const fetchQuestions = async () => {
-      try {
-        const questions = await getDiscussionQuestions(
-          activeBook.title,
-          activeBook.author,
-          activeBook.canonical_book_id!
-        );
-
-        if (!cancelled) {
-          setDiscussionQuestions(questions);
-          setIsLoadingDiscussionQuestions(false);
-        }
-      } catch (err) {
-        console.error('[DiscussionQuestions] Error fetching:', err);
-        if (!cancelled) {
-          setIsLoadingDiscussionQuestions(false);
-        }
-      }
-    };
-
-    fetchQuestions();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [showBookDiscussion, activeBook?.canonical_book_id]);
-
-  // Reset discussion questions when the book changes
-  useEffect(() => {
-    setDiscussionQuestions([]);
-  }, [activeBook?.id]);
+  // Fetch book readers — moved to BookDetailView
+  // Telegram topic prefetch, discussion questions, discussion reset — moved to BookDetailView
 
   // Feed generation trigger moved to useBookDetailData hook
 
@@ -3457,28 +3230,7 @@ export default function App() {
     }
   }
 
-  async function handleDelete() {
-    if (!activeBook || !user) return;
-
-    try {
-      const { error } = await supabase
-        .from('books')
-        .delete()
-        .eq('id', activeBook.id)
-        .eq('user_id', user.id); // Ensure user can only delete their own books
-
-      if (error) throw error;
-
-      triggerHeavyHaptic();
-      const newBooks = books.filter(b => b.id !== activeBook.id);
-      const nextIndex = selectedIndex > 0 ? selectedIndex - 1 : 0;
-      setIsConfirmingDelete(false);
-      setSelectedIndex(newBooks.length > 0 ? nextIndex : 0);
-      setBooks(newBooks);
-    } catch (err) {
-      console.error('Error deleting book:', err);
-    }
-  }
+  // handleDelete moved to BookDetailView
 
   // Helper function to format timestamp for notes
   const formatNoteTimestamp = (date: Date = new Date()): string => {
@@ -5727,1520 +5479,163 @@ export default function App() {
             </div>
           </motion.main>
         ) : (
-          <motion.main
-            key="main"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            ref={(el) => {
-              scrollContainerRef.current = el;
-              if (el) {
-                // Enable rubber band bounce effect
-                el.style.overscrollBehaviorY = 'auto';
-                (el.style as any).webkitOverflowScrolling = 'touch';
-                // Reset scroll position when entering book details
-                el.scrollTop = 0;
-                updateScrollY(0);
-              }
+          <BookDetailView
+            activeBook={activeBook}
+            books={books}
+            booksForBookshelf={booksForBookshelf}
+            selectedIndex={selectedIndex}
+            user={user}
+            isReviewer={isReviewer}
+            bookDetailData={{
+              bookInfluences,
+              bookDomain,
+              bookContext,
+              didYouKnow,
+              podcastEpisodes,
+              analysisArticles: analysisArticles as any,
+              youtubeVideos,
+              relatedBooks,
+              relatedMovies,
+              bookSummaries,
+              characterAvatars,
+              loadingFactsForBookId,
+              loadingInfluencesForBookId,
+              loadingDomainForBookId,
+              loadingContextForBookId,
+              loadingDidYouKnowForBookId,
+              loadingPodcastsForBookId,
+              loadingAnalysisForBookId,
+              loadingVideosForBookId,
+              loadingRelatedForBookId,
+              loadingRelatedMoviesForBookId,
+              loadingSummaryForBookId,
+              loadingAvatarsForBookId,
+              selectedInsightCategory,
+              setSelectedInsightCategory,
+              isInsightCategoryDropdownOpen,
+              setIsInsightCategoryDropdownOpen,
+              spotlightIndex,
+              setSpotlightIndex,
+              spoilerRevealed,
+              setSpoilerRevealed,
+              combinedPodcastEpisodes,
+              bookDetailInsightsState,
+              activeVideos,
+              activeArticles,
+              activeRelatedMovies,
+              activeRelatedBooks,
+              spotlightRecommendation,
+              retryCharacterAvatars,
             }}
-            className={`flex-1 flex flex-col items-center justify-start p-4 relative pt-28 pb-20 ios-scroll min-h-0 ${showBookPageOnboarding ? 'overflow-hidden' : 'overflow-y-auto'}`}
-            onScroll={(e) => {
-              const target = e.currentTarget;
-              updateScrollY(target.scrollTop);
+            cardCallbacks={{
+              renderInsightsHeartAction,
+              pinInsightItem,
+              isInsightItemPinned,
+              renderPodcastHeartAction,
+              pinPodcastItem,
+              isPodcastItemPinned,
+              renderYouTubeHeartAction,
+              pinYouTubeItem,
+              isYouTubeItemPinned,
+              renderArticleHeartAction,
+              pinArticleItem,
+              isArticleItemPinned,
+              renderRelatedMovieHeartAction,
+              pinRelatedMovieItem,
+              isRelatedMovieItemPinned,
+              renderRelatedBookHeartAction,
+              pinRelatedBookItem,
+              isRelatedBookItemPinned,
             }}
-          >
-          {/* Back button and book info header */}
-          <motion.div
-            ref={attachBookDetailHeaderRef}
-            className="fixed top-[62px] left-4 right-4 z-50 flex items-center gap-3"
-          >
-            <button
-              onClick={() => {
-                updateScrollY(0); // Reset scroll when switching views
-                setShowBookshelfCovers(true);
-                setShowBookshelf(false);
-                setShowNotesView(false);
-                setShowAccountPage(false);
-                setShowSortingResults(false);
-              }}
-              className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center hover:opacity-80 active:scale-95 transition-all"
-              style={{ ...glassmorphicStyle, borderRadius: '50%' }}
-            >
-              <ChevronLeft size={18} className="text-slate-950 dark:text-slate-50" />
-            </button>
-            {activeBook && (
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate uppercase">{activeBook.title}</p>
-                <p className="text-xs text-slate-900 dark:text-slate-100 truncate">{activeBook.author}</p>
-              </div>
-            )}
-          </motion.div>
-        {booksForBookshelf.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
-            <img src={getAssetPath("/logo.png")} alt="Book.luv" className="object-contain mx-auto mb-4" />
-            {viewingUserId ? (
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                {viewingUserIsPrivate ? "This user's bookshelf is private." : "This user hasn't added any books yet."}
-              </p>
-            ) : (
-              <button
-                onClick={() => openAddBookSheet()}
-                className="px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-xl shadow-lg font-bold hover:bg-blue-700 active:scale-95 transition-all"
-              >
-                Add first book
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="w-full max-w-[340px] md:max-w-[420px] flex flex-col items-center gap-6 pb-8">
-            <div
-              className="relative w-[340px] md:w-[420px] aspect-[2/3] overflow-hidden group rounded-lg"
-              style={{
-                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04), 0 0 30px 5px rgba(255, 255, 255, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-              }}
-            >
-              {/* Front side - Book cover */}
-              <div className="absolute inset-0 w-full h-full">
-                    <AnimatePresence mode='wait'>
-                      <motion.div key={activeBook.id || 'active-book'} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="relative w-full h-full rounded-lg overflow-hidden border-2 border-white/50 shadow-lg">
-                        {activeBook.cover_url ? (
-                          <>
-                          <img src={activeBook.cover_url} alt={activeBook.title} className="w-full h-full object-cover" style={{ filter: 'contrast(1.15) saturate(1.25)' }} />
-                            {/* Skeuomorphic book effect overlay */}
-                            <div 
-                              className="absolute inset-0 pointer-events-none rounded-lg"
-                              style={{
-                                background: `linear-gradient(to right,
-                                  rgba(0,0,0,0.02) 0%,
-                                  rgba(0,0,0,0.05) 0.75%,
-                                  rgba(255,255,255,0.5) 1.0%,
-                                  rgba(255,255,255,0.6) 1.3%,
-                                  rgba(255,255,255,0.5) 1.4%,
-                                  rgba(255,255,255,0.3) 1.5%,
-                                  rgba(255,255,255,0.3) 2.4%,
-                                  rgba(0,0,0,0.05) 2.7%,
-                                  rgba(0,0,0,0.05) 3.5%,
-                                  rgba(255,255,255,0.3) 4%,
-                                  rgba(255,255,255,0.3) 4.5%,
-                                  transparent 5.4%,
-                                  transparent 99%,
-                                  rgba(144,144,144,0.08) 100%)`
-                              }}
-                            />
-                          </>
-                        ) : (
-                          <div className={`w-full h-full flex flex-col items-center justify-center p-8 text-center bg-gradient-to-br ${getGradient(activeBook.id)} text-white rounded-lg`}>
-                            <BookOpen size={48} className="mb-4 opacity-30" />
-                          </div>
-                        )}
-                      </motion.div>
-                    </AnimatePresence>
-              </div>
-
-              {/* Notes editor is now a separate modal overlay — see Notes Editor Overlay below */}
-
-              <AnimatePresence>
-                {isConfirmingDelete && !isShowingNotes && (
-                  <>
-                    {/* Backdrop to close on click outside */}
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="absolute inset-0 z-[59]"
-                      onClick={() => setIsConfirmingDelete(false)}
-                    />
-                    {/* Tooltip menu */}
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                      transition={{ duration: 0.2 }}
-                      className="absolute right-4 z-[60] rounded-xl overflow-hidden"
-                      style={{ ...standardGlassmorphicStyle, bottom: 'calc(64px + var(--safe-area-bottom, 0px))' }}
-                    >
-                      <button
-                        onClick={handleDelete}
-                        className="flex items-center gap-2 px-4 py-3 w-full text-left text-red-600 font-semibold text-sm hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
-                      >
-                        <Trash2 size={16} />
-                        Delete Book
-                      </button>
-                      <div className="h-px bg-slate-200/50" />
-                      <button
-                        onClick={() => setIsConfirmingDelete(false)}
-                        className="flex items-center gap-2 px-4 py-3 w-full text-left text-slate-700 dark:text-slate-300 font-medium text-sm hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
-                      >
-                        Cancel
-                      </button>
-                    </motion.div>
-                  </>
-                )}
-              </AnimatePresence>
-
-              <AnimatePresence>
-                {(showRatingOverlay || showReadingStatusSelection) && !isConfirmingDelete && !isShowingNotes && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 20 }} 
-                    animate={{ opacity: 1, y: 0 }} 
-                    exit={{ opacity: 0, y: 20 }} 
-                    className="absolute left-4 right-4 flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden z-40"
-                    style={{ ...standardGlassmorphicStyle, bottom: 'calc(64px + var(--safe-area-bottom, 0px))' }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {showReadingStatusSelection ? (
-                      // Reading Status Selection
-                      <motion.div 
-                        initial={{ opacity: 0, scale: 0.9 }} 
-                        animate={{ opacity: 1, scale: 1 }} 
-                        exit={{ opacity: 0, scale: 0.9 }} 
-                        className="w-full flex flex-col items-center justify-center"
-                        style={{ minHeight: '120px' }}
-                      >
-                        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950 dark:text-slate-50 mb-4">Reading Status</h3>
-                        <div className="flex flex-row gap-3 w-full justify-center">
-                          <button
-                            onClick={async () => {
-                              if (activeBook) {
-                                await handleUpdateReadingStatus(activeBook.id, 'read_it');
-                                setSelectingReadingStatusInRating(false);
-                                setSelectingReadingStatusForExisting(false);
-                                setPendingBookMeta(null);
-                                // Proceed to rating dimensions (both for new books and existing books changing to "read_it")
-                                setEditingDimension(null);
-                              }
-                            }}
-                            className={`flex flex-col items-center gap-2 px-4 py-3 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px] ${activeBook?.reading_status === 'read_it' ? 'bg-white/50 dark:bg-white/20 ring-2 ring-white/60' : 'bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12'}`}
-                          >
-                            <CheckCircle2 size={28} className="text-slate-950 dark:text-slate-50" />
-                            <span className="text-xs font-bold text-slate-950 dark:text-slate-50">Read it</span>
-                          </button>
-                          <button
-                            onClick={async () => {
-                              if (activeBook) {
-                                await handleUpdateReadingStatus(activeBook.id, 'reading');
-                                setSelectingReadingStatusInRating(false);
-                                setSelectingReadingStatusForExisting(false);
-                                setPendingBookMeta(null);
-                                setIsEditing(false);
-                              }
-                            }}
-                            className={`flex flex-col items-center gap-2 px-4 py-3 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px] ${activeBook?.reading_status === 'reading' ? 'bg-white/50 dark:bg-white/20 ring-2 ring-white/60' : 'bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12'}`}
-                          >
-                            <BookOpen size={28} className="text-slate-950 dark:text-slate-50" />
-                            <span className="text-xs font-bold text-slate-950 dark:text-slate-50">Reading</span>
-                          </button>
-                          <button
-                            onClick={async () => {
-                              if (activeBook) {
-                                await handleUpdateReadingStatus(activeBook.id, 'want_to_read');
-                                setSelectingReadingStatusInRating(false);
-                                setSelectingReadingStatusForExisting(false);
-                                setPendingBookMeta(null);
-                                setIsEditing(false);
-                              }
-                            }}
-                            className={`flex flex-col items-center gap-2 px-4 py-3 rounded-xl active:scale-95 transition-all flex-1 max-w-[100px] ${activeBook?.reading_status === 'want_to_read' ? 'bg-white/50 dark:bg-white/20 ring-2 ring-white/60' : 'bg-white/20 dark:bg-white/8 hover:bg-white/30 dark:bg-white/12'}`}
-                          >
-                            <BookMarked size={28} className="text-slate-950 dark:text-slate-50" />
-                            <span className="text-xs font-bold text-slate-950 dark:text-slate-50">Want to</span>
-                          </button>
-                        </div>
-                      </motion.div>
-                    ) : currentEditingDimension ? (
-                      // Rating Dimensions
-                    <motion.div 
-                      key={currentEditingDimension} 
-                      initial={{ opacity: 0, scale: 0.9 }} 
-                      animate={{ opacity: 1, scale: 1 }} 
-                      exit={{ opacity: 0, scale: 0.9 }} 
-                      className="w-full"
-                    >
-                      <RatingStars
-                        dimension={currentEditingDimension}
-                        value={activeBook.ratings[currentEditingDimension]}
-                        onRate={(dim, val) => handleRate(activeBook.id, dim, val)}
-                      />
-                      </motion.div>
-                    ) : null}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              
-              {/* Click outside to close rating overlay or reading status selection */}
-              {(showRatingOverlay || selectingReadingStatusForExisting) && (
-                <div
-                  className="fixed inset-0 z-30"
-                  onClick={() => {
-                    setIsEditing(false);
-                    setEditingDimension(null);
-                    setSelectingReadingStatusForExisting(false);
-                    setSelectingReadingStatusInRating(false);
-                  }}
-                />
-              )}
-
-              {/* Share Dialog - appears after high rating (4 or 5 stars) */}
-              <AnimatePresence>
-                {showShareDialog && activeBook && (
-                  <>
-                    {/* Click outside to close - high z-index to capture all clicks */}
-                    <div
-                      className="fixed inset-0 z-[100]"
-                      onClick={() => setShowShareDialog(false)}
-                    />
-                    <motion.div
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 20 }}
-                      className="absolute left-4 right-4 z-[101] flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden"
-                      style={{ ...standardGlassmorphicStyle, bottom: 'calc(64px + var(--safe-area-bottom, 0px))' }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="flex flex-col items-center gap-1">
-                        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950 dark:text-slate-50">
-                          A {activeBook.ratings.writing === 5 ? 'GREAAAAAT' : activeBook.ratings.writing === 4.5 ? 'GREAT' : 'GOOD'} BOOK LIKE THIS...
-                        </h3>
-                        <p className="text-xs text-slate-950 dark:text-slate-50">someone you know needs to read it</p>
-                        <div className="flex gap-3 mt-2">
-                          <button
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              const bookUrl = activeBook.google_books_url || '';
-                              const shareText = `I just rated "${activeBook.title}" by ${activeBook.author} - ${RATING_FEEDBACK[activeBook.ratings.writing || 4]}${bookUrl ? `\n${bookUrl}` : ''}\n\nDownload Book.luv: https://yossisadoun.github.io/book_review/`;
-                              try {
-                                // Use Capacitor Share for native mobile sharing
-                                await CapacitorShare.share({
-                                  title: activeBook.title,
-                                  text: shareText,
-                                  dialogTitle: 'Share this book',
-                                });
-                              } catch (err: any) {
-                                // Don't fallback if user just cancelled the share dialog
-                                if (err?.message?.includes('cancel') || err?.message?.includes('dismiss')) {
-                                  console.log('Share cancelled by user');
-                                } else {
-                                  // Fallback to clipboard for non-native platforms
-                                  try {
-                                    await navigator.clipboard.writeText(shareText);
-                                    alert('Copied to clipboard!');
-                                  } catch {
-                                    console.log('Share failed');
-                                  }
-                                }
-                              }
-                              setShowShareDialog(false);
-                            }}
-                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-medium active:scale-95 transition-all"
-                          >
-                            <Share size={16} />
-                            Share
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowShareDialog(false);
-                            }}
-                            className="px-4 py-2 rounded-xl text-slate-950 dark:text-slate-50 text-sm font-medium hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
-                          >
-                            Skip
-                          </button>
-                        </div>
-                      </div>
-                    </motion.div>
-                  </>
-                )}
-              </AnimatePresence>
-
-              {/* Menu button - bottom right */}
-              <AnimatePresence>
-                {!isShowingNotes && activeBook && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3, delay: 0.3 }}
-                    className="absolute right-4 bottom-3 z-30"
-                  >
-                    <button
-                      onClick={() => setShowBookMenu(!showBookMenu)}
-                      className="p-2.5 rounded-full shadow-lg text-black active:scale-90 transition-all"
-                      style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
-                    >
-                      <MoreVertical size={20} />
-                    </button>
-
-                    {/* Drop-up menu */}
-                    <AnimatePresence>
-                      {showBookMenu && (
-                        <>
-                          {/* Backdrop to close menu */}
-                          <div
-                            className="fixed inset-0 z-40"
-                            onClick={() => setShowBookMenu(false)}
-                          />
-                          <motion.div
-                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                            transition={{ duration: 0.15 }}
-                            className="absolute bottom-12 right-0 z-50 min-w-[140px] rounded-xl overflow-hidden shadow-lg"
-                            style={{ ...standardGlassmorphicStyle, background: 'rgba(255, 255, 255, 0.55)' }}
-                          >
-                            <button
-                              onClick={() => {
-                                setShowBookMenu(false);
-                                const bookUrl = activeBook.google_books_url || '';
-                                const shareText = `Check out "${activeBook.title}" by ${activeBook.author}${bookUrl ? `\n${bookUrl}` : ''}\n\nDownload Book.luv: https://yossisadoun.github.io/book_review/`;
-                                CapacitorShare.share({
-                                  title: activeBook.title,
-                                  text: shareText,
-                                  dialogTitle: 'Share this book',
-                                }).catch(() => {
-                                  if (navigator.share) {
-                                    navigator.share({ title: activeBook.title, text: shareText });
-                                  }
-                                });
-                              }}
-                              className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-900 dark:text-slate-100 font-medium text-sm hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
-                            >
-                              <Share size={18} />
-                              Share
-                            </button>
-                            <div className="h-px bg-slate-200/50" />
-                            <button
-                              onClick={() => {
-                                setShowBookMenu(false);
-                                setIsShowingNotes(true);
-                              }}
-                              className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-900 dark:text-slate-100 font-medium text-sm hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
-                            >
-                              <StickyNote size={18} />
-                              Notes
-                            </button>
-                            <div className="h-px bg-slate-200/50" />
-                            <button
-                              onClick={() => {
-                                setShowBookMenu(false);
-                                setShowBookPageOnboarding(true);
-                              }}
-                              className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-900 dark:text-slate-100 font-medium text-sm hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
-                            >
-                              <Info size={18} />
-                              Page tour
-                            </button>
-                            <div className="h-px bg-slate-200/50" />
-                            <button
-                              onClick={() => {
-                                setShowBookMenu(false);
-                                setIsConfirmingDelete(true);
-                              }}
-                              className="flex items-center gap-3 px-4 py-3 w-full text-left text-red-600 font-medium text-sm hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
-                            >
-                              <Trash2 size={18} />
-                              Delete
-                            </button>
-                          </motion.div>
-                        </>
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Bottom left button row: Rate | Read Status | Notes */}
-              <AnimatePresence>
-                {!isShowingNotes && activeBook && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3, delay: 0.3 }}
-                    className="absolute left-4 bottom-3 z-30 flex items-center gap-2"
-                  >
-                    {/* Rating button */}
-                    <button
-                      onClick={() => {
-                        setIsEditing(true);
-                        setEditingDimension(null); // Will default to first unrated or first dimension
-                      }}
-                      className="px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1 active:scale-90 transition-transform"
-                      style={coverButtonGlassmorphicStyle}
-                    >
-                      <Heart size={14} className="fill-pink-500 text-pink-500" />
-                      <span className="font-black text-sm text-slate-950 dark:text-slate-50">
-                        {calculateAvg(activeBook.ratings) || 'Rate'}
-                      </span>
-                    </button>
-
-                    {/* Reading Status button */}
-                    <button
-                      onClick={() => {
-                        // Open reading status selection interface
-                        setSelectingReadingStatusForExisting(true);
-                        setIsEditing(true);
-                      }}
-                      className="w-10 h-10 rounded-full shadow-lg text-black hover:text-blue-600 dark:text-blue-400 active:scale-95 transition-all flex items-center justify-center"
-                      style={{ ...coverButtonGlassmorphicStyle, borderRadius: '50%' }}
-                    >
-                      {activeBook.reading_status === 'read_it' ? (
-                        <CheckCircle2 size={18} className="text-slate-950 dark:text-slate-50" />
-                      ) : activeBook.reading_status === 'reading' ? (
-                        <BookOpen size={18} className="text-slate-950 dark:text-slate-50" />
-                      ) : activeBook.reading_status === 'want_to_read' ? (
-                        <BookMarked size={18} className="text-slate-950 dark:text-slate-50" />
-                      ) : (
-                        <BookOpen size={18} className="text-slate-950 dark:text-slate-50 opacity-50" />
-                      )}
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-            </div>
-
-            {/* Chat Panel — row of 5 avatars below cover */}
-            {!showRatingOverlay && activeBook && (() => {
-              const avatars = characterAvatars.get(activeBook.id) || [];
-              const isLoadingAvatars = loadingAvatarsForBookId === activeBook.id;
-              const hasTelegramTopic = !!(activeBook.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id));
-
-              return (
-                <div className="w-full mt-3 px-2">
-                  <p className="text-[12px] uppercase tracking-[0.15em] font-bold text-slate-500 mb-2.5 text-center">Chat about it with</p>
-                  <div className="flex items-center justify-center gap-2.5">
-                    {/* 1. General book chatbot */}
-                    <button
-                      onClick={() => {
-                        chatOpenedFromBookPage.current = true;
-                        setChatBookSelected(true);
-                        setShowChatPage(true);
-                        setCharacterChatContext(null);
-                      }}
-                      className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
-                    >
-                      <div className="w-14 h-14 rounded-full overflow-hidden" style={{ border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
-                        <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
-                      </div>
-                      <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">Book.luver</span>
-                    </button>
-
-                    {/* 2-4. Character avatars (or loading skeletons) */}
-                    {isLoadingAvatars ? (
-                      [0, 1, 2].map(i => (
-                        <div key={`skel-${i}`} className="flex flex-col items-center gap-1.5">
-                          <motion.div
-                            animate={{ opacity: [0.4, 0.7, 0.4] }}
-                            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut', delay: i * 0.2 }}
-                            className="w-14 h-14 rounded-full bg-slate-200/50"
-                            style={{ border: '2px solid rgba(148, 163, 184, 0.3)' }}
-                          />
-                          <div className="w-10 h-2.5 rounded bg-slate-200/40 animate-pulse" />
-                        </div>
-                      ))
-                    ) : avatars.length > 0 ? (
-                      avatars.slice(0, 3).map((avatar, i) => {
-                        const isThisLoading = loadingCharacterChat === avatar.character;
-                        return (
-                        <motion.button
-                          key={avatar.character}
-                          ref={(el) => { if (el) avatarButtonRefs.current.set(avatar.character, el); }}
-                          initial={{ opacity: 0, scale: 0.8 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          transition={{ duration: 0.3, delay: i * 0.1 }}
-                          onClick={async () => {
-                            if (loadingCharacterChat || !activeBook) return;
-                            setLoadingCharacterChat(avatar.character);
-                            try {
-                              const context = await getCharacterContext(avatar.character, activeBook.title, activeBook.author);
-                              if (context) {
-                                setCharacterChatContext({
-                                  characterName: avatar.character,
-                                  bookTitle: activeBook.title,
-                                  bookAuthor: activeBook.author,
-                                  context,
-                                  avatarUrl: avatar.image_url,
-                                });
-                                chatOpenedFromBookPage.current = true;
-                                // Capture avatar position and trigger expand transition
-                                const btn = avatarButtonRefs.current.get(avatar.character);
-                                const imgEl = btn?.querySelector('img');
-                                if (imgEl) {
-                                  const rect = imgEl.getBoundingClientRect();
-                                  setAvatarExpandTransition({ imageUrl: avatar.image_url, rect, characterName: avatar.character });
-                                } else {
-                                  setChatBookSelected(true);
-                                  setShowChatPage(true);
-                                }
-                              }
-                            } catch (err) {
-                              console.error('[CharacterChat] Error loading context:', err);
-                            } finally {
-                              setLoadingCharacterChat(false);
-                            }
-                          }}
-                          className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
-                        >
-                          <div className="relative">
-                            {isThisLoading && (
-                              <motion.div
-                                className="absolute -inset-[3px] rounded-full"
-                                style={{ border: '2.5px solid transparent', borderTopColor: 'rgba(59, 130, 246, 0.8)', borderRightColor: 'rgba(59, 130, 246, 0.3)' }}
-                                animate={{ rotate: 360 }}
-                                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                              />
-                            )}
-                            <div
-                              className="w-14 h-14 rounded-full overflow-hidden"
-                              style={{
-                                border: isThisLoading ? '2px solid rgba(59, 130, 246, 0.4)' : '2px solid rgba(255, 255, 255, 0.5)',
-                                boxShadow: isThisLoading ? '0 0 12px rgba(59, 130, 246, 0.3)' : '0 2px 8px rgba(0,0,0,0.08)',
-                              }}
-                            >
-                              <img src={avatar.image_url} alt={avatar.character} className="w-full h-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).parentElement!.parentElement!.parentElement!.style.display = 'none'; }} />
-                            </div>
-                          </div>
-                          <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">{avatar.character.split(' ')[0]}</span>
-                        </motion.button>
-                        );
-                      })
-                    ) : null}
-
-                    {/* 5. Readers count with overlapping avatars */}
-                    <button
-                      onClick={async () => {
-                        if (!activeBook?.canonical_book_id) return;
-                        if (!localStorage.getItem('hasJoinedTelegramGroup')) {
-                          setShowTelegramJoinModal(true);
-                          return;
-                        }
-                        const cachedTopic = telegramTopics.get(activeBook.canonical_book_id);
-                        if (cachedTopic) {
-                          window.open(cachedTopic.inviteLink, '_blank');
-                          return;
-                        }
-                        const newWindow = window.open('', '_blank');
-                        setIsLoadingTelegramTopic(true);
-                        try {
-                          const topic = await getOrCreateTelegramTopic(activeBook.title, activeBook.author, activeBook.canonical_book_id, activeBook.cover_url || undefined, activeBook.genre || undefined);
-                          if (topic) {
-                            setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
-                            if (newWindow) newWindow.location.href = topic.inviteLink;
-                            else window.open(topic.inviteLink, '_blank');
-                          } else { newWindow?.close(); }
-                        } catch (err) { console.error('Error opening Telegram topic:', err); newWindow?.close(); }
-                        finally { setIsLoadingTelegramTopic(false); }
-                      }}
-                      disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
-                      className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform disabled:opacity-50"
-                    >
-                      <div className="h-14 flex items-center">
-                        <div className="flex items-center">
-                          {bookReaders.slice(0, 3).map((reader, index) => (
-                            reader.avatar ? (
-                              <img
-                                key={reader.id}
-                                src={reader.avatar}
-                                alt={reader.name}
-                                className="w-14 h-14 shrink-0 rounded-full border-2 border-white object-cover"
-                                style={{ zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0 }}
-                                referrerPolicy="no-referrer"
-                              />
-                            ) : (
-                              <div
-                                key={reader.id}
-                                className="w-14 h-14 shrink-0 rounded-full border-2 border-white flex items-center justify-center text-sm font-bold text-white"
-                                style={{ zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0, background: avatarGradient(reader.id) }}
-                              >
-                                {reader.name.charAt(0).toUpperCase()}
-                              </div>
-                            )
-                          ))}
-                          {bookReaders.length === 0 && (
-                            <div
-                              className="w-14 h-14 shrink-0 rounded-full flex items-center justify-center"
-                              style={{ background: 'linear-gradient(135deg, #dbeafe, #c7d2fe)', border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
-                            >
-                              <MessagesSquare size={22} className="text-indigo-500" />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">
-                        {bookReaders.length + 1} {bookReaders.length === 0 ? 'reader' : 'readers'}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Info + Book Summary — unified card stack below cover */}
-            {!showRatingOverlay && (() => {
-              const summary = bookSummaries.get(activeBook.id);
-              const isLoadingSummary = loadingSummaryForBookId === activeBook.id && !summary;
-
-              const infoCardContent = (
-                <>
-                  {/* Title */}
-                  <h2 className="text-sm font-black text-slate-950 dark:text-slate-50 leading-tight line-clamp-2 mb-2">{activeBook.title}</h2>
-                  {/* Summary/Synopsis */}
-                  {activeBook.summary && (
-                    <div className="mb-2">
-                      <p
-                        className={`text-xs text-black leading-relaxed ${!isSummaryExpanded ? 'line-clamp-5' : ''} cursor-pointer`}
-                        onClick={(e) => { e.stopPropagation(); setIsSummaryExpanded(!isSummaryExpanded); }}
-                      >
-                        {activeBook.summary}
-                      </p>
-                      {activeBook.summary.length > 300 && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setIsSummaryExpanded(!isSummaryExpanded);
-                          }}
-                          className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 font-medium mt-1"
-                        >
-                          {isSummaryExpanded ? 'Show less' : 'Show more'}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {/* Author */}
-                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-2">{activeBook.author}</p>
-                  {/* Labels */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {activeBook.first_issue_year && (
-                      <span className="bg-blue-100/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-blue-800">
-                        First Issue: {activeBook.first_issue_year}
-                      </span>
-                    )}
-                    {activeBook.publish_year && !activeBook.first_issue_year && (
-                      <span className="bg-slate-100/90 dark:bg-slate-700/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800 dark:text-slate-200">
-                        {activeBook.publish_year}
-                      </span>
-                    )}
-                    {activeBook.genre && (
-                      <span className="bg-slate-100/90 dark:bg-slate-700/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800 dark:text-slate-200">
-                        {activeBook.genre}
-                      </span>
-                    )}
-                    {activeBook.isbn && (
-                      <span className="bg-slate-100/90 dark:bg-slate-700/90 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider text-slate-800 dark:text-slate-200">
-                        ISBN: {activeBook.isbn}
-                      </span>
-                    )}
-                    {(activeBook.wikipedia_url || activeBook.google_books_url) && (
-                      <a
-                        href={activeBook.google_books_url || activeBook.wikipedia_url || '#'}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-[10px] text-blue-700 flex items-center gap-0.5 uppercase font-bold tracking-widest hover:underline"
-                      >
-                        Source <ExternalLink size={10} />
-                      </a>
-                    )}
-                  </div>
-                  {/* Divider between info and readers */}
-                  {!isReviewer && <div className="border-t border-white/20 dark:border-white/10 my-2" />}
-                  {/* Readers section */}
-                  {!isReviewer && (
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {isLoadingBookReaders ? (
-                          <motion.div
-                            animate={{ opacity: [0.5, 0.8, 0.5] }}
-                            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                            className="flex items-center gap-2"
-                          >
-                            <div className="flex -space-x-2">
-                              {[1, 2, 3].map((i) => (
-                                <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-slate-300/50 dark:bg-slate-600/50" style={{ zIndex: 5 - i }} />
-                              ))}
-                            </div>
-                            <div className="w-16 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded ml-1" />
-                          </motion.div>
-                        ) : (
-                          <>
-                            {(() => {
-                              const hasBot = !!(activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id));
-                              const sortedReaders = [...bookReaders].sort((a, b) => (b.isFollowing ? 1 : 0) - (a.isFollowing ? 1 : 0));
-                              const maxReaders = Math.min(sortedReaders.length, 3);
-                              const slotsLeft = 3 - maxReaders;
-                              const showBot = hasBot && slotsLeft > 0;
-                              const showMe = slotsLeft > (showBot ? 1 : 0);
-                              return (
-                                <div className="flex -space-x-2">
-                                  {showMe && (userAvatar ? (
-                                    <img
-                                      src={userAvatar}
-                                      alt={userName}
-                                      className="w-8 h-8 shrink-0 rounded-full border-2 border-emerald-400 object-cover"
-                                      style={{ zIndex: 7 }}
-                                      title={`${userName} (you)`}
-                                      referrerPolicy="no-referrer"
-                                    />
-                                  ) : (
-                                    <div
-                                      className="w-8 h-8 shrink-0 rounded-full border-2 border-emerald-400 flex items-center justify-center text-xs font-bold text-white"
-                                      style={{ zIndex: 7, background: avatarGradient(user?.id || userName) }}
-                                      title={`${userName} (you)`}
-                                    >
-                                      {userName.charAt(0).toUpperCase()}
-                                    </div>
-                                  ))}
-                                  {showBot && (
-                                    <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-8 h-8 shrink-0 rounded-full border-2 border-sky-400 object-cover" style={{ zIndex: 6 }} title="Book.luver" />
-                                  )}
-                                  {sortedReaders.slice(0, maxReaders).map((reader, index) => (
-                                    reader.avatar ? (
-                                      <img
-                                        key={reader.id}
-                                        src={reader.avatar}
-                                        alt={reader.name}
-                                        className="w-8 h-8 shrink-0 rounded-full border-2 border-white object-cover"
-                                        style={{ zIndex: 4 - index }}
-                                        title={reader.name}
-                                        referrerPolicy="no-referrer"
-                                      />
-                                    ) : (
-                                      <div
-                                        key={reader.id}
-                                        className="w-8 h-8 shrink-0 rounded-full border-2 border-white flex items-center justify-center text-xs font-bold text-white"
-                                        style={{ zIndex: 4 - index, background: avatarGradient(reader.id) }}
-                                        title={reader.name}
-                                      >
-                                        {reader.name.charAt(0).toUpperCase()}
-                                      </div>
-                                    )
-                                  ))}
-                                </div>
-                              );
-                            })()}
-                            <span className="text-xs text-slate-600 dark:text-slate-400 ml-1">
-                              {bookReaders.length + 1 + (activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id) ? 1 : 0)} {bookReaders.length === 0 && !(activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id)) ? 'reader' : 'readers'}
-                            </span>
-                          </>
-                        )}
-                      </div>
-
-                      {/* Telegram chat button */}
-                      {!isLoadingBookReaders && (
-                        <button
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            if (!activeBook?.canonical_book_id) return;
-
-                            if (!localStorage.getItem('hasJoinedTelegramGroup')) {
-                              setShowTelegramJoinModal(true);
-                              return;
-                            }
-
-                            const cachedTopic = telegramTopics.get(activeBook.canonical_book_id);
-                            if (cachedTopic) {
-                              window.open(cachedTopic.inviteLink, '_blank');
-                              return;
-                            }
-
-                            const newWindow = window.open('', '_blank');
-                            setIsLoadingTelegramTopic(true);
-                            try {
-                              const topic = await getOrCreateTelegramTopic(
-                                activeBook.title,
-                                activeBook.author,
-                                activeBook.canonical_book_id,
-                                activeBook.cover_url || undefined,
-                                activeBook.genre || undefined
-                              );
-
-                              if (topic) {
-                                setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
-                                if (newWindow) {
-                                  newWindow.location.href = topic.inviteLink;
-                                } else {
-                                  window.open(topic.inviteLink, '_blank');
-                                }
-                              } else {
-                                newWindow?.close();
-                              }
-                            } catch (err) {
-                              console.error('Error opening Telegram topic:', err);
-                              newWindow?.close();
-                            } finally {
-                              setIsLoadingTelegramTopic(false);
-                            }
-                          }}
-                          disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
-                          className="flex items-center justify-center w-8 h-8 rounded-full active:scale-95 transition-all disabled:opacity-50"
-                          style={{
-                            background: 'rgba(255, 255, 255, 0.6)',
-                            backdropFilter: 'blur(9.4px)',
-                            WebkitBackdropFilter: 'blur(9.4px)',
-                            border: '1px solid rgba(255, 255, 255, 0.3)',
-                          }}
-                        >
-                          {isLoadingTelegramTopic ? (
-                            <motion.div
-                              animate={{ rotate: 360 }}
-                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                              className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full"
-                            />
-                          ) : (
-                            <MessagesSquare size={16} className="text-slate-700 dark:text-slate-300" />
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </>
-              );
-
-              // If summary is loading or available, show unified stack with info as card 1
-              if (isLoadingSummary || summary) {
-                const readersContent = !isReviewer ? (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {isLoadingBookReaders ? (
-                        <motion.div
-                          animate={{ opacity: [0.5, 0.8, 0.5] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="flex items-center gap-2"
-                        >
-                          <div className="flex -space-x-2">
-                            {[1, 2, 3].map((i) => (
-                              <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-slate-300/50 dark:bg-slate-600/50" style={{ zIndex: 5 - i }} />
-                            ))}
-                          </div>
-                          <div className="w-16 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded ml-1" />
-                        </motion.div>
-                      ) : (
-                        <>
-                          {(() => {
-                            const hasBot = !!(activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id));
-                            const sortedReaders = [...bookReaders].sort((a, b) => (b.isFollowing ? 1 : 0) - (a.isFollowing ? 1 : 0));
-                            const maxReaders = Math.min(sortedReaders.length, 3);
-                            const slotsLeft = 3 - maxReaders;
-                            const showBot = hasBot && slotsLeft > 0;
-                            const showMe = slotsLeft > (showBot ? 1 : 0);
-                            return (
-                              <div className="flex -space-x-2">
-                                {showMe && (userAvatar ? (
-                                  <img src={userAvatar} alt={userName} className="w-8 h-8 shrink-0 rounded-full border-2 border-emerald-400 object-cover" style={{ zIndex: 7 }} title={`${userName} (you)`} referrerPolicy="no-referrer" />
-                                ) : (
-                                  <div className="w-8 h-8 shrink-0 rounded-full border-2 border-emerald-400 flex items-center justify-center text-xs font-bold text-white" style={{ zIndex: 7, background: avatarGradient(user?.id || userName) }} title={`${userName} (you)`}>
-                                    {userName.charAt(0).toUpperCase()}
-                                  </div>
-                                ))}
-                                {showBot && (
-                                  <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-8 h-8 shrink-0 rounded-full border-2 border-sky-400 object-cover" style={{ zIndex: 6 }} title="Book.luver" />
-                                )}
-                                {sortedReaders.slice(0, maxReaders).map((reader, index) => (
-                                  reader.avatar ? (
-                                    <img key={reader.id} src={reader.avatar} alt={reader.name} className="w-8 h-8 shrink-0 rounded-full border-2 border-white object-cover" style={{ zIndex: 4 - index }} title={reader.name} referrerPolicy="no-referrer" />
-                                  ) : (
-                                    <div key={reader.id} className="w-8 h-8 shrink-0 rounded-full border-2 border-white flex items-center justify-center text-xs font-bold text-white" style={{ zIndex: 4 - index, background: avatarGradient(reader.id) }} title={reader.name}>
-                                      {reader.name.charAt(0).toUpperCase()}
-                                    </div>
-                                  )
-                                ))}
-                              </div>
-                            );
-                          })()}
-                          <span className="text-xs text-slate-600 dark:text-slate-400 ml-1">
-                            {bookReaders.length + 1 + (activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id) ? 1 : 0)} {bookReaders.length === 0 && !(activeBook?.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id)) ? 'reader' : 'readers'}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                    {!isLoadingBookReaders && (
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          if (!activeBook?.canonical_book_id) return;
-                          if (!localStorage.getItem('hasJoinedTelegramGroup')) {
-                            setShowTelegramJoinModal(true);
-                            return;
-                          }
-                          const cachedTopic = telegramTopics.get(activeBook.canonical_book_id);
-                          if (cachedTopic) {
-                            window.open(cachedTopic.inviteLink, '_blank');
-                            return;
-                          }
-                          const newWindow = window.open('', '_blank');
-                          setIsLoadingTelegramTopic(true);
-                          try {
-                            const topic = await getOrCreateTelegramTopic(activeBook.title, activeBook.author, activeBook.canonical_book_id, activeBook.cover_url || undefined, activeBook.genre || undefined);
-                            if (topic) {
-                              setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
-                              if (newWindow) newWindow.location.href = topic.inviteLink;
-                              else window.open(topic.inviteLink, '_blank');
-                            } else { newWindow?.close(); }
-                          } catch (err) { console.error('Error opening Telegram topic:', err); newWindow?.close(); }
-                          finally { setIsLoadingTelegramTopic(false); }
-                        }}
-                        disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
-                        className="flex items-center justify-center w-8 h-8 rounded-full active:scale-95 transition-all disabled:opacity-50"
-                        style={{ background: 'rgba(255, 255, 255, 0.6)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 255, 255, 0.3)' }}
-                      >
-                        {isLoadingTelegramTopic ? (
-                          <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full" />
-                        ) : (
-                          <MessagesSquare size={16} className="text-slate-700 dark:text-slate-300" />
-                        )}
-                      </button>
-                    )}
-                  </div>
-                ) : undefined;
-
-                return (
-                  <div className="w-full mt-3">
-                    <BookSummaryComponent
-                      summary={summary!}
-                      bookId={activeBook.id}
-                      isLoading={isLoadingSummary}
-                      firstIssueYear={activeBook.first_issue_year}
-                      readersSection={undefined}
-                    />
-                  </div>
-                );
-              }
-
-              // No summary at all — show info card as standalone glassmorphic box
-              return (
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={`info-${activeBook?.id || 'default'}`}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    transition={{ duration: 0.3, ease: "easeInOut" }}
-                    className="w-full mt-3"
-                  >
-                    <div className="rounded-2xl px-4 py-3 mx-auto" style={bookPageGlassmorphicStyle}>
-                      {infoCardContent}
-                    </div>
-                  </motion.div>
-                </AnimatePresence>
-              );
-            })()}
-
-            {/* Spotlight recommendation with neon header — uses the same component UI as the book page sections */}
-            {!showRatingOverlay && spotlightRecommendation && (
-              <SpotlightSection
-                spotlightRecommendation={spotlightRecommendation}
-                didYouKnow={didYouKnow}
-                podcastEpisodes={podcastEpisodes}
-                youtubeVideos={youtubeVideos}
-                relatedBooks={relatedBooks}
-                analysisArticles={analysisArticles}
-                relatedMovies={relatedMovies}
-                spotlightIndex={spotlightIndex}
-                setSpotlightIndex={setSpotlightIndex}
-                setShowAccountPage={(val: React.SetStateAction<boolean>) => { const next = typeof val === 'function' ? val(showAccountPage) : val; if (next) capturePreviousView(); setShowAccountPage(next); }}
-                handleAddBook={handleAddBook}
-                moreBelowAnimRef={moreBelowAnimRef}
-                readingStatus={activeBook.reading_status}
-                spoilerRevealed={spoilerRevealed}
-                setSpoilerRevealed={setSpoilerRevealed}
-                bookId={activeBook.id}
-                heartCounts={heartCounts}
-                userHearted={userHearted}
-                handleToggleHeart={handleToggleHeart}
-                showMoviePlayButtons={remoteFlags.related_work_play_buttons}
-                showComment={false}
-                showSend={remoteFlags.send_enabled}
-                onPin={(content, type, url, imageUrl) => handlePinForLater(content, type, url, imageUrl)}
-                isContentPinned={isContentPinned}
-              />
-            )}
-
-            {/* Second "more below" animation */}
-            {!showRatingOverlay && spotlightRecommendation && (
-              <div className="flex justify-center -mt-4 -mb-4">
-                <Lottie
-                  animationData={bookPageOnboardingAnimation}
-                  loop={false}
-                  style={{ width: 200, height: 88 }}
-                />
-              </div>
-            )}
-
-            {/* Insights Section - Show below cover with spacing */}
-            {!showRatingOverlay && (
-              <>
-                  <div className="w-full space-y-6">
-
-                {/* Insights: Show if we have facts, research, or are loading */}
-                {(() => {
-                  if (!bookDetailInsightsState.hasEnabledInsights) return null;
-                  const {
-                    shouldBlurInsights,
-                    categories,
-                    currentCategory,
-                    currentInsights,
-                    isLoading,
-                  } = bookDetailInsightsState;
-                  
-                  return (
-                    <div className="w-full space-y-2">
-                      {/* Insights Header with Category Selector - hidden when featureFlags.bookPageSectionHeaders.insights is true */}
-                      {!featureFlags.bookPageSectionHeaders.insights && (
-                        <div className="flex items-center justify-center mb-2 relative z-[40]">
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm relative" style={bookPageGlassmorphicStyle}>
-                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">INSIGHTS:</span>
-                            {categories.length > 1 && (
-                              <>
-                                <span className="text-[10px] font-bold text-slate-400">/</span>
-                                <div className="relative insight-category-dropdown z-[40]">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setIsInsightCategoryDropdownOpen(!isInsightCategoryDropdownOpen);
-                                    }}
-                                    className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded transition-colors text-blue-700 hover:bg-blue-50"
-                                  >
-                                    {currentCategory?.label || 'Trivia'}
-                                    <ChevronDown
-                                      size={12}
-                                      className={`transition-transform ${isInsightCategoryDropdownOpen ? 'rotate-180' : ''}`}
-                                    />
-                                  </button>
-                                  {isInsightCategoryDropdownOpen && (
-                                    <div className="absolute top-full left-0 mt-1 bg-white/95 backdrop-blur-md border border-white/30 dark:border-white/10 rounded-lg shadow-xl z-[40] min-w-[120px] overflow-hidden">
-                                      {categories.map((cat) => (
-                                        <button
-                                          key={cat.id || `cat-${cat.label}`}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setSelectedInsightCategory(cat.id);
-                                            analytics.trackEvent('insights', 'view', { category: cat.id, book_title: activeBook?.title });
-                                            setIsInsightCategoryDropdownOpen(false);
-                                          }}
-                                          className={`w-full text-left text-[10px] font-bold px-3 py-2 transition-colors ${
-                                            selectedInsightCategory === cat.id
-                                              ? 'text-blue-700 bg-blue-100'
-                                              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                                          }`}
-                                        >
-                                          {cat.label}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              </>
-                            )}
-                            {categories.length === 1 && (
-                              <>
-                                <span className="text-[10px] font-bold text-slate-400">/</span>
-                                <span className="text-[10px] font-bold text-blue-700">{currentCategory?.label || 'Trivia'}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      {/* Content with spoiler protection */}
-                      <div
-                        className={`relative ${shouldBlurInsights ? 'cursor-pointer' : ''}`}
-                        onClick={(e) => {
-                          if (shouldBlurInsights) {
-                            e.stopPropagation();
-                            setSpoilerRevealed(prev => {
-                              const newMap = new Map(prev);
-                              const revealed = newMap.get(activeBook.id) || new Set<string>();
-                              revealed.add('insights');
-                              newMap.set(activeBook.id, revealed);
-                              return newMap;
-                            });
-                          }
-                        }}
-                      >
-                        {shouldBlurInsights && !isLoading && (
-                          <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-                            <div className="flex items-center gap-2 px-3 py-2 rounded-full bg-white/80 dark:bg-white/15 backdrop-blur-sm shadow-sm">
-                              <Lightbulb size={14} className="text-slate-600 dark:text-slate-400" />
-                              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Spoiler alert, tap to reveal</span>
-                            </div>
-                          </div>
-                        )}
-                        <div className={`[&_p]:transition-[filter] [&_p]:duration-300 [&_span]:transition-[filter] [&_span]:duration-300 [&_button]:transition-[filter] [&_button]:duration-300 ${shouldBlurInsights && !isLoading ? '[&_p]:blur-[5px] [&_span]:blur-[5px] [&_button]:blur-[5px] select-none pointer-events-none' : ''}`}>
-                          {isLoading ? (
-                            <motion.div
-                              animate={{ opacity: [0.5, 0.8, 0.5] }}
-                              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                              className="rounded-xl p-4"
-                              style={glassmorphicStyle}
-                            >
-                              <div className="flex flex-col items-center gap-2">
-                                <div className="w-16 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                                <div className="w-full h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                                <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                                <div className="w-20 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mt-1" />
-                              </div>
-                            </motion.div>
-                          ) : currentInsights.length > 0 ? (
-                            <InsightsCards
-                              insights={currentInsights}
-                              bookId={`${activeBook.id}-${selectedInsightCategory}`}
-                              isLoading={false}
-                              showComment={false}
-                              showSend={remoteFlags.send_enabled}
-                              renderAction={renderInsightsHeartAction}
-                              onPin={pinInsightItem}
-                              isPinned={isInsightItemPinned}
-                            />
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-                
-                {/* Podcast Episodes - Show below author facts */}
-                {(() => {
-                  if (contentPreferences.podcasts === false) return null;
-                  const episodes = combinedPodcastEpisodes;
-                  const hasEpisodes = episodes.length > 0;
-                  // Only show loading if we don't have episodes yet. Once loaded, always show.
-                  const isLoading = activeBook && loadingPodcastsForBookId === activeBook.id && !hasEpisodes;
-                  
-                  // Only show the podcast section if loading or has episodes
-                  if (!isLoading && !hasEpisodes) return null;
-                  
-                  return (
-                    <div className="w-full space-y-2">
-                      {/* Podcast Header - hidden when featureFlags.bookPageSectionHeaders.podcasts is true */}
-                      {!featureFlags.bookPageSectionHeaders.podcasts && (
-                        <div className="flex items-center justify-center mb-2">
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">PODCASTS:</span>
-                            <span className="text-[10px] font-bold text-slate-400">/</span>
-                            <span className="text-[10px] font-bold text-blue-700">Curated + Apple</span>
-                          </div>
-                        </div>
-                      )}
-                      {/* Content */}
-                      <div>
-                          {isLoading ? (
-                            <motion.div
-                              animate={{ opacity: [0.5, 0.8, 0.5] }}
-                              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                              className="rounded-xl p-4"
-                              style={glassmorphicStyle}
-                            >
-                              <div className="flex items-start gap-3 mb-3">
-                                <div className="w-12 h-12 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse flex-shrink-0" />
-                                <div className="flex-1 space-y-2">
-                                  <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                                  <div className="w-1/2 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                                </div>
-                              </div>
-                              <div className="space-y-2">
-                                <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                                <div className="w-2/3 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                              </div>
-                            </motion.div>
-                          ) : (
-                            <PodcastEpisodes
-                              episodes={episodes}
-                              bookId={activeBook?.id || ''}
-                              isLoading={false}
-                              showComment={false}
-                              showSend={remoteFlags.send_enabled}
-                              renderAction={renderPodcastHeartAction}
-                              onPin={pinPodcastItem}
-                              isPinned={isPodcastItemPinned}
-                            />
-                          )}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* YouTube Videos - Show below podcasts */}
-                {(() => {
-                  if (contentPreferences.youtube === false) return null;
-                  const videos = activeVideos;
-                  const hasVideos = videos.length > 0;
-                  const isLoading = loadingVideosForBookId === activeBook.id && !hasVideos;
-
-                  // Only show the videos section if loading or has videos
-                  if (!isLoading && !hasVideos) return null;
-
-                  return (
-                    <div className="w-full space-y-2">
-                      {/* Videos Header - hidden when featureFlags.bookPageSectionHeaders.youtube is true */}
-                      {!featureFlags.bookPageSectionHeaders.youtube && (
-                        <div className="flex items-center justify-center mb-2">
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">VIDEOS:</span>
-                            <span className="text-[10px] font-bold text-slate-400">/</span>
-                            <span className="text-[10px] font-bold text-blue-700">YouTube</span>
-                          </div>
-                        </div>
-                      )}
-                      {/* Content */}
-                      <div>
-                          {isLoading ? (
-                            // Show loading placeholder
-                            <motion.div
-                              animate={{ opacity: [0.5, 0.8, 0.5] }}
-                              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                              className="rounded-xl overflow-hidden"
-                              style={glassmorphicStyle}
-                            >
-                              <div className="relative w-full bg-slate-300/50 dark:bg-slate-600/50 animate-pulse" style={{ paddingBottom: '56.25%' }}>
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                  <Play size={32} className="text-slate-400/50" />
-                                </div>
-                              </div>
-                              <div className="p-4 space-y-2">
-                                <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                                <div className="w-1/2 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                              </div>
-                            </motion.div>
-                          ) : (
-                            <YouTubeVideos
-                              videos={videos}
-                              bookId={activeBook.id}
-                              isLoading={false}
-                              showComment={false}
-                              showSend={remoteFlags.send_enabled}
-                              renderAction={renderYouTubeHeartAction}
-                              onPin={pinYouTubeItem}
-                              isPinned={isYouTubeItemPinned}
-                            />
-                          )}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Analysis Articles - Show below videos */}
-                {(() => {
-                  if (contentPreferences.articles === false) return null;
-                  const articles = activeArticles;
-                  // Check if we have real articles (not just the fallback search URL)
-                  // A fallback article has a title that starts with "Search Google Scholar" and URL contains "scholar.google.com/scholar?q="
-                  const hasRealArticles = articles.length > 0 && articles.some(article => {
-                    const isFallback = article.title?.includes('Search Google Scholar') ||
-                                       (article.url && article.url.includes('scholar.google.com/scholar?q='));
-                    return !isFallback;
-                  });
-                  const hasOnlyFallback = articles.length > 0 && !hasRealArticles;
-                  const hasArticles = hasRealArticles;
-                  const isLoading = loadingAnalysisForBookId === activeBook.id && !hasArticles && !hasOnlyFallback;
-
-                  // Only show the analysis section if loading or has articles
-                  if (!isLoading && !hasArticles) return null;
-
-                  return (
-                    <div className="w-full space-y-2">
-                      {/* Analysis Header - hidden when featureFlags.bookPageSectionHeaders.articles is true */}
-                      {!featureFlags.bookPageSectionHeaders.articles && (
-                        <div className="flex items-center justify-center mb-2">
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">ANALYSIS:</span>
-                            <span className="text-[10px] font-bold text-slate-400">/</span>
-                            <span className="text-[10px] font-bold text-blue-700">Google Scholar</span>
-                          </div>
-                        </div>
-                      )}
-                      {/* Content */}
-                      <div>
-                          {isLoading ? (
-                            // Show loading placeholder
-                            <motion.div
-                              animate={{ opacity: [0.5, 0.8, 0.5] }}
-                              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                              className="rounded-xl p-4"
-                              style={glassmorphicStyle}
-                            >
-                              <div className="space-y-2">
-                                <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                                <div className="w-1/2 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                                <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse mt-3" />
-                                <div className="w-5/6 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                              </div>
-                            </motion.div>
-                          ) : (
-                            // Show articles
-                            <AnalysisArticles
-                              articles={articles}
-                              bookId={activeBook.id}
-                              isLoading={false}
-                              showComment={false}
-                              showSend={remoteFlags.send_enabled}
-                              renderAction={renderArticleHeartAction}
-                              onPin={pinArticleItem}
-                              isPinned={isArticleItemPinned}
-                            />
-                          )}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Related Movies & Shows */}
-                {(() => {
-                  if (contentPreferences.related_work === false) return null;
-                  const movies = activeRelatedMovies;
-                  const hasData = relatedMovies.get(activeBook.id) !== undefined;
-                  const hasMovies = movies.length > 0;
-                  const isLoading = loadingRelatedMoviesForBookId === activeBook.id && !hasData;
-
-                  if (!isLoading && !hasMovies) return null;
-
-                  return (
-                    <div className="w-full space-y-2">
-                      {!featureFlags.bookPageSectionHeaders.relatedMovies && (
-                        <div className="flex items-center justify-center mb-2">
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">MOVIES:</span>
-                            <span className="text-[10px] font-bold text-slate-400">/</span>
-                            <span className="text-[10px] font-bold text-indigo-700">Grok + iTunes</span>
-                          </div>
-                        </div>
-                      )}
-                      {isLoading ? (
-                        <motion.div
-                          animate={{ opacity: [0.5, 0.8, 0.5] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="rounded-xl p-4"
-                          style={glassmorphicStyle}
-                        >
-                          <div className="flex items-start gap-3 mb-3">
-                            <div className="w-16 h-20 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse flex-shrink-0" />
-                            <div className="flex-1 space-y-2">
-                              <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                              <div className="w-1/2 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                              <div className="w-20 h-6 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse mt-2" />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                            <div className="w-4/5 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                          </div>
-                        </motion.div>
-                      ) : (
-                        <RelatedMovies
-                          movies={movies}
-                          bookId={activeBook.id}
-                          isLoading={false}
-                          showPlayButtons={remoteFlags.related_work_play_buttons}
-                          showComment={false}
-                          showSend={remoteFlags.send_enabled}
-                          renderAction={renderRelatedMovieHeartAction}
-                          onPin={pinRelatedMovieItem}
-                          isPinned={isRelatedMovieItemPinned}
-                        />
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {/* Hidden content - single row */}
-                {(() => {
-                  const hiddenSections: { key: string; label: string }[] = [];
-                  if (contentPreferences.fun_facts === false) hiddenSections.push({ key: 'fun_facts', label: 'Fun Facts' });
-                  if (contentPreferences.podcasts === false) hiddenSections.push({ key: 'podcasts', label: 'Podcasts' });
-                  if (contentPreferences.youtube === false) hiddenSections.push({ key: 'youtube', label: 'YouTube' });
-                  if (contentPreferences.articles === false) hiddenSections.push({ key: 'articles', label: 'Articles' });
-                  if (contentPreferences.related_work === false) hiddenSections.push({ key: 'related_work', label: 'Related Work' });
-                  if (contentPreferences.related_books === false) hiddenSections.push({ key: 'related_books', label: 'Related Books' });
-                  if (hiddenSections.length === 0) return null;
-                  return (
-                    <div className="w-full">
-                      <div className="flex items-center justify-between px-4 py-3 rounded-2xl" style={glassmorphicStyle}>
-                        <div className="flex items-center gap-2 min-w-0">
-                          <EyeOff size={14} className="text-slate-400 flex-shrink-0" />
-                          <span className="text-xs text-slate-400 truncate">{hiddenSections.map(s => s.label).join(', ')} hidden</span>
-                        </div>
-                        <button onClick={() => { capturePreviousView(); updateScrollY(0); setShowAccountPage(true); }} className="text-xs font-medium text-blue-500 active:opacity-70 flex-shrink-0 ml-2">Settings</button>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Related Books - Show below Related Movies */}
-                {(() => {
-                  if (contentPreferences.related_books === false) return null;
-                  const related = activeRelatedBooks;
-                  const hasData = relatedBooks.get(activeBook.id) !== undefined;
-                  const hasRelated = related.length > 0;
-                  const isLoading = loadingRelatedForBookId === activeBook.id && !hasData;
-
-                  if (!isLoading && !hasRelated) return null;
-
-                  return (
-                    <>
-                    <div className="flex justify-center -mt-4 -mb-4">
-                      <Lottie
-                        animationData={nextReadsAnimation}
-                        loop={true}
-                        style={{ width: 200, height: 88 }}
-                      />
-                    </div>
-                    <div className="w-full space-y-2 !mt-0">
-                      {!featureFlags.bookPageSectionHeaders.relatedBooks && (
-                        <div className="flex items-center justify-center mb-2">
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg shadow-sm" style={bookPageGlassmorphicStyle}>
-                            <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">RELATED:</span>
-                            <span className="text-[10px] font-bold text-slate-400">/</span>
-                            <span className="text-[10px] font-bold text-blue-700">Grok</span>
-                          </div>
-                        </div>
-                      )}
-                      {isLoading ? (
-                        <motion.div
-                          animate={{ opacity: [0.5, 0.8, 0.5] }}
-                          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                          className="rounded-xl p-4"
-                          style={glassmorphicStyle}
-                        >
-                          <div className="flex items-start gap-3 mb-3">
-                            <div className="w-16 h-20 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse flex-shrink-0" />
-                            <div className="flex-1 space-y-2">
-                              <div className="w-3/4 h-4 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                              <div className="w-1/2 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                              <div className="w-20 h-6 bg-slate-300/50 dark:bg-slate-600/50 rounded-lg animate-pulse mt-2" />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="w-full h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                            <div className="w-4/5 h-3 bg-slate-300/50 dark:bg-slate-600/50 rounded animate-pulse" />
-                          </div>
-                        </motion.div>
-                      ) : (
-                        <RelatedBooks
-                          books={related}
-                          bookId={activeBook.id}
-                          isLoading={false}
-                          onAddBook={handleAddBook}
-                          showComment={false}
-                          showSend={remoteFlags.send_enabled}
-                          sourceBookCoverUrl={activeBook.cover_url}
-                          sourceBookTitle={activeBook.title}
-                          renderAction={renderRelatedBookHeartAction}
-                          onPin={pinRelatedBookItem}
-                          isPinned={isRelatedBookItemPinned}
-                        />
-                      )}
-                    </div>
-                    </>
-                  );
-                })()}
-
-                  </div>
-              </>
-            )}
-          </div>
-        )}
-
-          </motion.main>
+            heartCounts={heartCounts}
+            userHearted={userHearted}
+            handleToggleHeart={handleToggleHeart}
+            isContentPinned={isContentPinned}
+            handlePinForLater={handlePinForLater}
+            scrollContainerRef={scrollContainerRef}
+            updateScrollY={updateScrollY}
+            attachBookDetailHeaderRef={attachBookDetailHeaderRef}
+            onNavigateToBookshelf={() => {
+              updateScrollY(0);
+              setShowBookshelfCovers(true);
+              setShowBookshelf(false);
+              setShowNotesView(false);
+              setShowAccountPage(false);
+              setShowSortingResults(false);
+            }}
+            openAddBookSheet={() => openAddBookSheet()}
+            capturePreviousView={capturePreviousView}
+            setShowAccountPage={setShowAccountPage}
+            showAccountPage={showAccountPage}
+            setShowBookshelfCovers={setShowBookshelfCovers}
+            setShowBookshelf={setShowBookshelf}
+            setShowNotesView={setShowNotesView}
+            setShowSortingResults={setShowSortingResults}
+            handleRate={handleRate}
+            handleUpdateReadingStatus={handleUpdateReadingStatus}
+            selectingReadingStatusForExisting={selectingReadingStatusForExisting}
+            setSelectingReadingStatusForExisting={setSelectingReadingStatusForExisting}
+            isEditing={isEditing}
+            setIsEditing={setIsEditing}
+            showShareDialog={showShareDialog}
+            setShowShareDialog={setShowShareDialog}
+            showBookMenu={showBookMenu}
+            setShowBookMenu={setShowBookMenu}
+            selectingReadingStatusInRating={selectingReadingStatusInRating}
+            setSelectingReadingStatusInRating={setSelectingReadingStatusInRating}
+            isConfirmingDelete={isConfirmingDelete}
+            setIsConfirmingDelete={setIsConfirmingDelete}
+            isShowingNotes={isShowingNotes}
+            setIsShowingNotes={setIsShowingNotes}
+            editingDimension={editingDimension}
+            setEditingDimension={setEditingDimension}
+            showBookPageOnboarding={showBookPageOnboarding}
+            setShowBookPageOnboarding={setShowBookPageOnboarding}
+            setPendingBookMeta={setPendingBookMeta}
+            setBooks={setBooks}
+            setSelectedIndex={setSelectedIndex}
+            chatSystem={{
+              chatOpenedFromBookPage,
+              setChatBookSelected,
+              setShowChatPage,
+              setCharacterChatContext,
+              loadingCharacterChat,
+              setLoadingCharacterChat,
+              avatarButtonRefs,
+              setAvatarExpandTransition,
+            }}
+            telegramSystem={{
+              telegramTopics,
+              setTelegramTopics,
+              isLoadingTelegramTopic,
+              setIsLoadingTelegramTopic,
+              showTelegramJoinModal,
+              setShowTelegramJoinModal,
+            }}
+            discussionSystem={{
+              showBookDiscussion,
+              setShowBookDiscussion,
+              discussionQuestions,
+              setDiscussionQuestions,
+              isLoadingDiscussionQuestions,
+              setIsLoadingDiscussionQuestions,
+            }}
+            bookReadersSystem={{
+              bookReaders,
+              setBookReaders,
+              isLoadingBookReaders,
+              setIsLoadingBookReaders,
+            }}
+            userAvatar={userAvatar}
+            userName={userName}
+            viewingUserId={viewingUserId}
+            viewingUserIsPrivate={viewingUserIsPrivate}
+            remoteFlags={remoteFlags}
+            contentPreferences={contentPreferences}
+            SpotlightSection={SpotlightSection}
+            handleAddBook={handleAddBook}
+            moreBelowAnimRef={moreBelowAnimRef}
+          />
         )}
       </AnimatePresence>
       </Suspense>
@@ -8053,57 +6448,6 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Notes Editor Overlay */}
-      <Suspense fallback={null}>
-      <AnimatePresence>
-        {isShowingNotes && activeBook && (
-          <NotesEditorOverlay
-            bookId={activeBook.id}
-            bookTitle={activeBook.title}
-            initialNotes={activeBook.notes || null}
-            onClose={(finalNotes) => {
-              const hadChanges = (finalNotes || null) !== (activeBook.notes || null);
-              setIsShowingNotes(false);
-              // Persist to local state + DB on close
-              setBooks(prev => prev.map(book =>
-                book.id === activeBook.id ? { ...book, notes: finalNotes } : book
-              ));
-              if (user) {
-                supabase
-                  .from('books')
-                  .update({ notes: finalNotes, updated_at: new Date().toISOString() })
-                  .eq('id', activeBook.id)
-                  .eq('user_id', user.id)
-                  .then(({ error }) => {
-                    if (error) console.error('Error saving notes:', error);
-                  });
-              }
-              if (hadChanges && finalNotes) {
-                setNoteSavedToast(true);
-                setTimeout(() => setNoteSavedToast(false), 2000);
-              }
-            }}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Note Saved Toast */}
-      <AnimatePresence>
-        {noteSavedToast && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            transition={{ duration: 0.3 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[101] px-4 py-2 rounded-full text-sm font-semibold text-white"
-            style={{ background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
-          >
-            Note saved
-          </motion.div>
-        )}
-      </AnimatePresence>
-      </Suspense>
 
       <Suspense fallback={null}>
       <ConnectAccountModal

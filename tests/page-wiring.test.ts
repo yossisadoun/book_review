@@ -16,6 +16,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const pageSource = readFileSync(join(__dirname, '../app/page.tsx'), 'utf-8');
+const bookDetailViewSource = readFileSync(join(__dirname, '../app/components/BookDetailView.tsx'), 'utf-8');
 const articlesServiceSource = readFileSync(join(__dirname, '../app/services/articles-service.ts'), 'utf-8');
 const youtubeServiceSource = readFileSync(join(__dirname, '../app/services/youtube-service.ts'), 'utf-8');
 const relatedBooksServiceSource = readFileSync(join(__dirname, '../app/services/related-books-service.ts'), 'utf-8');
@@ -138,10 +139,11 @@ describe('Extracted component checklist (general)', () => {
 });
 
 describe('Book detail card callback stability wiring', () => {
+  // Card rendering now lives in BookDetailView.tsx (extracted from page.tsx)
   function getBlock(anchor: string, length = 1000) {
-    const start = pageSource.indexOf(anchor);
+    const start = bookDetailViewSource.indexOf(anchor);
     expect(start).toBeGreaterThan(-1);
-    return pageSource.slice(start, start + length);
+    return bookDetailViewSource.slice(start, start + length);
   }
 
   it('uses stable InsightsCards callbacks in book detail', () => {
@@ -207,9 +209,10 @@ describe('Book detail card callback stability wiring', () => {
 
 describe('Header scroll visibility guards', () => {
   it('book detail header should not force opacity animation on rerender', () => {
-    const start = pageSource.indexOf('ref={attachBookDetailHeaderRef}');
+    // Book detail header now lives in BookDetailView.tsx
+    const start = bookDetailViewSource.indexOf('ref={attachBookDetailHeaderRef}');
     expect(start).toBeGreaterThan(-1);
-    const block = pageSource.slice(start, start + 240);
+    const block = bookDetailViewSource.slice(start, start + 240);
     expect(block).not.toContain('animate={{ opacity: 1 }}');
   });
 

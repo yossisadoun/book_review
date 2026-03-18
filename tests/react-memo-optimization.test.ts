@@ -15,6 +15,7 @@ import { join } from 'path';
 const read = (rel: string) => readFileSync(join(__dirname, '..', rel), 'utf-8');
 
 const pageSource = read('app/page.tsx');
+const bookDetailViewSource = read('app/components/BookDetailView.tsx');
 const heartButton = read('app/components/HeartButton.tsx');
 const insightsCards = read('app/components/InsightsCards.tsx');
 const podcastEpisodes = read('app/components/PodcastEpisodes.tsx');
@@ -80,10 +81,12 @@ describe('Stable array references', () => {
   it('should not use inline || [] for memoized component props (memos guarantee stable arrays)', () => {
     // activeRelatedMovies/activeRelatedBooks useMemos return [] (never undefined),
     // so props use the memo value directly — no || [] or || EMPTY_ARRAY needed
-    expect(pageSource).toMatch(/movies={movies}/);
-    expect(pageSource).toMatch(/books={related}/);
+    // These patterns now live in BookDetailView.tsx (extracted from page.tsx)
+    const renderSource = bookDetailViewSource;
+    expect(renderSource).toMatch(/movies={movies}/);
+    expect(renderSource).toMatch(/books={related}/);
     // Should NOT have inline || [] which creates new array reference every render
-    expect(pageSource).not.toMatch(/movies={movies \|\| \[\]}/);
-    expect(pageSource).not.toMatch(/books={related \|\| \[\]}/);
+    expect(renderSource).not.toMatch(/movies={movies \|\| \[\]}/);
+    expect(renderSource).not.toMatch(/books={related \|\| \[\]}/);
   });
 });

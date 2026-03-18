@@ -65,15 +65,19 @@ async function getGrokDiscussionQuestions(bookTitle: string, author: string): Pr
   }
 }
 
-export async function getDiscussionQuestions(bookTitle: string, author: string, canonicalBookId: string): Promise<DiscussionQuestion[]> {
+export async function getDiscussionQuestions(bookTitle: string, author: string): Promise<DiscussionQuestion[]> {
   console.log(`[getDiscussionQuestions] 🔄 Fetching discussion questions for "${bookTitle}" by ${author}`);
 
-  // Check database cache first using canonical_book_id
+  const normalizedTitle = bookTitle.toLowerCase().trim();
+  const normalizedAuthor = (author || '').toLowerCase().trim();
+
+  // Check database cache first using book_title + book_author (consistent with all other caches)
   try {
     const { data: cachedData, error: cacheError } = await supabase
       .from('discussion_questions_cache')
       .select('questions')
-      .eq('canonical_book_id', canonicalBookId)
+      .eq('book_title', normalizedTitle)
+      .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
     if (!cacheError && cachedData && cachedData.questions && Array.isArray(cachedData.questions)) {
@@ -93,7 +97,7 @@ export async function getDiscussionQuestions(bookTitle: string, author: string, 
 
   // Save to cache if we got questions
   if (questions.length > 0) {
-    await saveDiscussionQuestionsToCache(bookTitle, author, canonicalBookId, questions);
+    await saveDiscussionQuestionsToCache(bookTitle, author, questions);
   }
 
   return questions;
@@ -102,22 +106,23 @@ export async function getDiscussionQuestions(bookTitle: string, author: string, 
 async function saveDiscussionQuestionsToCache(
   bookTitle: string,
   bookAuthor: string,
-  canonicalBookId: string,
   questions: DiscussionQuestion[]
 ): Promise<void> {
   try {
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = (bookAuthor || '').toLowerCase().trim();
+
     const recordData = {
-      canonical_book_id: canonicalBookId,
-      book_title: bookTitle,
-      book_author: bookAuthor,
+      book_title: normalizedTitle,
+      book_author: normalizedAuthor,
       questions: questions,
       updated_at: new Date().toISOString(),
     };
 
-    // Upsert based on canonical_book_id
+    // Upsert based on book_title + book_author (consistent with all other caches)
     const { error } = await supabase
       .from('discussion_questions_cache')
-      .upsert(recordData, { onConflict: 'canonical_book_id' });
+      .upsert(recordData, { onConflict: 'book_title,book_author' });
 
     if (error) {
       console.error('[saveDiscussionQuestionsToCache] ❌ Error saving questions:', error);

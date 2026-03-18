@@ -40,12 +40,12 @@ All pages (bookshelf, feed, chat, account, following, book detail, trivia, notes
 
 ### Current Structure
 ```
-App() [~9,354 lines — down from ~12,913]
-├── ~138 useState declarations (down from 170; 32 moved to useBookDetailData hook)
-├── ~42 useEffect hooks (down from 56; 14 moved to useBookDetailData hook)
+App() [~7,682 lines — down from ~12,913]
+├── ~122 useState declarations (down from 170; 32 moved to useBookDetailData hook, 16 moved to BookDetailView)
+├── ~36 useEffect hooks (down from 56; 14 moved to useBookDetailData hook, 6 moved to BookDetailView)
 ├── 1 useMemo hooks (down from 8; 7 moved to useBookDetailData hook)
 ├── 0 useCallback hooks
-├── ~32 useRef hooks (down from 47; 15 moved to useBookDetailData hook)
+├── ~26 useRef hooks (down from 47; 15 moved to useBookDetailData hook, 6 moved to BookDetailView)
 └── All UI rendering
     ├── Account page → EXTRACTED to app/components/AccountPage.tsx (~520 lines)
     ├── Following page → EXTRACTED to app/components/FollowingPage.tsx (~190 lines)
@@ -53,11 +53,11 @@ App() [~9,354 lines — down from ~12,913]
     ├── Feed page → EXTRACTED to app/components/FeedPage.tsx (~1,520 lines)
     ├── Chat page → EXTRACTED to app/components/ChatPage.tsx (~970 lines)
     ├── Book detail DATA → EXTRACTED to app/hooks/useBookDetailData.ts (~1,784 lines)
+    ├── Book detail RENDER → EXTRACTED to app/components/BookDetailView.tsx (~2,142 lines)
     ├── Sorting results (~110 lines)
     ├── Notes view (~175 lines)
     ├── Bookshelf covers (~630 lines)
     ├── Bookshelf spines (~420 lines)
-    ├── Book detail RENDER (~1,500 lines — still in page.tsx)
     ├── Bottom navigation (~750 lines)
     └── About screen (~16 lines)
 ```
@@ -75,7 +75,7 @@ Each page becomes its own file with its own state. Only shared state (books, use
 | `ChatPage` | 7610-8411 | chatList, characterChatList, chatPullDistance |
 | `BookshelfCovers` | 8832-9460 | bookshelfGrouping, showAddBookTooltip |
 | `BookshelfSpines` | 9461-9879 | (same grouping state) |
-| `BookDetail` | 9880-11597 | insights, podcasts, videos, articles, relatedBooks |
+| `BookDetail` | ~~9880-11597~~ | **DONE** — extracted to `app/components/BookDetailView.tsx` |
 | `TriviaGame` | ~~12472-12833~~ | **DONE** — extracted to `app/components/TriviaGame.tsx` |
 
 **Phase 2 — State management:**
@@ -323,14 +323,14 @@ AnimatePresence + motion.div used inside scrollable lists. During scroll, animat
 7. ~~**Reduce API call debounce delays**~~ ✅ DONE — Reduced staggered timeouts from 500-5000ms to 3-tier system: 300ms (above-fold: summary, facts, did-you-know), 600ms (mid-page: podcasts, articles, videos), 1000ms (below-fold: related books/movies, influences, context). Services already check Supabase cache first (~50ms), so long delays were unnecessary. Saves 1.5-4s on book page load.
 
 ### Short-term (Refactoring Required)
-8. **Extract page components** — ~~AccountPage~~ ✓, ~~FollowingPage~~ ✓, ~~FeedPage~~ ✓, ~~ChatPage~~ ✓ as separate files with own state. ChatPage extraction removed ~800 lines. Remaining: BookshelfCovers, BookshelfSpines, BookDetail.
+8. **Extract page components** — ~~AccountPage~~ ✓, ~~FollowingPage~~ ✓, ~~FeedPage~~ ✓, ~~ChatPage~~ ✓, ~~BookDetail~~ ✓ as separate files with own state. Remaining: BookshelfCovers, BookshelfSpines.
 9. ~~**Add code splitting**~~ ✅ DONE — 7 components lazy-loaded via `React.lazy()` + `Suspense` (AccountPage, FollowingPage, FeedPage, ChatPage, AddBookSheet, ConnectAccountModal, NotesEditorOverlay)
 10. **Memoize chat context building** — sorts entire bookshelf on every render
 11. **Implement request deduplication** — prevent simultaneous identical API calls
 12. **Extract frosted glass styles** — many already module-level constants, finish the rest
 
 ### Suggested Next Step (Highest ROI)
-**Extract `BookDetailView` component** — the data layer is done (in `useBookDetailData` hook). Next: move the ~1,500-line render section + ~15 UI-only state variables (isEditing, showShareDialog, showBookMenu, notes, discussion, infographic, etc.) into `app/components/BookDetailView.tsx`. The hook is called inside the component. Props surface: ~20-25 items (shared state, navigation callbacks, heart/pin system, styles).
+**Extract `BookshelfCovers` and `BookshelfSpines`** — these are the last large render sections (~1,050 lines combined). They share bookshelf grouping state. Strategy: extract both into a single `BookshelfView.tsx` component, or extract separately with grouping state passed as props.
 
 ### Medium-term (Architecture Changes)
 13. **State management** — Context API or Zustand for shared state, local state per page
@@ -440,12 +440,12 @@ For each bug found during extraction, add a targeted test:
 | FeedPage | ~1,400 | 20+ useState, 10+ useRef, modals, filters, pull-to-refresh | feed-bugs + pull-to-refresh tests |
 | ChatPage | ~970 | orphanedChatBook, swipe/delete, pull-to-refresh, chat list rendering | chat-page-extraction tests |
 | useBookDetailData (hook) | ~1,600 | 32 useState, 14 useEffect, 7 useMemo, 15 useRef | 7 wiring guard tests |
+| BookDetailView | ~1,672 | 16 useState, 6 useEffect, 6 useRef, ~1,500 lines render JSX | updated wiring + memo tests |
 
 ### Next Targets
 
 | Component | Est. Lines | Key Risk |
 |-----------|-----------|----------|
-| BookDetail RENDER | ~1,500 | Data layer extracted to `useBookDetailData` hook. Remaining: move render JSX + book-detail-only UI state (isEditing, showShareDialog, notes, discussion, infographic, etc.) into `BookDetailView.tsx`. Props surface is ~20-25 items. |
 | BookshelfCovers | ~630 | bookshelf grouping state shared with spines |
 | BookshelfSpines | ~420 | same grouping state |
 
@@ -471,13 +471,13 @@ For each bug found during extraction, add a targeted test:
 - [x] **Extracted `useBookDetailData` hook** — moved 32 useState, 14 useEffect, 7 useMemo, 15 useRef from page.tsx into `app/hooks/useBookDetailData.ts` (1,784 lines). page.tsx reduced from 10,954 → 9,354 lines (-1,600). All data Maps, loading states, fetching effects, request token system, loading timeout safety net, spotlight memo, and feed generation trigger now live in the hook. Added 7 wiring guard tests.
 - [x] **Fixed related books JSON parse error** — `related-books-service.ts` now handles malformed Grok JSON (trailing commas, smart quotes) instead of throwing. Returns `[]` on unrecoverable parse failure.
 - [x] **Removed passive event listener warnings** — BookChat send button no longer calls `preventDefault()` inside passive touch listeners; `onClick` is sufficient.
+- [x] **Extracted `BookDetailView` component** — moved ~1,672 lines (16 useState, 6 useEffect, 6 useRef, ~1,500 lines render JSX) from page.tsx into `app/components/BookDetailView.tsx` (2,142 lines). page.tsx reduced from 9,354 → 7,682 lines. Props surface ~40+ items grouped into sub-objects (bookDetailData, cardCallbacks, chatSystem, telegramSystem, etc.). useBookDetailData and useBookDetailCardCallbacks hook calls stay in page.tsx (Maps/state persist across book switches). NotesEditorOverlay moved with the component since `isShowingNotes` state is internal.
 
 ### In Progress
 - [ ] Keep monitoring chunk-load reliability after lazy retry + timeout hardening (especially during active dev rebuilds)
 - [ ] Keep extraction guardrails/tests in lockstep as remaining monolith sections are split
 
 ### Next (priority order)
-- [ ] **Extract `BookDetailView` component** — move the ~1,500-line render section + book-detail-only UI state into `app/components/BookDetailView.tsx`. Data layer is already in the hook.
 - [ ] Extract `BookshelfCovers` and `BookshelfSpines` with shared grouping state strategy
 - [ ] Memoize/optimize chat context building to avoid full bookshelf sorts each render
 - [ ] Add feed local cache (stale-while-revalidate) similar to books cache

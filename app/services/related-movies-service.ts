@@ -343,9 +343,17 @@ export async function getRelatedMovies(bookTitle: string, author: string, signal
       result = JSON.parse(jsonStr);
     } catch {
       console.warn('[getRelatedMovies] JSON parse failed, attempting further cleanup');
-      // Try removing control characters
-      jsonStr = jsonStr.replace(/[\x00-\x1F\x7F]/g, ' ');
-      result = JSON.parse(jsonStr);
+      // Try removing control characters and smart quotes
+      jsonStr = jsonStr
+        .replace(/[\x00-\x1F\x7F]/g, ' ')
+        .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
+        .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
+      try {
+        result = JSON.parse(jsonStr);
+      } catch {
+        console.error('[getRelatedMovies] ❌ JSON parse failed after cleanup');
+        return [];
+      }
     }
 
     const relatedMovies: RelatedMovie[] = Array.isArray(result) ? result : [];
