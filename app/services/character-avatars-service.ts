@@ -102,7 +102,7 @@ Input will contain only:
 
 Your task:
 
-1. Identify **up to 3 key characters** from the book.
+1. Identify **up to 8 key characters** from the book.
 2. For each character, generate a **single image-generation prompt** describing a close-up icon portrait of that character.
 3. Base the character description on **recognizable traits from the book** (hair, face shape, distinctive features, accessories, clothing hints).
 4. The prompt should clearly reference the **character name, book title, and author**.
@@ -130,7 +130,8 @@ Your task:
 
 Rules:
 
-* Return **1–3 characters maximum**.
+* Return **1–8 characters maximum**.
+* **Order characters by importance** — protagonist first, then major characters, then supporting characters.
 * Keep prompts **concise but descriptive**.
 * Ensure the **style block appears unchanged inside every prompt**.
 
@@ -380,7 +381,7 @@ export async function getCharacterAvatars(bookTitle: string, author: string, sig
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
   const imageResults = await Promise.all(
-    grokResult.characters.slice(0, 3).map(async (char) => {
+    grokResult.characters.slice(0, 8).map(async (char) => {
       const imageUrl = await generateCharacterImage(char.prompt, signal);
       if (!imageUrl) return null;
 

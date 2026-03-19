@@ -8,6 +8,7 @@ const config: CapacitorConfig = {
   ios: {
     scrollEnabled: false,
     allowsLinkPreview: false,
+    loggingBehavior: 'debug',
   },
   server: {
     iosScheme: 'capacitor',

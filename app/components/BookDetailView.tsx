@@ -1252,6 +1252,145 @@ export default function BookDetailView({
               const avatars = characterAvatars.get(activeBook.id) || [];
               const isLoadingAvatars = loadingAvatarsForBookId === activeBook.id;
               const hasTelegramTopic = !!(activeBook.canonical_book_id && telegramTopics.has(activeBook.canonical_book_id));
+              // Layout: ≤3 chars → single row. 4+ chars → two rows, balanced.
+              // Row 1 = bookluver + row1Chars. Row 2 = row2Chars + readers (when 2 rows).
+              // row1 count = ceil(total/2) where total = 1(bookluver) + chars + 1(readers)
+              const needsTwoRows = avatars.length > 3;
+              const total = 1 + Math.min(avatars.length, 8) + 1; // bookluver + chars + readers
+              const row1Count = needsTwoRows ? Math.ceil(total / 2) - 1 : avatars.length; // -1 for bookluver
+              const row1Avatars = avatars.slice(0, row1Count);
+              const row2Avatars = avatars.slice(row1Count, 8);
+
+              const renderCharacterAvatar = (avatar: typeof avatars[0], i: number) => {
+                const isThisLoading = loadingCharacterChat === avatar.character;
+                return (
+                  <motion.button
+                    key={avatar.character}
+                    ref={(el) => { if (el) avatarButtonRefs.current.set(avatar.character, el); }}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.3, delay: i * 0.1 }}
+                    onClick={async () => {
+                      if (loadingCharacterChat || !activeBook) return;
+                      setLoadingCharacterChat(avatar.character);
+                      try {
+                        const context = await getCharacterContext(avatar.character, activeBook.title, activeBook.author);
+                        if (context) {
+                          setCharacterChatContext({
+                            characterName: avatar.character,
+                            bookTitle: activeBook.title,
+                            bookAuthor: activeBook.author,
+                            context,
+                            avatarUrl: avatar.image_url,
+                          });
+                          chatOpenedFromBookPage.current = true;
+                          const btn = avatarButtonRefs.current.get(avatar.character);
+                          const imgEl = btn?.querySelector('img');
+                          if (imgEl) {
+                            const rect = imgEl.getBoundingClientRect();
+                            setAvatarExpandTransition({ imageUrl: avatar.image_url, rect, characterName: avatar.character });
+                          } else {
+                            setChatBookSelected(true);
+                            setShowChatPage(true);
+                          }
+                        }
+                      } catch (err) {
+                        console.error('[CharacterChat] Error loading context:', err);
+                      } finally {
+                        setLoadingCharacterChat(false);
+                      }
+                    }}
+                    className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
+                  >
+                    <div className="relative">
+                      {isThisLoading && (
+                        <motion.div
+                          className="absolute -inset-[3px] rounded-full"
+                          style={{ border: '2.5px solid transparent', borderTopColor: 'rgba(59, 130, 246, 0.8)', borderRightColor: 'rgba(59, 130, 246, 0.3)' }}
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                        />
+                      )}
+                      <div
+                        className="w-14 h-14 rounded-full overflow-hidden"
+                        style={{
+                          border: isThisLoading ? '2px solid rgba(59, 130, 246, 0.4)' : '2px solid rgba(255, 255, 255, 0.5)',
+                          boxShadow: isThisLoading ? '0 0 12px rgba(59, 130, 246, 0.3)' : '0 2px 8px rgba(0,0,0,0.08)',
+                        }}
+                      >
+                        <img src={avatar.image_url} alt={avatar.character} className="w-full h-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).parentElement!.parentElement!.parentElement!.style.display = 'none'; }} />
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">{avatar.character.split(' ')[0]}</span>
+                  </motion.button>
+                );
+              };
+
+              const readersButton = (
+                <button
+                  onClick={async () => {
+                    if (!activeBook?.canonical_book_id) return;
+                    if (!localStorage.getItem('hasJoinedTelegramGroup')) {
+                      setShowTelegramJoinModal(true);
+                      return;
+                    }
+                    const cachedTopic = telegramTopics.get(activeBook.canonical_book_id);
+                    if (cachedTopic) {
+                      window.open(cachedTopic.inviteLink, '_blank');
+                      return;
+                    }
+                    const newWindow = window.open('', '_blank');
+                    setIsLoadingTelegramTopic(true);
+                    try {
+                      const topic = await getOrCreateTelegramTopic(activeBook.title, activeBook.author, activeBook.canonical_book_id, activeBook.cover_url || undefined, activeBook.genre || undefined);
+                      if (topic) {
+                        setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
+                        if (newWindow) newWindow.location.href = topic.inviteLink;
+                        else window.open(topic.inviteLink, '_blank');
+                      } else { newWindow?.close(); }
+                    } catch (err) { console.error('Error opening Telegram topic:', err); newWindow?.close(); }
+                    finally { setIsLoadingTelegramTopic(false); }
+                  }}
+                  disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
+                  className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform disabled:opacity-50"
+                >
+                  <div className="h-14 flex items-center">
+                    <div className="flex items-center">
+                      {bookReaders.slice(0, 3).map((reader, index) => (
+                        reader.avatar ? (
+                          <img
+                            key={reader.id}
+                            src={reader.avatar}
+                            alt={reader.name}
+                            className="w-14 h-14 shrink-0 rounded-full border-2 border-white object-cover"
+                            style={{ zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0 }}
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div
+                            key={reader.id}
+                            className="w-14 h-14 shrink-0 rounded-full border-2 border-white flex items-center justify-center text-sm font-bold text-white"
+                            style={{ zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0, background: avatarGradient(reader.id) }}
+                          >
+                            {reader.name.charAt(0).toUpperCase()}
+                          </div>
+                        )
+                      ))}
+                      {bookReaders.length === 0 && (
+                        <div
+                          className="w-14 h-14 shrink-0 rounded-full flex items-center justify-center"
+                          style={{ background: 'linear-gradient(135deg, #dbeafe, #c7d2fe)', border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
+                        >
+                          <MessagesSquare size={22} className="text-indigo-500" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">
+                    {bookReaders.length + 1} {bookReaders.length === 0 ? 'reader' : 'readers'}
+                  </span>
+                </button>
+              );
 
               return (
                 <div className="w-full mt-3 px-2">
@@ -1282,7 +1421,7 @@ export default function BookDetailView({
                       <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">Book.luver</span>
                     </button>
 
-                    {/* 2-4. Character avatars (or loading skeletons) */}
+                    {/* 2-4. Character avatars row 1 (or loading skeletons) */}
                     {isLoadingAvatars ? (
                       [0, 1, 2].map(i => (
                         <div key={`skel-${i}`} className="flex flex-col items-center gap-1.5">
@@ -1296,70 +1435,7 @@ export default function BookDetailView({
                         </div>
                       ))
                     ) : avatars.length > 0 ? (
-                      avatars.slice(0, 3).map((avatar, i) => {
-                        const isThisLoading = loadingCharacterChat === avatar.character;
-                        return (
-                          <motion.button
-                            key={avatar.character}
-                            ref={(el) => { if (el) avatarButtonRefs.current.set(avatar.character, el); }}
-                            initial={{ opacity: 0, scale: 0.8 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ duration: 0.3, delay: i * 0.1 }}
-                            onClick={async () => {
-                              if (loadingCharacterChat || !activeBook) return;
-                              setLoadingCharacterChat(avatar.character);
-                              try {
-                                const context = await getCharacterContext(avatar.character, activeBook.title, activeBook.author);
-                                if (context) {
-                                  setCharacterChatContext({
-                                    characterName: avatar.character,
-                                    bookTitle: activeBook.title,
-                                    bookAuthor: activeBook.author,
-                                    context,
-                                    avatarUrl: avatar.image_url,
-                                  });
-                                  chatOpenedFromBookPage.current = true;
-                                  const btn = avatarButtonRefs.current.get(avatar.character);
-                                  const imgEl = btn?.querySelector('img');
-                                  if (imgEl) {
-                                    const rect = imgEl.getBoundingClientRect();
-                                    setAvatarExpandTransition({ imageUrl: avatar.image_url, rect, characterName: avatar.character });
-                                  } else {
-                                    setChatBookSelected(true);
-                                    setShowChatPage(true);
-                                  }
-                                }
-                              } catch (err) {
-                                console.error('[CharacterChat] Error loading context:', err);
-                              } finally {
-                                setLoadingCharacterChat(false);
-                              }
-                            }}
-                            className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
-                          >
-                            <div className="relative">
-                              {isThisLoading && (
-                                <motion.div
-                                  className="absolute -inset-[3px] rounded-full"
-                                  style={{ border: '2.5px solid transparent', borderTopColor: 'rgba(59, 130, 246, 0.8)', borderRightColor: 'rgba(59, 130, 246, 0.3)' }}
-                                  animate={{ rotate: 360 }}
-                                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                                />
-                              )}
-                              <div
-                                className="w-14 h-14 rounded-full overflow-hidden"
-                                style={{
-                                  border: isThisLoading ? '2px solid rgba(59, 130, 246, 0.4)' : '2px solid rgba(255, 255, 255, 0.5)',
-                                  boxShadow: isThisLoading ? '0 0 12px rgba(59, 130, 246, 0.3)' : '0 2px 8px rgba(0,0,0,0.08)',
-                                }}
-                              >
-                                <img src={avatar.image_url} alt={avatar.character} className="w-full h-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).parentElement!.parentElement!.parentElement!.style.display = 'none'; }} />
-                              </div>
-                            </div>
-                            <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">{avatar.character.split(' ')[0]}</span>
-                          </motion.button>
-                        );
-                      })
+                      row1Avatars.map((avatar, i) => renderCharacterAvatar(avatar, i))
                     ) : (
                       /* No avatars found — show retry button */
                       <button
@@ -1373,71 +1449,16 @@ export default function BookDetailView({
                       </button>
                     )}
 
-                    {/* 5. Readers count with overlapping avatars */}
-                    <button
-                      onClick={async () => {
-                        if (!activeBook?.canonical_book_id) return;
-                        if (!localStorage.getItem('hasJoinedTelegramGroup')) {
-                          setShowTelegramJoinModal(true);
-                          return;
-                        }
-                        const cachedTopic = telegramTopics.get(activeBook.canonical_book_id);
-                        if (cachedTopic) {
-                          window.open(cachedTopic.inviteLink, '_blank');
-                          return;
-                        }
-                        const newWindow = window.open('', '_blank');
-                        setIsLoadingTelegramTopic(true);
-                        try {
-                          const topic = await getOrCreateTelegramTopic(activeBook.title, activeBook.author, activeBook.canonical_book_id, activeBook.cover_url || undefined, activeBook.genre || undefined);
-                          if (topic) {
-                            setTelegramTopics(prev => new Map(prev).set(activeBook.canonical_book_id!, topic));
-                            if (newWindow) newWindow.location.href = topic.inviteLink;
-                            else window.open(topic.inviteLink, '_blank');
-                          } else { newWindow?.close(); }
-                        } catch (err) { console.error('Error opening Telegram topic:', err); newWindow?.close(); }
-                        finally { setIsLoadingTelegramTopic(false); }
-                      }}
-                      disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
-                      className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform disabled:opacity-50"
-                    >
-                      <div className="h-14 flex items-center">
-                        <div className="flex items-center">
-                          {bookReaders.slice(0, 3).map((reader, index) => (
-                            reader.avatar ? (
-                              <img
-                                key={reader.id}
-                                src={reader.avatar}
-                                alt={reader.name}
-                                className="w-14 h-14 shrink-0 rounded-full border-2 border-white object-cover"
-                                style={{ zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0 }}
-                                referrerPolicy="no-referrer"
-                              />
-                            ) : (
-                              <div
-                                key={reader.id}
-                                className="w-14 h-14 shrink-0 rounded-full border-2 border-white flex items-center justify-center text-sm font-bold text-white"
-                                style={{ zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0, background: avatarGradient(reader.id) }}
-                              >
-                                {reader.name.charAt(0).toUpperCase()}
-                              </div>
-                            )
-                          ))}
-                          {bookReaders.length === 0 && (
-                            <div
-                              className="w-14 h-14 shrink-0 rounded-full flex items-center justify-center"
-                              style={{ background: 'linear-gradient(135deg, #dbeafe, #c7d2fe)', border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
-                            >
-                              <MessagesSquare size={22} className="text-indigo-500" />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">
-                        {bookReaders.length + 1} {bookReaders.length === 0 ? 'reader' : 'readers'}
-                      </span>
-                    </button>
+                    {/* Readers button — on row 1 when single row */}
+                    {!needsTwoRows && readersButton}
                   </div>
+                  {/* Row 2: overflow character avatars + readers */}
+                  {needsTwoRows && row2Avatars.length > 0 && !isLoadingAvatars && (
+                    <div className="flex items-center justify-center gap-2.5 mt-2">
+                      {row2Avatars.map((avatar, i) => renderCharacterAvatar(avatar, row1Avatars.length + i))}
+                      {readersButton}
+                    </div>
+                  )}
                 </div>
               );
             })()}

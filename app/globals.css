@@ -4,6 +4,20 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Fix iOS WKWebView first-tap delay on all interactive elements */
+button, a, [role="button"], input, select, textarea,
+.cursor-pointer, [onclick] {
+  touch-action: manipulation;
+}
+
+/* Disable scale transition on touch devices to prevent fast-tap misses */
+@media (hover: none) {
+  .active\:scale-95 {
+    transition-property: none !important;
+    transition-duration: 0ms !important;
+  }
+}
+
 /* Spotlight cards: icon circles match frosted glass style */
 .spotlight-icons .w-10.h-10.rounded-full {
   background: rgba(255, 255, 255, 0.25) !important;

@@ -67,15 +67,70 @@ export default function RootLayout({
               }
             })();
 
-            // Prevent triple-tap zoom on iOS
-            var lastTouchEnd = 0;
-            document.addEventListener('touchend', function(e) {
-              var now = Date.now();
-              if (now - lastTouchEnd <= 500) {
-                e.preventDefault();
-              }
-              lastTouchEnd = now;
-            }, { passive: false });
+            // Prevent double/triple-tap zoom on iOS (without blocking fast button taps)
+            // touch-action: manipulation in CSS handles this now
+
+            // Fix iOS missed clicks: when touchend fires on a button but the DOM
+            // re-renders before iOS synthesizes the click, dispatch one manually.
+            (function() {
+              var pendingTouchEnd = null;
+
+              document.addEventListener('touchstart', function(e) {
+                // Only track single-finger taps (not pinch/scroll)
+                if (e.touches.length === 1) {
+                  pendingTouchEnd = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                } else {
+                  pendingTouchEnd = null;
+                }
+              }, true);
+
+              document.addEventListener('touchmove', function(e) {
+                // If finger moved significantly, it's a scroll not a tap
+                if (pendingTouchEnd && e.touches.length === 1) {
+                  var dx = e.touches[0].clientX - pendingTouchEnd.x;
+                  var dy = e.touches[0].clientY - pendingTouchEnd.y;
+                  if (dx * dx + dy * dy > 100) { // >10px movement
+                    pendingTouchEnd = null;
+                  }
+                }
+              }, true);
+
+              document.addEventListener('touchend', function(e) {
+                if (!pendingTouchEnd || e.changedTouches.length !== 1) {
+                  pendingTouchEnd = null;
+                  return;
+                }
+                var touch = e.changedTouches[0];
+                var target = document.elementFromPoint(touch.clientX, touch.clientY);
+                if (!target) { pendingTouchEnd = null; return; }
+
+                // Find the nearest clickable ancestor
+                var clickable = target.closest('button, a, [role="button"], [onclick], .cursor-pointer');
+                if (!clickable) { pendingTouchEnd = null; return; }
+
+                // Wait briefly — if a real click fires, do nothing
+                var touchTarget = clickable;
+                var clickFired = false;
+
+                function onRealClick() { clickFired = true; }
+                touchTarget.addEventListener('click', onRealClick, { once: true, capture: true });
+
+                setTimeout(function() {
+                  touchTarget.removeEventListener('click', onRealClick, { capture: true });
+                  if (!clickFired) {
+                    // Dispatch synthetic click at the touch point
+                    var syntheticClick = new MouseEvent('click', {
+                      bubbles: true, cancelable: true, view: window,
+                      clientX: touch.clientX, clientY: touch.clientY
+                    });
+                    syntheticClick.__synthetic = true;
+                    touchTarget.dispatchEvent(syntheticClick);
+                  }
+                }, 50);
+
+                pendingTouchEnd = null;
+              }, true);
+            })();
           `}
         </Script>
         <Script id="fix-favicon-paths" strategy="afterInteractive">
