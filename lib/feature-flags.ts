@@ -17,6 +17,7 @@ export const featureFlags = {
     book_domain: false,       // Domain/subject matter insights
     book_context: false,      // Historical/cultural context
     did_you_know: true,       // "Did you know?" insights (NEW - enabled by default)
+    discussion_questions: false, // Discussion questions for book clubs
   },
 
   // Book page section headers - when true, hide the header/menu for that section

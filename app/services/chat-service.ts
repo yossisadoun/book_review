@@ -159,7 +159,11 @@ export async function sendChatMessage(
   }
 
   const content = data?.content || '';
-  console.log('[sendChatMessage] Raw response:', JSON.stringify(content));
+  if (!content) {
+    console.warn('[sendChatMessage] ⚠️ Empty response from edge function. data:', JSON.stringify(data));
+  } else {
+    console.log('[sendChatMessage] ✅ Response received:', content.length, 'chars');
+  }
   return content;
 }
 
@@ -260,11 +264,17 @@ export async function sendCharacterChatMessage(
   });
 
   if (error) {
-    console.error('[sendCharacterChatMessage] Error:', error);
+    console.error('[sendCharacterChatMessage] ❌ Error:', error);
     throw new Error('Failed to send message');
   }
 
-  return data?.content || '';
+  const content = data?.content || '';
+  if (!content) {
+    console.warn('[sendCharacterChatMessage] ⚠️ Empty response from edge function. data:', JSON.stringify(data));
+  } else {
+    console.log('[sendCharacterChatMessage] ✅ Response received:', content.length, 'chars');
+  }
+  return content;
 }
 
 export async function generateCharacterGreeting(

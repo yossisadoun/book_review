@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { isNativePlatform } from '@/lib/capacitor';
-import { grokApiKey, fetchWithRetry, logGrokUsage, logImageGeneration, isCacheStale } from './api-utils';
+import { grokApiKey, fetchWithRetry, logGrokUsage, logImageGeneration } from './api-utils';
 import { getCached, setCache, CACHE_KEYS } from './cache-service';
 import type { CharacterAvatar } from '../types';
 
@@ -347,12 +347,12 @@ export async function getCharacterAvatars(bookTitle: string, author: string, sig
   try {
     const { data: cached, error } = await supabase
       .from('character_avatars_cache')
-      .select('avatars, updated_at')
+      .select('avatars')
       .eq('book_title', normalizedTitle)
       .eq('book_author', normalizedAuthor)
       .maybeSingle();
 
-    if (!error && cached?.avatars && !isCacheStale(cached.updated_at)) {
+    if (!error && cached?.avatars) {
       const avatars = (cached.avatars as CharacterAvatar[]).filter(a =>
         a.image_url && !a.image_url.includes('replicate.delivery') && !a.image_url.includes('pbxt.replicate')
       );
@@ -428,6 +428,125 @@ export async function getCharacterAvatars(bookTitle: string, author: string, sig
   }
 
   return avatars;
+}
+
+// Generate avatar for a single character that's missing one (e.g. after cache regeneration dropped it)
+export async function generateSingleCharacterAvatar(
+  characterName: string,
+  bookTitle: string,
+  author: string
+): Promise<string | null> {
+  console.log(`[generateSingleCharacterAvatar] Generating for "${characterName}" in "${bookTitle}"`);
+
+  if (!grokApiKey || grokApiKey.length < 20) return null;
+
+  const style = getActiveStyle();
+
+  // Build a targeted prompt for just this one character
+  const payload = {
+    messages: [
+      {
+        role: "system",
+        content: `You are generating an image-generation prompt for a specific literary character.
+
+Given a character name, book title, and author, generate a single image-generation prompt describing a close-up icon portrait of that character.
+
+Base the description on recognizable traits from the book (hair, face shape, distinctive features, accessories, clothing hints).
+
+The prompt must clearly reference the character name, book title, and author.
+The portrait must be a tight close-up head or small bust, centered and filling most of the frame.
+The prompt must explicitly say no text or character name should appear in the image.
+
+Output valid JSON only: { "character": "string", "prompt": "string" }
+
+Style block (must be appended unchanged to the prompt):
+
+${style.styleBlock}`,
+      },
+      {
+        role: "user",
+        content: `Character: ${characterName}\nBook: ${bookTitle}\nAuthor: ${author}`,
+      },
+    ],
+    model: "grok-4-1-fast-non-reasoning",
+    stream: false,
+    temperature: 0.5,
+    response_format: { type: "json_object" },
+  };
+
+  try {
+    const data = await fetchWithRetry('https://api.x.ai/v1/chat/completions', {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${grokApiKey}`,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify(payload),
+    }, 2, 3000);
+
+    if (data.usage) logGrokUsage('generateSingleCharacterAvatar', data.usage);
+
+    const content = data.choices?.[0]?.message?.content || '{}';
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    const result = JSON.parse(jsonMatch ? jsonMatch[0] : content);
+
+    if (!result.prompt) {
+      console.warn('[generateSingleCharacterAvatar] No prompt in response');
+      return null;
+    }
+
+    // Generate image
+    const imageUrl = await generateCharacterImage(result.prompt);
+    if (!imageUrl) return null;
+
+    // Upload to permanent storage
+    const permanentUrl = await uploadToStorage(imageUrl, bookTitle, characterName);
+    if (!permanentUrl) return null;
+
+    logImageGeneration('character_avatar_generation', 1);
+
+    // Merge into existing avatars cache
+    const normalizedTitle = bookTitle.toLowerCase().trim();
+    const normalizedAuthor = author.toLowerCase().trim();
+
+    try {
+      const { data: existing } = await supabase
+        .from('character_avatars_cache')
+        .select('avatars')
+        .eq('book_title', normalizedTitle)
+        .eq('book_author', normalizedAuthor)
+        .maybeSingle();
+
+      const existingAvatars = (existing?.avatars as CharacterAvatar[]) || [];
+      // Don't duplicate — replace if exists, otherwise append
+      const filtered = existingAvatars.filter(a => a.character !== characterName);
+      const newAvatar: CharacterAvatar = { character: characterName, prompt: result.prompt, image_url: permanentUrl };
+      const updatedAvatars = [...filtered, newAvatar];
+
+      await supabase
+        .from('character_avatars_cache')
+        .upsert({
+          book_title: normalizedTitle,
+          book_author: normalizedAuthor,
+          avatars: updatedAvatars,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'book_title,book_author' });
+
+      // Update localStorage cache too
+      const localCacheKey = CACHE_KEYS.avatars(bookTitle, author);
+      setCache(localCacheKey, updatedAvatars);
+
+      console.log(`[generateSingleCharacterAvatar] ✅ Generated and saved avatar for "${characterName}"`);
+    } catch (err) {
+      console.warn('[generateSingleCharacterAvatar] Error saving to cache:', err);
+    }
+
+    return permanentUrl;
+  } catch (err) {
+    console.error('[generateSingleCharacterAvatar] Error:', err);
+    return null;
+  }
 }
 
 // --- Character Context for Chat ---

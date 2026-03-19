@@ -189,6 +189,8 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
     setReplyingTo(null);
 
     const now = new Date().toISOString();
+    const sendStartTime = Date.now();
+    console.log(`[BookChat] 📤 Sending message (${messageText.length} chars, ${isCharacterChat ? 'character' : 'book'} chat)`);
     const userMessage: ChatMessage = { role: 'user', content: messageText, created_at: now };
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
@@ -217,12 +219,26 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
         ? await sendCharacterChatMessage(messagesForAI.slice(-20), characterContext!)
         : await sendChatMessage(messagesForAI, bookContext);
 
+      console.log(`[BookChat] 📥 Response in ${Date.now() - sendStartTime}ms, ${response.length} chars`);
+
       // Parse dynamic suggestions from response
       const suggestionsMatch = response.split('|||SUGGESTIONS|||');
       if (suggestionsMatch.length > 1) {
         const suggestionLines = suggestionsMatch[1].trim().split('\n').map(s => s.trim()).filter(s => s.length > 0 && s.length < 60);
         setDynamicSuggestions(suggestionLines.slice(0, 3));
         response = suggestionsMatch[0].trim();
+        console.log(`[BookChat] 📋 Parsed ${suggestionLines.length} suggestions, response now ${response.length} chars`);
+      }
+
+      if (!response) {
+        console.warn('[BookChat] ⚠️ Response is empty after parsing! Adding fallback error message.');
+        setIsLoading(false);
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: "Sorry, I couldn't respond right now. Please try again.",
+          created_at: new Date().toISOString(),
+        }]);
+        return;
       }
 
       setLastRawResponse(response);
@@ -230,6 +246,9 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
 
       // Fake-stream: reveal text word-by-word, pause before cards
       const segments = splitAssistantMessage(response);
+      if (segments.length === 0) {
+        console.warn('[BookChat] ⚠️ splitAssistantMessage returned 0 segments for response:', response.slice(0, 200));
+      }
       const revealedSegs: MessageSegment[] = [];
       let segIdx = 0;
 
@@ -250,7 +269,8 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
             return updated;
           });
           if (isCharacterChat) {
-            saveCharacterChatMessages(characterContext!.bookTitle, characterContext!.bookAuthor, characterContext!.characterName, [userMessage, assistantMessage]);
+            saveCharacterChatMessages(characterContext!.bookTitle, characterContext!.bookAuthor, characterContext!.characterName, [userMessage, assistantMessage])
+              .catch(err => console.error('[BookChat] ❌ Failed to save character chat messages:', err));
           } else {
             saveChatMessages(book.id, book.title, book.author, [userMessage, assistantMessage]).then(ids => {
               if (ids.length === 2) {
@@ -260,7 +280,7 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
                   return m;
                 }));
               }
-            });
+            }).catch(err => console.error('[BookChat] ❌ Failed to save chat messages:', err));
             // Mark any pending proactive messages as replied
             const chatKey = bookContext.generalMode ? 'general' : book.id;
             markProactiveReplied(chatKey);
@@ -515,6 +535,10 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
             <div className="w-11 h-11 shrink-0 rounded-full overflow-hidden" style={{ border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
               <img src={characterContext.avatarUrl} alt={characterContext.characterName} className="w-full h-full object-cover" />
             </div>
+          ) : isCharacterChat ? (
+            <div className="w-11 h-11 shrink-0 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-lg" style={{ border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+              {characterContext?.characterName?.charAt(0) || '?'}
+            </div>
           ) : (
             <div className="w-10 h-10 shrink-0 rounded-full overflow-hidden" style={{ border: '1.5px solid rgba(56, 189, 248, 0.5)' }}>
               <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
@@ -591,9 +615,13 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
                     <BookOpen size={22} className="text-white/60" />
                   </div>
                 )}
-                <div className="absolute bottom-0 right-0 w-11 h-11 rounded-full overflow-hidden" style={{ border: '2px solid white', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
+                <div className="absolute bottom-0 right-0 w-11 h-11 rounded-full overflow-hidden flex items-center justify-center" style={{ border: '2px solid white', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
                   {isCharacterChat && characterContext?.avatarUrl ? (
                     <img src={characterContext.avatarUrl} alt={characterContext.characterName} className="w-full h-full object-cover" />
+                  ) : isCharacterChat ? (
+                    <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-lg">
+                      {characterContext?.characterName?.charAt(0) || '?'}
+                    </div>
                   ) : (
                     <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
                   )}
@@ -648,9 +676,13 @@ export default function BookChat({ book, bookContext, onBack, onAddBook, charact
                       <BookOpen size={22} className="text-white/60" />
                     </div>
                   )}
-                  <div className="absolute bottom-0 right-0 w-11 h-11 rounded-full overflow-hidden" style={{ border: '2px solid white', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
+                  <div className="absolute bottom-0 right-0 w-11 h-11 rounded-full overflow-hidden flex items-center justify-center" style={{ border: '2px solid white', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
                     {isCharacterChat && characterContext?.avatarUrl ? (
                       <img src={characterContext.avatarUrl} alt={characterContext.characterName} className="w-full h-full object-cover" />
+                    ) : isCharacterChat ? (
+                      <div className="w-full h-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-lg">
+                        {characterContext?.characterName?.charAt(0) || '?'}
+                      </div>
                     ) : (
                       <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
                     )}

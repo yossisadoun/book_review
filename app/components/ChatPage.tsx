@@ -15,7 +15,7 @@ import {
   type BookChatContext,
   type CharacterChatContext,
 } from '../services/chat-service';
-import { getCharacterContext } from '../services/character-avatars-service';
+import { getCharacterContext, generateSingleCharacterAvatar } from '../services/character-avatars-service';
 import { triggerMediumHaptic } from '@/lib/capacitor';
 import type { BookWithRatings } from '../types';
 
@@ -749,12 +749,28 @@ export default function ChatPage({
                                   try {
                                     const context = await getCharacterContext(item.character_name!, item.book_title!, item.book_author!);
                                     if (context) {
+                                      // If avatar is missing, generate one in the background
+                                      let avatarUrl = item.avatarUrl;
+                                      if (!avatarUrl) {
+                                        generateSingleCharacterAvatar(item.character_name!, item.book_title!, item.book_author!)
+                                          .then(url => {
+                                            if (url) {
+                                              // Update the chat list so it appears on next render
+                                              setCharacterChatList(prev => prev.map(c =>
+                                                c.character_name === item.character_name && c.book_title === item.book_title
+                                                  ? { ...c, avatar_url: url }
+                                                  : c
+                                              ));
+                                            }
+                                          })
+                                          .catch(err => console.warn('[ChatList] Background avatar generation failed:', err));
+                                      }
                                       setCharacterChatContext({
                                         characterName: item.character_name!,
                                         bookTitle: item.book_title!,
                                         bookAuthor: item.book_author!,
                                         context,
-                                        avatarUrl: item.avatarUrl,
+                                        avatarUrl,
                                       });
                                       setChatBookSelected(true);
                                     }

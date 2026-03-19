@@ -160,9 +160,11 @@ body {
   overflow: hidden;
 }
 
-.book-spine:hover {
-  animation: book-bounce 0.4s ease forwards;
-  z-index: 50 !important;
+@media (hover: hover) {
+  .book-spine:hover {
+    animation: book-bounce 0.4s ease forwards;
+    z-index: 50 !important;
+  }
 }
 
 /* DaisyUI countdown component - ensure numbers are visible */

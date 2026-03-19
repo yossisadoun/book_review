@@ -470,7 +470,16 @@ These are 3 short (under 8 words each) contextual follow-up prompts the user mig
       })
 
       const data = await response.json()
+
+      if (!response.ok) {
+        console.error('[quick-processor] Grok API error (character):', response.status, JSON.stringify(data))
+      }
+
       const assistantContent = data.choices?.[0]?.message?.content || ''
+
+      if (!assistantContent) {
+        console.warn('[quick-processor] ⚠️ Empty content from Grok (character). Status:', response.status, 'finish_reason:', data.choices?.[0]?.finish_reason)
+      }
 
       const charFn = mode === 'greeting' ? 'character_chat_greeting' : 'character_chat'
       logUsage(req, charFn, data.usage, charModel, charStart)
@@ -606,7 +615,15 @@ RULES
 
     const data = await response.json()
 
+    if (!response.ok) {
+      console.error('[quick-processor] Grok API error:', response.status, JSON.stringify(data))
+    }
+
     const assistantContent = data.choices?.[0]?.message?.content || ''
+
+    if (!assistantContent) {
+      console.warn('[quick-processor] ⚠️ Empty content from Grok. Status:', response.status, 'finish_reason:', data.choices?.[0]?.finish_reason, 'model:', data.model)
+    }
 
     const bookFn = mode === 'greeting' ? 'book_chat_greeting' : mode === 'proactive' ? 'proactive_message' : 'book_chat'
     logUsage(req, bookFn, data.usage, bookModel, bookStart)

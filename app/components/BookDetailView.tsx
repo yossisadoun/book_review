@@ -710,7 +710,7 @@ export default function BookDetailView({
 
   // Fetch discussion questions
   useEffect(() => {
-    if (!showBookDiscussion || !activeBook) return;
+    if (!showBookDiscussion || !activeBook || !featureFlags.insights.discussion_questions) return;
     analytics.trackEvent('discussion', 'view', { book_title: activeBook.title });
     if (discussionQuestions.length > 0) return;
     let cancelled = false;
