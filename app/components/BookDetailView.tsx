@@ -998,7 +998,7 @@ export default function BookDetailView({
               </AnimatePresence>
 
               {/* Click outside to close rating overlay or reading status selection */}
-              {(showRatingOverlay || selectingReadingStatusForExisting) && (
+              {(showRatingOverlay || showReadingStatusSelection) && (
                 <div
                   className="fixed inset-0 z-30"
                   onClick={() => {
@@ -1022,15 +1022,15 @@ export default function BookDetailView({
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 20 }}
-                      className="absolute left-4 right-4 z-[101] flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden"
-                      style={{ ...standardGlassmorphicStyle, bottom: 'calc(64px + var(--safe-area-bottom, 0px))' }}
+                      className="absolute left-4 right-4 z-[101] flex flex-col items-center justify-center p-4 rounded-2xl overflow-hidden backdrop-blur-xl"
+                      style={{ background: 'rgba(255, 0, 123, 0.45)', border: '1px solid rgba(255, 255, 255, 0.25)', boxShadow: '0 4px 30px rgba(255, 0, 123, 0.2)', bottom: 'calc(64px + var(--safe-area-bottom, 0px))' }}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex flex-col items-center gap-1">
-                        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-950 dark:text-slate-50">
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-white">
                           A {activeBook.ratings.writing === 5 ? 'GREAAAAAT' : activeBook.ratings.writing === 4.5 ? 'GREAT' : 'GOOD'} BOOK LIKE THIS...
                         </h3>
-                        <p className="text-xs text-slate-950 dark:text-slate-50">someone you know needs to read it</p>
+                        <p className="text-xs text-white/80">someone you know needs to read it</p>
                         <div className="flex gap-3 mt-2">
                           <button
                             onClick={async (e) => {
@@ -1057,7 +1057,7 @@ export default function BookDetailView({
                               }
                               setShowShareDialog(false);
                             }}
-                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-medium active:scale-95 transition-all"
+                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/25 text-white text-sm font-medium active:scale-95 transition-all border border-white/30"
                           >
                             <Share size={16} />
                             Share
@@ -1067,7 +1067,7 @@ export default function BookDetailView({
                               e.stopPropagation();
                               setShowShareDialog(false);
                             }}
-                            className="px-4 py-2 rounded-xl text-slate-950 dark:text-slate-50 text-sm font-medium hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
+                            className="px-4 py-2 rounded-xl text-white/80 text-sm font-medium hover:bg-white/20 active:scale-95 transition-all"
                           >
                             Skip
                           </button>

@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, BookOpen, User, Sparkles, Library, MessageSquareHeart, X } from 'lucide-react';
+import { Search, BookOpen, User, Library, MessageSquareHeart, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { featureFlags } from '@/lib/feature-flags';
@@ -118,12 +118,15 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  // AI suggestions disabled for now
+  // const [suggestions, setSuggestions] = useState<string[]>([]);
   const [searchResults, setSearchResults] = useState<(Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'> & { source?: 'apple_books' | 'wikipedia' })[]>([]);
   const [userResults, setUserResults] = useState<UserSearchResult[]>([]);
   const [dbBookResults, setDbBookResults] = useState<DBBookSearchResult[]>([]);
   const [bookshelfResults, setBookshelfResults] = useState<BookWithRatings[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const externalSearchFiredRef = useRef(false);
 
   // Filter bookshelf as user types (in chat_picker mode, show all books when query is empty)
   useEffect(() => {
@@ -147,50 +150,82 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
     }
   }, [query, books, mode, characterAvatars]);
 
-  // Debounced user search as user types
+  // Unified debounced search: community books + users at 200ms, then Apple Books + Wikipedia at 300ms
   useEffect(() => {
+    // Cancel any in-flight search
+    searchAbortRef.current?.abort();
+    externalSearchFiredRef.current = false;
+
     if (query.trim().length <= 2) {
       setUserResults([]);
+      setDbBookResults([]);
+      setSearchResults([]);
+      setLoading(false);
       return;
     }
 
-    const timeoutId = setTimeout(async () => {
-      const users = await searchUsers(query);
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+
+    // Phase 1: Community books + users (200ms)
+    const fastTimer = setTimeout(async () => {
+      if (controller.signal.aborted) return;
+      const [dbBooks, users] = await Promise.all([
+        searchBooksFromDB(query, controller.signal).catch(() => []),
+        searchUsers(query, controller.signal).catch(() => []),
+      ]);
+      if (controller.signal.aborted) return;
+      setDbBookResults(dbBooks);
       setUserResults(users);
     }, 200);
 
-    return () => clearTimeout(timeoutId);
-  }, [query, user]);
+    // Phase 2: Apple Books + Wikipedia (300ms) — trickles in after community results
+    const slowTimer = setTimeout(async () => {
+      if (controller.signal.aborted || mode === 'chat_picker') return;
+      externalSearchFiredRef.current = true;
+      setLoading(true);
+      try {
+        const appleResults = await onSearchAppleBooks(query).then(results =>
+          results.slice(0, 7).map(book => ({ ...book, source: 'apple_books' as const }))
+        ).catch(() => []);
+        if (controller.signal.aborted) return;
+        if (appleResults.length > 0) setSearchResults(appleResults);
 
-  // Debounced book search from database as user types
-  useEffect(() => {
-    if (query.trim().length <= 2) {
-      setDbBookResults([]);
-      return;
-    }
+        const wikiResults = await onSearchWikipedia(query).then(results =>
+          results.slice(0, 7).map(book => ({ ...book, source: 'wikipedia' as const }))
+        ).catch(() => []);
+        if (controller.signal.aborted) return;
+        if (wikiResults.length > 0) {
+          setSearchResults(prev => [...prev, ...wikiResults]);
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }, 300);
 
-    const timeoutId = setTimeout(async () => {
-      const dbBooks = await searchBooksFromDB(query);
-      setDbBookResults(dbBooks);
-    }, 200);
-
-    return () => clearTimeout(timeoutId);
+    return () => {
+      clearTimeout(fastTimer);
+      clearTimeout(slowTimer);
+      controller.abort();
+    };
   }, [query, user]);
 
   // Search for users by querying users table
-  async function searchUsers(searchQuery: string) {
+  async function searchUsers(searchQuery: string, signal?: AbortSignal) {
     if (!searchQuery.trim() || !user) return [];
 
     try {
       const lowerQuery = searchQuery.toLowerCase();
 
       // Query users table - search by email or full_name
-      const { data: usersData, error } = await supabase
+      const query_builder = supabase
         .from('users')
         .select('id, email, full_name, avatar_url')
         .neq('id', user.id) // Exclude current user
         .or(`email.ilike.%${lowerQuery}%,full_name.ilike.%${lowerQuery}%`)
         .limit(10);
+      if (signal) query_builder.abortSignal(signal);
+      const { data: usersData, error } = await query_builder;
 
       if (error) {
         console.error('Error searching users:', error.message, error.code, error.details, error.hint);
@@ -228,19 +263,21 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
   }
 
   // Search for books in database using trigram indexes
-  async function searchBooksFromDB(searchQuery: string): Promise<DBBookSearchResult[]> {
+  async function searchBooksFromDB(searchQuery: string, signal?: AbortSignal): Promise<DBBookSearchResult[]> {
     if (!searchQuery.trim() || !user) return [];
 
     try {
       const lowerQuery = searchQuery.toLowerCase();
 
       // Query books table - search by title or author using trigram-indexed ilike
-      const { data: booksData, error } = await supabase
+      const books_query = supabase
         .from('books')
         .select('id, title, author, cover_url, publish_year, wikipedia_url, google_books_url, genre, first_issue_year, summary, user_id')
         .neq('user_id', user.id) // Exclude current user's books
         .or(`title.ilike.%${lowerQuery}%,author.ilike.%${lowerQuery}%`)
         .limit(10);
+      if (signal) books_query.abortSignal(signal);
+      const { data: booksData, error } = await books_query;
 
       if (error) {
         console.error('Error searching books:', error.message, error.code, error.details, error.hint);
@@ -295,6 +332,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
     }
   }
 
+  // Immediate search (fired on Enter) — cancels debounce and fires external APIs now
   async function handleSearch(titleToSearch = query) {
     if (!titleToSearch.trim()) {
       setUserResults([]);
@@ -303,53 +341,49 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
       return;
     }
 
+    // Cancel any pending debounce
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    externalSearchFiredRef.current = true;
+
     setLoading(true);
     setError('');
     setSearchResults([]);
-    setSuggestions([]); // Clear suggestions first
 
     try {
-      // Start both book searches simultaneously
-      const applePromise = onSearchAppleBooks(titleToSearch).then(results =>
+      // Fire all searches in parallel
+      const [dbBooks, users] = await Promise.all([
+        searchBooksFromDB(titleToSearch, controller.signal).catch(() => []),
+        searchUsers(titleToSearch, controller.signal).catch(() => []),
+      ]);
+      if (controller.signal.aborted) return;
+      setDbBookResults(dbBooks);
+      setUserResults(users);
+
+      const appleResults = await onSearchAppleBooks(titleToSearch).then(results =>
         results.slice(0, 7).map(book => ({ ...book, source: 'apple_books' as const }))
       ).catch(() => []);
+      if (controller.signal.aborted) return;
+      if (appleResults.length > 0) setSearchResults(appleResults);
 
-      const wikiPromise = onSearchWikipedia(titleToSearch).then(results =>
+      const wikiResults = await onSearchWikipedia(titleToSearch).then(results =>
         results.slice(0, 7).map(book => ({ ...book, source: 'wikipedia' as const }))
       ).catch(() => []);
-
-      // Show Apple Books results as soon as they return
-      const appleResults = await applePromise;
-      if (appleResults.length > 0) {
-        setSearchResults(appleResults);
-        setSuggestions([]);
-      }
-
-      // Wait for Wikipedia results and append them
-      const wikiResults = await wikiPromise;
+      if (controller.signal.aborted) return;
       if (wikiResults.length > 0) {
-        // Append Wikipedia results to existing Apple Books results
         setSearchResults(prev => [...prev, ...wikiResults]);
       }
 
-      // Check if we have any results after both complete
       const combinedResults = [...appleResults, ...wikiResults];
-      if (combinedResults.length === 0 && userResults.length === 0 && dbBookResults.length === 0) {
-        setError(`No results found.`);
-
-        // Fetch AI suggestions only when no results
-        try {
-          const aiSuggestions = await onGetAISuggestions(titleToSearch);
-      setSuggestions(aiSuggestions);
-        } catch (aiErr) {
-          console.error('Error fetching AI suggestions:', aiErr);
-          // Don't set error for AI suggestions failure, just leave suggestions empty
-        }
+      if (combinedResults.length === 0 && users.length === 0 && dbBooks.length === 0) {
+        setError('No results found.');
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setError("Search failed. Please try a different title.");
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }
 
@@ -358,17 +392,16 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
     const { source, ...bookWithoutSource } = book;
     onAdd(bookWithoutSource);
     setQuery('');
-    setSuggestions([]);
     setSearchResults([]);
     onClose();
   }
 
-  function handleSuggestionClick(s: string) {
-    // Extract just the book title (before the slash) for searching
-    const bookTitle = s.split('/')[0].trim();
-    setQuery(bookTitle);
-    handleSearch(bookTitle);
-  }
+  // AI suggestions disabled for now
+  // function handleSuggestionClick(s: string) {
+  //   const bookTitle = s.split('/')[0].trim();
+  //   setQuery(bookTitle);
+  //   handleSearch(bookTitle);
+  // }
 
   // Track keyboard height via Capacitor Keyboard plugin
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -380,6 +413,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
     if (!isOpen) {
       setSheetReady(false);
       setKeyboardHeight(0);
+      searchAbortRef.current?.abort();
       return;
     }
     let didShowListener: any;
@@ -886,32 +920,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
               )}
             </AnimatePresence>
 
-            {/* Suggestions - hidden in chat_picker mode */}
-            <AnimatePresence>
-              {mode !== 'chat_picker' && suggestions.length > 0 && searchResults.length === 0 && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0 }}
-                  className="flex flex-wrap gap-2"
-                >
-                  <div className="w-full text-xs font-medium text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
-                    <Sparkles size={12} className="text-amber-400" />
-                    <span>Did you mean?</span>
-                  </div>
-                  {suggestions.map((s, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => handleSuggestionClick(s)}
-                      className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-full text-xs font-medium hover:bg-blue-100 transition-colors border border-blue-100"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {/* AI suggestions disabled for now */}
 
             {/* Error message */}
             {error && (
