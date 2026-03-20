@@ -130,6 +130,8 @@ export interface BookChatContext {
   relatedBooks?: Array<{ title: string; author: string; reason: string; cover_url?: string; thumbnail?: string }>;
   relatedWorks?: Array<{ title: string; director: string; reason: string; type: 'movie' | 'show' | 'album'; poster_url?: string; release_year?: number; wikipedia_url?: string; itunes_url?: string; itunes_artwork?: string; music_links?: MusicLinks }>;
   discussionQuestions?: Array<{ question: string; category: string }>;
+  recentMessages?: Array<{ role: string; content: string }>;
+  recentProactiveMessages?: Array<{ content: string; bookTitle: string }>;
 }
 
 export async function sendChatMessage(
@@ -465,20 +467,21 @@ export async function getProactiveCandidates(
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const todayCount = (logs || []).filter(l => new Date(l.sent_at) >= todayStart).length;
-  if (todayCount >= 3) return [];
+  if (todayCount >= 6) return [];
 
   const candidates: { chatKey: string; chatType: 'book' | 'general'; lastMessageAt: string | null; bookId: string; bookTitle: string; bookAuthor: string }[] = [];
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000;
+  const eightHoursAgo = Date.now() - 8 * 60 * 60 * 1000;
 
-  // Check "currently reading" books — daily cooldown (not weekly)
+  // Check "currently reading" books — 8h cooldown
   const readingBooks = books.filter(b => b.reading_status === 'reading');
   for (const book of readingBooks) {
     const lastLog = logMap.get(book.id);
-    // Skip if last proactive was < 1 day ago (daily for reading books)
-    if (lastLog && new Date(lastLog.sent_at).getTime() > oneDayAgo) continue;
-    // Skip if last proactive wasn't replied to
-    if (lastLog && !lastLog.was_replied) continue;
+    // Skip if last proactive was < 8h ago
+    if (lastLog && new Date(lastLog.sent_at).getTime() > eightHoursAgo) continue;
+    // Allow 1 unreplied, block on 2+ consecutive unreplied
+    const unrepliedCount = (logs || []).filter(l => l.chat_key === book.id && !l.was_replied).length;
+    if (unrepliedCount >= 2) continue;
 
     const chat = bookChats.find(c => c.book_id === book.id);
     candidates.push({
@@ -496,7 +499,7 @@ export async function getProactiveCandidates(
   const BOOKSHELF_ID = '00000000-0000-0000-0000-000000000000';
   const lastGeneralLog = logMap.get(GENERAL_KEY);
   if (
-    (!lastGeneralLog || (new Date(lastGeneralLog.sent_at).getTime() <= sevenDaysAgo && lastGeneralLog.was_replied))
+    (!lastGeneralLog || (new Date(lastGeneralLog.sent_at).getTime() <= threeDaysAgo && lastGeneralLog.was_replied))
     && books.length > 0
   ) {
     const generalChat = bookChats.find(c => c.book_id === BOOKSHELF_ID);
@@ -525,6 +528,31 @@ export async function generateProactiveMessage(
   if (!user) return null;
 
   try {
+    // Fetch last 10 back-and-forths for this chat + last 5 proactive messages across all chats
+    const [recentMsgsResult, recentProactiveResult] = await Promise.all([
+      supabase
+        .from('book_chats')
+        .select('role, content, created_at')
+        .eq('user_id', user.id)
+        .eq('book_id', bookId)
+        .order('created_at', { ascending: false })
+        .limit(20),
+      supabase
+        .from('book_chats')
+        .select('content, book_title')
+        .eq('user_id', user.id)
+        .eq('is_proactive', true)
+        .order('created_at', { ascending: false })
+        .limit(5),
+    ]);
+
+    if (recentMsgsResult.data?.length) {
+      bookContext.recentMessages = recentMsgsResult.data.reverse().map(m => ({ role: m.role, content: m.content }));
+    }
+    if (recentProactiveResult.data?.length) {
+      bookContext.recentProactiveMessages = recentProactiveResult.data.map(p => ({ content: p.content, bookTitle: p.book_title }));
+    }
+
     const { data, error } = await supabase.functions.invoke('quick-processor', {
       body: {
         bookContext,

@@ -228,6 +228,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
       const { data: usersData, error } = await query_builder;
 
       if (error) {
+        if (error.message?.includes('AbortError') || error.message?.includes('aborted')) return [];
         console.error('Error searching users:', error.message, error.code, error.details, error.hint);
         return [];
       }
@@ -256,7 +257,8 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
       }
 
       return userResults;
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.message?.includes('aborted')) return [];
       console.error('Error searching users:', err);
       return [];
     }
@@ -280,6 +282,7 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
       const { data: booksData, error } = await books_query;
 
       if (error) {
+        if (error.message?.includes('AbortError') || error.message?.includes('aborted')) return [];
         console.error('Error searching books:', error.message, error.code, error.details, error.hint);
         return [];
       }
@@ -326,7 +329,8 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
         user_name: userMap.get(book.user_id)?.full_name || null,
         user_avatar: userMap.get(book.user_id)?.avatar_url || null,
       }));
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.message?.includes('aborted')) return [];
       console.error('Error searching books:', err);
       return [];
     }

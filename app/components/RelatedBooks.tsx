@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookMarked, BookOpen, Plus, MessageCircle, Send, ChevronsRight, Check, StickyNote } from 'lucide-react';
+import { BookMarked, BookOpen, Plus, MessageCircle, Send, ChevronsRight, Check, Bookmark } from 'lucide-react';
 import { decodeHtmlEntities, useImageBrightness } from './utils';
 import { openSystemBrowser } from '@/lib/capacitor';
 import { analytics } from '../services/analytics-service';
@@ -360,7 +360,7 @@ const RelatedBooks = React.memo(function RelatedBooks({ books, bookId, isLoading
                 {/* Action bar */}
                 <div className="flex items-center gap-5 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
-                  {onPin && <button onClick={() => onPin(currentIndex)} className="active:scale-90 transition-transform"><StickyNote size={17} fill={pinned ? 'currentColor' : 'none'} className={pinned ? 'text-amber-400 dark:text-amber-400' : 'text-slate-600 dark:text-slate-400'} /></button>}
+                  {onPin && <button onClick={() => onPin(currentIndex)} className="active:scale-90 transition-transform"><Bookmark size={17} fill={pinned ? 'currentColor' : 'none'} className={pinned ? 'text-slate-900' : 'text-slate-600 dark:text-slate-400'} /></button>}
                   {showComment && <span className="flex items-center gap-1"><MessageCircle size={17} className="text-slate-600 dark:text-slate-400" /><span className="text-xs font-medium min-w-[12px] invisible">0</span></span>}
                   {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>

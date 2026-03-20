@@ -1202,39 +1202,7 @@ export default function FeedPage({
           </div>
         </div>
         <div ref={feedPullContentRef} className="w-full max-w-[700px] md:mx-auto flex flex-col gap-0 px-0 pt-8">
-          {/* Anonymous user feed empty state */}
-          {isAnonymous ? (
-            <div
-              className="w-full rounded-2xl overflow-hidden p-8 text-center mx-3"
-              style={{
-                background: 'rgba(255, 255, 255, 0.45)',
-                boxShadow: '0 4px 30px rgba(0, 0, 0, 0.1)',
-                backdropFilter: 'blur(9.4px)',
-                WebkitBackdropFilter: 'blur(9.4px)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                maxWidth: 'calc(100% - 24px)',
-              }}
-            >
-              <Birdhouse size={32} className="mx-auto mb-3 text-slate-400" />
-              <p className="text-slate-800 dark:text-slate-200 font-medium mb-2">Your personalized feed</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-5">Connect an account to unlock your feed with insights, podcasts, and more for your books.</p>
-              <button
-                onClick={() => {
-                  setConnectAccountReason('feed');
-                  setShowConnectAccountModal(true);
-                }}
-                className="px-6 py-2.5 rounded-lg font-bold text-sm text-white active:scale-95 transition-all"
-                style={{
-                  background: 'rgba(59, 130, 246, 0.85)',
-                  backdropFilter: 'blur(9.4px)',
-                  WebkitBackdropFilter: 'blur(9.4px)',
-                  border: '1px solid rgba(59, 130, 246, 0.3)',
-                }}
-              >
-                Connect account
-              </button>
-            </div>
-          ) : (<>
+          <>
           {/* Feed filter pills */}
           <div key={`filters-${feedFilter}`} className="flex items-center gap-2 mb-3 px-4">
             <div className="relative" ref={feedTypeDropdownRef}>
@@ -1396,7 +1364,7 @@ export default function FeedPage({
             <p className="text-center text-xs text-slate-400 py-4">You've reached the end</p>
           )}
 
-          </>)}
+          </>
         </div>
       </motion.main>
 

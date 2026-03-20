@@ -20,6 +20,24 @@ serve(async (req) => {
     const body = await req.json()
     const { endpoint } = body
 
+    // iTunes Search proxy — bypasses CORS for web clients
+    if (endpoint === 'itunes') {
+      const { term, entity, limit } = body
+      if (!term) {
+        return new Response(
+          JSON.stringify({ error: 'term is required' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+      const params = new URLSearchParams({ term, entity: entity || 'song', limit: String(limit || 25) })
+      const res = await fetch(`https://itunes.apple.com/search?${params}`)
+      const data = await res.json()
+      return new Response(JSON.stringify(data), {
+        status: res.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
     // Route to responses API if requested
     if (endpoint === 'responses') {
       const { input, model, tools, temperature } = body

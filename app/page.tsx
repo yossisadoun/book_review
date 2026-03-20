@@ -107,7 +107,7 @@ import {
   Image as ImageIcon,
   Quote,
   type LucideIcon,
-  StickyNote,
+  Bookmark,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Lottie from 'lottie-react';
@@ -236,6 +236,7 @@ import { useBookDetailCardCallbacks } from './hooks/useBookDetailCardCallbacks';
 import { useBookDetailData } from './hooks/useBookDetailData';
 import BookDetailView from './components/BookDetailView';
 import BookshelfView from './components/BookshelfView';
+const BookDiscoverySwipe = lazyWithChunkRetry(() => import('./components/BookDiscoverySwipe'), 'BookDiscoverySwipe');
 
 // Stable empty array to avoid creating new references on every render (for React.memo)
 const EMPTY_ARRAY: never[] = [];
@@ -735,6 +736,7 @@ export default function App() {
   });
   const headerPullRef = useRef<HTMLDivElement | null>(null);
   const [showAboutScreen, setShowAboutScreen] = useState(false);
+  const [showDiscoverySwipe, setShowDiscoverySwipe] = useState(false);
   const [showBookPageOnboarding, setShowBookPageOnboarding] = useState(() => {
     if (typeof window === 'undefined') return false;
     return !localStorage.getItem('hasSeenBookPageOnboarding');
@@ -773,7 +775,7 @@ export default function App() {
   const [createPostText, setCreatePostText] = useState('');
 
   // Remote feature flags
-  const [remoteFlags, setRemoteFlags] = useState<RemoteFeatureFlags>({ chat_enabled: false, create_post_enabled: false, related_work_play_buttons: false, commenting_enabled: false, send_enabled: false });
+  const [remoteFlags, setRemoteFlags] = useState<RemoteFeatureFlags>({ chat_enabled: false, create_post_enabled: false, related_work_play_buttons: false, commenting_enabled: false, send_enabled: false, show_grok_costs: false });
   useEffect(() => { getRemoteFeatureFlags().then(setRemoteFlags); }, []);
 
   // Book discussion state
@@ -2263,7 +2265,7 @@ export default function App() {
 
   // Load personalized feed when feed page is shown (with stale-while-revalidate cache)
   useEffect(() => {
-    if (!showFeedPage || !user || isAnonymous) return;
+    if (!showFeedPage || !user) return;
 
     // Don't reload if we already have feed items (prevents reload on app resume)
     if (feedLoadedRef.current && personalizedFeedItems.length > 0) {
@@ -2386,6 +2388,15 @@ export default function App() {
     const normalizedAuthor = (author || '').toLowerCase().trim().replace(/\s+/g, ' ');
     return `${normalizedTitle}|${normalizedAuthor}`;
   }
+
+  // Set of canonical book keys for filtering discovery swipe
+  const existingBookKeys = useMemo(() => {
+    const keys = new Set<string>();
+    books.forEach(b => {
+      keys.add(generateCanonicalBookId(b.title, b.author || ''));
+    });
+    return keys;
+  }, [books]);
 
   const ANONYMOUS_BOOK_LIMIT = 20;
 
@@ -2772,6 +2783,57 @@ export default function App() {
     }
   }
 
+  // Silent book add for discovery swipe — no navigation, no rating overlay
+  async function handleDiscoveryAddBook(
+    meta: Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>,
+    readingStatus: ReadingStatus,
+    rating?: number | null,
+  ) {
+    if (!user) return;
+    const canonicalBookId = generateCanonicalBookId(meta.title || '', meta.author || '');
+    const bookData: any = {
+      title: meta.title || '',
+      author: meta.author || 'Unknown Author',
+      canonical_book_id: canonicalBookId,
+      publish_year: meta.publish_year ?? null,
+      first_issue_year: meta.first_issue_year ?? null,
+      genre: meta.genre ?? null,
+      cover_url: meta.cover_url ?? null,
+      wikipedia_url: meta.wikipedia_url ?? null,
+      google_books_url: meta.google_books_url ?? null,
+      summary: meta.summary ?? null,
+      user_id: user.id,
+      rating_writing: null,
+      rating_insights: null,
+      rating_flow: null,
+      rating_world: null,
+      rating_characters: null,
+      reading_status: readingStatus,
+    };
+    // If rated via discovery, store as overall → rating_writing (first dimension)
+    if (rating != null) {
+      bookData.rating_writing = rating;
+    }
+    try {
+      const { data, error } = await supabase.from('books').insert(bookData).select().single();
+      if (error) {
+        if (error.code === '23505') return; // duplicate, ignore
+        console.error('[discovery] Insert error:', error);
+        return;
+      }
+      const newBook = convertBookToApp(data);
+      analytics.trackEvent('discovery_swipe', readingStatus === 'read_it' ? 'read' : 'want_to_read', { book_title: newBook.title });
+      // Prepend book but bump selectedIndex so activeBook doesn't shift (avoids triggering enrichment)
+      setSelectedIndex(prev => prev + 1);
+      setBooks(prev => [newBook, ...prev]);
+      // Only create friend feed item — skip enrichment queries (trivia, insights, etc.)
+      // Those will run when the user actually opens the book
+      createFriendBookFeedItem(user.id, newBook.id, newBook.title, newBook.author || '', newBook.cover_url || null, readingStatus, newBook.summary || null);
+    } catch (err) {
+      console.error('[discovery] Error:', err);
+    }
+  }
+
   async function handleRate(id: string, dimension: string, value: number | null) {
     if (!user) return; // Safety check
     
@@ -2873,6 +2935,27 @@ export default function App() {
   }
 
   // handleDelete moved to BookDetailView
+
+  // Batch delete books from bookshelf select mode
+  async function handleBatchDeleteBooks(bookIds: string[]) {
+    if (!user || bookIds.length === 0) return;
+    const { error } = await supabase
+      .from('books')
+      .delete()
+      .in('id', bookIds)
+      .eq('user_id', user.id);
+    if (error) {
+      console.error('[batch delete] Error:', error);
+      return;
+    }
+    triggerHeavyHaptic();
+    const deletedSet = new Set(bookIds);
+    const newBooks = books.filter(b => !deletedSet.has(b.id));
+    // Adjust selectedIndex to stay within bounds
+    const newIndex = Math.min(selectedIndex, Math.max(0, newBooks.length - 1));
+    setSelectedIndex(newIndex);
+    setBooks(newBooks);
+  }
 
   // Helper function to format timestamp for notes
   const formatNoteTimestamp = (date: Date = new Date()): string => {
@@ -3448,7 +3531,7 @@ export default function App() {
                 ) : showSortingResults ? (
                   <Star size={24} className="text-slate-950 dark:text-slate-50" />
                 ) : showNotesView ? (
-                  <Pencil size={24} className="text-slate-950 dark:text-slate-50" />
+                  <Bookmark size={24} className="text-slate-950 dark:text-slate-50" />
                 ) : showBookshelfCovers ? (
                   featureFlags.hand_drawn_icons ? (
                     <img src={getAssetPath("/library.svg")} alt="Library" className="w-[24px] h-[24px]" />
@@ -3558,6 +3641,7 @@ export default function App() {
             onClose={() => setShowAccountPage(false)}
             scrollContainerRef={scrollContainerRef}
             onScroll={(scrollTop) => updateScrollY(scrollTop)}
+            remoteFlags={remoteFlags}
           />
         ) : showFollowingPage ? (
           <FollowingPage
@@ -3939,7 +4023,7 @@ export default function App() {
                 if (booksWithNotes.length === 0) {
                   return (
                     <div className="w-full rounded-2xl p-8 text-center" style={glassmorphicStyle}>
-                      <Pencil size={32} className="mx-auto mb-3 text-slate-400" />
+                      <Bookmark size={32} className="mx-auto mb-3 text-slate-400" />
                       <p className="text-slate-800 dark:text-slate-200 text-sm font-medium">No notes yet</p>
                       <p className="text-slate-600 dark:text-slate-400 text-xs mt-1">Add notes to your books to see them here</p>
                     </div>
@@ -3976,12 +4060,12 @@ export default function App() {
                       }
                     }}
                   >
-                    <div className="flex gap-4">
+                    <div className="relative flex gap-4">
                       {/* Book Cover */}
                       <div className="flex-shrink-0">
                         {book.cover_url ? (
-                          <img 
-                            src={book.cover_url} 
+                          <img
+                            src={book.cover_url}
                             alt={book.title}
                             className="w-16 h-24 object-cover rounded-lg shadow-md"
                           />
@@ -3991,15 +4075,18 @@ export default function App() {
                           </div>
                         )}
                       </div>
-                      
+
+                      {/* Bookmark count — bottom right */}
+                      <span className="absolute bottom-0 right-0 flex items-center gap-0.5 text-slate-900">
+                        <Bookmark size={12} className="fill-slate-900" />
+                        <span className="text-[11px] font-semibold">{(book.notes || '').split(/\{\d{4}-\d{2}-\d{2} \d{2}:\d{2}\}/).filter(p => p.trim()).length}</span>
+                      </span>
+
                       {/* Book Info and Notes */}
                       <div className="flex-1 min-w-0">
                         <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50 mb-1 line-clamp-1">{book.title}</h2>
                         <div className="flex items-center gap-2 mb-2">
                           <p className="text-xs text-slate-600 dark:text-slate-400">{book.author}</p>
-                          <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-200/50 dark:bg-slate-700/50 rounded-full px-1.5 py-0.5">
-                            {(book.notes || '').split(/\{\d{4}-\d{2}-\d{2} \d{2}:\d{2}\}/).filter(p => p.trim()).length}
-                          </span>
                         </div>
                         
                         {editingNoteBookId === book.id ? (
@@ -4041,7 +4128,7 @@ export default function App() {
                             </button>
                           </div>
                         ) : (
-                          <div>
+                          <div className="pb-4">
                             <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed line-clamp-3">
                               {(() => {
                                 // Show most recent note content, strip timestamps
@@ -4113,6 +4200,8 @@ export default function App() {
             setShowChatPage={setShowChatPage}
             setChatBookSelected={setChatBookSelected}
             setShowBookshelfCovers={setShowBookshelfCovers}
+            onDeleteBooks={handleBatchDeleteBooks}
+            onShowDiscoverySwipe={() => setShowDiscoverySwipe(true)}
           />
         ) : (
           <BookDetailView
@@ -4329,7 +4418,7 @@ export default function App() {
             className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 rounded-full shadow-lg flex items-center gap-2"
             style={{ background: 'rgba(30, 30, 30, 0.85)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
           >
-            <StickyNote size={14} className="text-amber-400 flex-shrink-0" />
+            <Bookmark size={14} className="text-white fill-white flex-shrink-0" />
             <span className="text-xs text-white font-medium">Saved to For later</span>
           </motion.div>
         )}
@@ -5742,12 +5831,19 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Big Idea */}
-                {overlayBookSummary && (
-                  <p className="mt-3 text-[13px] text-slate-700 dark:text-slate-300 leading-relaxed text-center max-w-[272px] line-clamp-6">
-                    {overlayBookSummary}
-                  </p>
-                )}
+                {/* Summary — fade in smoothly when loaded */}
+                <AnimatePresence>
+                  {overlayBookSummary && (
+                    <motion.p
+                      initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                      animate={{ opacity: 1, height: 'auto', marginTop: 12 }}
+                      transition={{ duration: 0.35, ease: 'easeOut' }}
+                      className="text-[13px] text-slate-700 dark:text-slate-300 leading-relaxed text-center max-w-[272px] line-clamp-6 overflow-hidden"
+                    >
+                      {overlayBookSummary}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
 
                 {/* Add Button */}
                 <button
@@ -5849,6 +5945,20 @@ export default function App() {
               </button>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Discovery Swipe Modal */}
+      <AnimatePresence>
+        {showDiscoverySwipe && (
+          <Suspense fallback={null}>
+            <BookDiscoverySwipe
+              isOpen={showDiscoverySwipe}
+              onClose={() => setShowDiscoverySwipe(false)}
+              existingBookKeys={existingBookKeys}
+              onAddBook={handleDiscoveryAddBook}
+            />
+          </Suspense>
         )}
       </AnimatePresence>
 

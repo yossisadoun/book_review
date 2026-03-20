@@ -15,6 +15,7 @@ import {
   Check,
   Minus,
   Heart,
+  BookCopy,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
@@ -56,6 +57,18 @@ function getAlphabeticalRange(letter: string): string {
   if (upper >= 'N' && upper <= 'S') return 'N-S';
   return 'T-Z';
 }
+
+// Module-level style constants
+const deleteBtnStyle: React.CSSProperties = {
+  background: 'rgba(239, 68, 68, 0.9)',
+  backdropFilter: 'blur(8px)',
+  WebkitBackdropFilter: 'blur(8px)',
+};
+
+const deleteConfirmBgStyle: React.CSSProperties = {
+  ...glassmorphicStyle,
+  background: 'rgba(255, 255, 255, 0.92)',
+};
 
 // --- Props Interface ---
 
@@ -128,6 +141,12 @@ export interface BookshelfViewProps {
 
   // Show bookshelf covers setter (needed for reading picker to exit)
   setShowBookshelfCovers: (val: boolean) => void;
+
+  // Batch delete
+  onDeleteBooks: (bookIds: string[]) => Promise<void>;
+
+  // Discovery swipe
+  onShowDiscoverySwipe: () => void;
 }
 
 export default function BookshelfView({
@@ -172,6 +191,8 @@ export default function BookshelfView({
   setShowChatPage,
   setChatBookSelected,
   setShowBookshelfCovers,
+  onDeleteBooks,
+  onShowDiscoverySwipe,
 }: BookshelfViewProps) {
   // --- State moved from page.tsx ---
   const [bookshelfGrouping, setBookshelfGrouping] = useState<'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year' | 'list'>(() => {
@@ -190,6 +211,8 @@ export default function BookshelfView({
   const [newListName, setNewListName] = useState('');
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showReadingBookPicker, setShowReadingBookPicker] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // --- Refs ---
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -813,25 +836,33 @@ export default function BookshelfView({
                   </>
                 )}
               </div>
-              {/* Select / Done button */}
+              {/* Discovery + Select / Done buttons */}
               {!viewingUserId && (
-                <button
-                  onClick={() => {
-                    if (isSelectMode) {
-                      setIsSelectMode(false);
-                      setSelectedBookIds(new Set());
-                    } else {
-                      setIsSelectMode(true);
-                    }
-                  }}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                    isSelectMode
-                      ? 'text-blue-600 dark:text-blue-400'
-                      : 'text-slate-600 dark:text-slate-400'
-                  }`}
-                >
-                  {isSelectMode ? 'Done' : 'Select'}
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={onShowDiscoverySwipe}
+                    className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                  >
+                    <BookCopy size={17} className="text-slate-600 dark:text-slate-400" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (isSelectMode) {
+                        setIsSelectMode(false);
+                        setSelectedBookIds(new Set());
+                      } else {
+                        setIsSelectMode(true);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                      isSelectMode
+                        ? 'text-blue-600 dark:text-blue-400'
+                        : 'text-slate-600 dark:text-slate-400'
+                    }`}
+                  >
+                    {isSelectMode ? 'Done' : 'Select'}
+                  </button>
+                </div>
               )}
             </div>
             )}
@@ -1160,6 +1191,13 @@ export default function BookshelfView({
             >
               Add to List
             </button>
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-95"
+              style={deleteBtnStyle}
+            >
+              <Trash2 size={16} className="text-white" />
+            </button>
           </motion.div>
         </div>
       )}
@@ -1417,6 +1455,68 @@ export default function BookshelfView({
 
               {/* Safe area padding */}
               <div className="h-8" />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Batch Delete Confirmation */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm px-6"
+            onClick={() => { if (!isDeleting) setShowDeleteConfirm(false); }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="w-full max-w-sm rounded-2xl overflow-hidden"
+              style={deleteConfirmBgStyle}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-6 pt-6 pb-4 text-center">
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">
+                  <Trash2 size={22} className="text-red-500" />
+                </div>
+                <p className="text-base font-bold text-slate-950">
+                  Delete {selectedBookIds.size} book{selectedBookIds.size !== 1 ? 's' : ''}?
+                </p>
+                <p className="text-sm text-slate-500 mt-1">
+                  This will permanently remove {selectedBookIds.size === 1 ? 'this book' : 'these books'} from your bookshelf.
+                </p>
+              </div>
+              <div className="flex border-t border-slate-200/50 divide-x divide-slate-200/50">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={isDeleting}
+                  className="flex-1 py-3 text-sm font-semibold text-slate-600 active:bg-slate-100/50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    setIsDeleting(true);
+                    try {
+                      await onDeleteBooks(Array.from(selectedBookIds));
+                      setShowDeleteConfirm(false);
+                      setIsSelectMode(false);
+                      setSelectedBookIds(new Set());
+                    } finally {
+                      setIsDeleting(false);
+                    }
+                  }}
+                  disabled={isDeleting}
+                  className="flex-1 py-3 text-sm font-bold text-red-500 active:bg-red-50/50 transition-colors"
+                >
+                  {isDeleting ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}

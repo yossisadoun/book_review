@@ -18,7 +18,7 @@ import {
   EyeOff,
   Play,
   Info,
-  StickyNote,
+  Bookmark,
   RefreshCw,
   type LucideIcon,
 } from 'lucide-react';
@@ -1147,7 +1147,7 @@ export default function BookDetailView({
                               }}
                               className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-900 dark:text-slate-100 font-medium text-sm hover:bg-white/30 dark:bg-white/12 active:scale-95 transition-all"
                             >
-                              <StickyNote size={18} />
+                              <Bookmark size={18} />
                               Notes
                             </button>
                             <div className="h-px bg-slate-200/50" />

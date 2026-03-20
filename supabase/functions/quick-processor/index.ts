@@ -522,51 +522,66 @@ These are 3 short (under 8 words each) contextual follow-up prompts the user mig
         })
       }
 
+      // Build context sections
+      const recentMessages = bookContext.recentMessages || []
+      const recentProactive = bookContext.recentProactiveMessages || []
+
+      const conversationSection = recentMessages.length
+        ? `\nRECENT CONVERSATION:\n${recentMessages.map((m: any) => `${m.role}: ${m.content}`).join('\n')}\n`
+        : ''
+
+      const dedupeSection = recentProactive.length
+        ? `\nRECENT PROACTIVE MESSAGES YOU SENT (do NOT repeat or closely paraphrase these):\n${recentProactive.map((p: any) => `- [${p.bookTitle}] "${p.content}"`).join('\n')}\n`
+        : ''
+
       let proactivePrompt: string
       if (generalMode) {
-        proactivePrompt = `You are a relaxed reading companion who knows the user's bookshelf.
-Send them ONE short, unprompted message — like a friend texting out of the blue.
-
-Pick ONE of these approaches (vary each time):
-- Recommend a specific book from their shelf they haven't read yet
-- Share a fun fact about an author on their shelf
-- Suggest music that fits the vibe of a book they're reading
-- Ask casually what they've been reading lately
-
+        proactivePrompt = `You are a relaxed reading companion who knows the user's bookshelf. Your goal is to send a message compelling enough that the user taps in and replies.
+${conversationSection}${dedupeSection}
 BOOKSHELF
 ${bookContext.summary || 'No details available.'}
 
+Send ONE short, compelling message — like a friend texting something they just discovered.
+
+Pick ONE approach (vary each time):
+- Recommend a specific book from their shelf with a hook ("you know ${bookContext.summary ? 'that book' : 'a book'} on your shelf? turns out the author...")
+- Drop a surprising fact about an author that begs a follow-up
+- Connect two books on their shelf in an unexpected way
+- Suggest music that fits the vibe of a book they're reading
+- Ask a specific, interesting question (not "what are you reading?" but "did you ever finish X?")
+
 RULES
-- 1-2 sentences MAX. Like a text message.
+- 1-3 sentences MAX. Like a text message.
 - No greetings ("hey!", "hi there!")
-- No excitement or hype
+- No excitement or hype — be genuine, not performative
 - Be specific — mention a real book/author from their shelf
 - No markdown, no bullets
 - No [[resource]] markers
 - Do NOT add |||SUGGESTIONS||| section`
       } else {
-        proactivePrompt = `You are a relaxed reading companion. The user is currently reading "${title}" by ${author}.
+        proactivePrompt = `You are a relaxed reading companion. The user is currently reading "${title}" by ${author}. Your goal is to send a message compelling enough that the user taps in and replies.
+${conversationSection}${dedupeSection}
+Send ONE short, compelling message — like a friend texting something they just discovered about a book you're both into.
 
-Send them ONE short, unprompted check-in message — like a friend texting about a book you're both into.
+Pick ONE approach (STRONGLY prefer approaches with a media resource when available):
+${resourceHints.length ? `- Share a podcast/video/album with a compelling teaser about why it's worth checking out — this is the BEST option when resources are available (use the marker so it renders as a card)` : ''}
+- Drop a surprising or little-known fact about the book or author that begs a follow-up
+- Follow up on something specific from the conversation above
+- React to their reading progress with something contextual, not generic
+- Tease something coming up in the book without spoiling it
+- Share one interesting non-spoiler connection (e.g. what inspired the book, a real event it's based on)
 
-Pick ONE approach (vary — don't always ask the same thing):
-- Ask where they're at in the book — casually, like "how far along are you?" or "still in the early chapters?"
-- Check in on their reading progress — "making any headway with ${title}?"
-${resourceHints.length ? `- Suggest a specific podcast, video, or album related to the book (use the marker so it renders as a card)` : ''}
-- Share one interesting non-spoiler thing about the book or author
-- Mention something thematic ("perfect rainy day book" etc)
-
-The MOST IMPORTANT thing is keeping track of where they are so you can avoid spoilers and have relevant conversations. Asking about progress should be your go-to if you haven't checked in recently.
-
-${resourceHints.length ? `RESOURCES YOU CAN SUGGEST
-Place the marker on its own line after your text. Pick at most ONE.
+${resourceHints.length ? `RESOURCES YOU CAN SUGGEST (PRIORITIZE using one — a visual card is far more engaging than plain text)
+Write a short compelling intro for the resource, then place the marker on its own line. Pick ONE.
 ${resourceHints.map(r => `- ${r}`).join('\n')}` : ''}
 
+Your message should feel like it follows naturally from your previous conversations, not like a cold notification.
+
 RULES
-- 1-2 sentences MAX. Like a text message.
+- 1-3 sentences MAX. Like a text message.
 - No greetings ("hey!", "hi there!")
-- No excitement or hype
-- Be specific to THIS book
+- No excitement or hype — be genuine, not performative
+- Be specific to THIS book and THIS conversation
 - No markdown formatting
 - Do NOT add |||SUGGESTIONS||| section`
       }

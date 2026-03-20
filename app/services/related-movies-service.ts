@@ -42,22 +42,34 @@ async function fetchMusicLinks(itunesUrl: string): Promise<MusicLinks | null> {
   }
 }
 
+async function searchItunes(term: string, entity = 'song', limit = 25): Promise<any[]> {
+  if (isNativePlatform) {
+    // Native: call iTunes directly (no CORS)
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=${entity}&limit=${limit}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return data.results || [];
+  } else {
+    // Web: proxy through edge function to bypass CORS
+    const { data, error } = await supabase.functions.invoke('grok-proxy', {
+      body: { endpoint: 'itunes', term, entity, limit },
+    });
+    if (error) throw error;
+    return data?.results || [];
+  }
+}
+
 async function enrichAlbumWithItunes(movie: RelatedMovie): Promise<RelatedMovie> {
   if (movie.type !== 'album') return movie;
-  // iTunes Search API blocks CORS on web — only call from native
-  if (!isNativePlatform) return movie;
   const tag = `[iTunes:${movie.title}|${movie.director}]`;
 
   // Strip parentheticals from search query
   const cleanTitle = movie.title.replace(/\s*[\(\[][^\)\]]*[\)\]]\s*/g, '').trim();
   const searchTerm = movie.director ? `${cleanTitle} ${movie.director}` : cleanTitle;
-  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(searchTerm)}&entity=song&limit=25`;
-  console.log(`${tag} ${url}`);
+  console.log(`${tag} searching: "${searchTerm}"`);
 
   try {
-    const res = await fetch(url);
-    const data = await res.json();
-    const results: any[] = data.results || [];
+    const results: any[] = await searchItunes(searchTerm);
     console.log(`${tag} ${results.length} results`);
 
     // Find first result whose collectionName matches our album title

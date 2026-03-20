@@ -7,7 +7,7 @@ import {
   CheckCircle2, Circle,
   Target, Zap, ArrowRight, Globe, Sparkles, Eye, Brain, Flame,
   Tag,
-  StickyNote,
+  Bookmark,
 } from 'lucide-react';
 import { analytics } from '../services/analytics-service';
 const frostedGlassStyle: React.CSSProperties = {
@@ -476,7 +476,7 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
                       }}
                       className="active:scale-90 transition-transform flex-shrink-0"
                     >
-                      <StickyNote size={17} className={pinned ? 'text-amber-500 fill-amber-500' : 'text-slate-600 dark:text-slate-400'} />
+                      <Bookmark size={17} className={pinned ? 'text-slate-900 fill-slate-900' : 'text-slate-600 dark:text-slate-400'} />
                     </button>
                   );
                 })()}

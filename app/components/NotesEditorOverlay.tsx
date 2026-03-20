@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Trash2, Lightbulb, Headphones, Play, FileText, BookMarked, Film, StickyNote, Disc3, Tv } from 'lucide-react';
+import { Plus, Trash2, Lightbulb, Headphones, Play, FileText, BookMarked, Film, Bookmark, Disc3, Tv } from 'lucide-react';
 import { isAndroid, openSystemBrowser } from '@/lib/capacitor';
 
 interface NoteSection {
@@ -43,7 +43,7 @@ const PIN_ICONS: Record<string, React.ReactNode> = {
   movie: <Film size={18} />,
   show: <Tv size={18} />,
   album: <Disc3 size={18} />,
-  note: <StickyNote size={18} />,
+  note: <Bookmark size={18} />,
 };
 
 const PIN_LABELS: Record<string, string> = {
@@ -329,7 +329,7 @@ export default function NotesEditorOverlay({ bookId, bookTitle, initialNotes, on
                           </div>
                         ) : (
                           <div className="w-12 h-12 flex-shrink-0 rounded-lg bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center text-amber-500">
-                            {PIN_ICONS[pin.type] || <StickyNote size={18} />}
+                            {PIN_ICONS[pin.type] || <Bookmark size={18} />}
                           </div>
                         )}
                         <div className="flex-1 min-w-0">

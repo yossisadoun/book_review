@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Film, Play, Disc3, MessageCircle, Send, X, StickyNote } from 'lucide-react';
+import { Film, Play, Disc3, MessageCircle, Send, X, Bookmark } from 'lucide-react';
 import { decodeHtmlEntities, getAssetPath } from './utils';
 import { analytics } from '../services/analytics-service';
 import { isNativePlatform } from '@/lib/capacitor';
@@ -414,7 +414,7 @@ const RelatedMovies = React.memo(function RelatedMovies({ movies, bookId, isLoad
                 {/* Action bar */}
                 <div className="flex items-center gap-5 mt-2.5 pb-1" onClick={(e) => e.stopPropagation()}>
                   {renderAction && renderAction(currentIndex)}
-                  {onPin && <button onClick={() => onPin(currentIndex)} className="active:scale-90 transition-transform"><StickyNote size={17} fill={pinned ? 'currentColor' : 'none'} className={pinned ? 'text-amber-400 dark:text-amber-400' : 'text-slate-600 dark:text-slate-400'} /></button>}
+                  {onPin && <button onClick={() => onPin(currentIndex)} className="active:scale-90 transition-transform"><Bookmark size={17} fill={pinned ? 'currentColor' : 'none'} className={pinned ? 'text-slate-900' : 'text-slate-600 dark:text-slate-400'} /></button>}
                   {showComment && <span className="flex items-center gap-1"><MessageCircle size={17} className="text-slate-600 dark:text-slate-400" /><span className="text-xs font-medium min-w-[12px] invisible">0</span></span>}
                   {showSend && <Send size={17} className="text-slate-600 dark:text-slate-400" />}
                 </div>

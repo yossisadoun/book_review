@@ -16,6 +16,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const pageSource = readFileSync(join(__dirname, '../app/page.tsx'), 'utf-8');
+const bookshelfViewSource = readFileSync(join(__dirname, '../app/components/BookshelfView.tsx'), 'utf-8');
 const bookDetailViewSource = readFileSync(join(__dirname, '../app/components/BookDetailView.tsx'), 'utf-8');
 const articlesServiceSource = readFileSync(join(__dirname, '../app/services/articles-service.ts'), 'utf-8');
 const youtubeServiceSource = readFileSync(join(__dirname, '../app/services/youtube-service.ts'), 'utf-8');
@@ -446,5 +447,64 @@ describe('useBookDetailData hook extraction wiring', () => {
   it('hook contains loading timeout safety net', () => {
     expect(bookDetailDataHookSource).toContain('[LoadingTimeout] Clearing stuck loading state');
     expect(bookDetailDataHookSource).toContain('30_000');
+  });
+});
+
+describe('Batch delete wiring', () => {
+  it('page.tsx passes onDeleteBooks prop to BookshelfView', () => {
+    expect(pageSource).toContain('onDeleteBooks={handleBatchDeleteBooks}');
+  });
+
+  it('page.tsx defines handleBatchDeleteBooks function', () => {
+    expect(pageSource).toContain('async function handleBatchDeleteBooks');
+  });
+
+  it('handleBatchDeleteBooks uses .in() for batch delete (not per-book loop)', () => {
+    // Extract the function body
+    const fnStart = pageSource.indexOf('async function handleBatchDeleteBooks');
+    const fnEnd = pageSource.indexOf('\n  }', fnStart) + 4;
+    const fnBody = pageSource.slice(fnStart, fnEnd);
+    expect(fnBody).toContain(".in('id', bookIds)");
+    // Should NOT loop individual deletes
+    expect(fnBody).not.toContain('forEach');
+    expect(fnBody).not.toContain('.map(');
+  });
+
+  it('handleBatchDeleteBooks adjusts selectedIndex to stay in bounds', () => {
+    const fnStart = pageSource.indexOf('async function handleBatchDeleteBooks');
+    const fnEnd = pageSource.indexOf('\n  }', fnStart) + 4;
+    const fnBody = pageSource.slice(fnStart, fnEnd);
+    expect(fnBody).toContain('setSelectedIndex');
+    expect(fnBody).toContain('Math.min');
+  });
+
+  it('BookshelfView has onDeleteBooks in props interface', () => {
+    expect(bookshelfViewSource).toContain('onDeleteBooks: (bookIds: string[]) => Promise<void>');
+  });
+
+  it('BookshelfView has delete confirmation dialog', () => {
+    expect(bookshelfViewSource).toContain('showDeleteConfirm');
+    expect(bookshelfViewSource).toContain('permanently remove');
+  });
+
+  it('BookshelfView delete button uses module-level style constant', () => {
+    // The delete button should use the module-level constant, not inline style
+    expect(bookshelfViewSource).toContain('style={deleteBtnStyle}');
+    expect(bookshelfViewSource).toContain("const deleteBtnStyle: React.CSSProperties");
+  });
+
+  it('BookshelfView delete confirmation uses module-level style constant', () => {
+    expect(bookshelfViewSource).toContain('style={deleteConfirmBgStyle}');
+    expect(bookshelfViewSource).toContain("const deleteConfirmBgStyle: React.CSSProperties");
+  });
+
+  it('BookshelfView exits select mode after successful delete', () => {
+    // After delete, should clear selection and exit select mode
+    expect(bookshelfViewSource).toContain('setIsSelectMode(false)');
+    expect(bookshelfViewSource).toContain('setSelectedBookIds(new Set())');
+  });
+
+  it('BookshelfView disables buttons during deletion', () => {
+    expect(bookshelfViewSource).toContain('disabled={isDeleting}');
   });
 });

@@ -6,6 +6,7 @@ interface RemoteFeatureFlags {
   related_work_play_buttons: boolean;
   commenting_enabled: boolean;
   send_enabled: boolean;
+  show_grok_costs: boolean;
 }
 
 const DEFAULTS: RemoteFeatureFlags = {
@@ -14,6 +15,7 @@ const DEFAULTS: RemoteFeatureFlags = {
   related_work_play_buttons: false,
   commenting_enabled: false,
   send_enabled: false,
+  show_grok_costs: false,
 };
 
 // In development, enable all features locally without needing the DB
@@ -23,6 +25,7 @@ const DEV_OVERRIDES: RemoteFeatureFlags = {
   related_work_play_buttons: true,
   commenting_enabled: true,
   send_enabled: true,
+  show_grok_costs: false,
 };
 
 let cachedFlags: RemoteFeatureFlags | null = null;

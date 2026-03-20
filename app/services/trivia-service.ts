@@ -174,12 +174,7 @@ export async function saveTriviaQuestionsToCache(bookTitle: string, bookAuthor: 
       .upsert(recordData, { onConflict: 'book_title,book_author' });
 
     if (result.error) {
-      console.error('[saveTriviaQuestionsToCache] ❌ Error saving trivia questions:', {
-        message: result.error.message,
-        code: result.error.code,
-        details: result.error.details,
-        hint: result.error.hint,
-      });
+      console.error('[saveTriviaQuestionsToCache] ❌ Error saving trivia questions:', JSON.stringify(result.error));
 
       // Check if table doesn't exist
       if (result.error.code === '42P01' || result.error.message?.includes('does not exist')) {

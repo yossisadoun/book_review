@@ -6,6 +6,7 @@ import { User, LogOut, Trash2, Lightbulb, Headphones, Play, Film, ScrollText, Bo
 import { supabase } from '@/lib/supabase';
 import { getGrokUsageLogs } from '../services/api-utils';
 import type { GrokUsageLog } from '../types';
+import type { RemoteFeatureFlags } from '@/lib/remote-feature-flags';
 
 function avatarGradient(seed: string): string {
   let hash = 0;
@@ -59,6 +60,7 @@ interface AccountPageProps {
   onClose: () => void;
   scrollContainerRef: React.MutableRefObject<HTMLElement | null>;
   onScroll: (scrollTop: number) => void;
+  remoteFlags: RemoteFeatureFlags;
 }
 
 export default function AccountPage({
@@ -72,6 +74,7 @@ export default function AccountPage({
   onClose,
   scrollContainerRef,
   onScroll,
+  remoteFlags,
 }: AccountPageProps) {
   const [grokUsageLogs, setGrokUsageLogs] = useState<GrokUsageLog[]>([]);
   const [isLoadingGrokLogs, setIsLoadingGrokLogs] = useState(false);
@@ -375,7 +378,7 @@ export default function AccountPage({
           </div>}
 
           {/* Content Preferences */}
-          {!isAnonymous && <div className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
+          <div className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
             <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50 mb-1">Content Preferences</h3>
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-3">Toggle what shows on book pages.</p>
             <div className="flex flex-col gap-2">
@@ -409,10 +412,10 @@ export default function AccountPage({
                 );
               })}
             </div>
-          </div>}
+          </div>
 
           {/* Grok API Usage Logs */}
-          {!isAnonymous && <div className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
+          {remoteFlags.show_grok_costs && !isAnonymous && <div className="rounded-2xl p-4" style={standardGlassmorphicStyle}>
             <h3 className="text-sm font-bold text-slate-950 dark:text-slate-50 mb-3">Grok API Usage</h3>
             {isLoadingGrokLogs ? (
               <motion.div
