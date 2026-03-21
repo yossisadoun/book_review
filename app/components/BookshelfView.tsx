@@ -60,9 +60,7 @@ function getAlphabeticalRange(letter: string): string {
 
 // Module-level style constants
 const deleteBtnStyle: React.CSSProperties = {
-  background: 'rgba(239, 68, 68, 0.9)',
-  backdropFilter: 'blur(8px)',
-  WebkitBackdropFilter: 'blur(8px)',
+  ...glassmorphicStyle,
 };
 
 const deleteConfirmBgStyle: React.CSSProperties = {
@@ -1196,7 +1194,7 @@ export default function BookshelfView({
               className="w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-95"
               style={deleteBtnStyle}
             >
-              <Trash2 size={16} className="text-white" />
+              <Trash2 size={16} className="text-red-500" />
             </button>
           </motion.div>
         </div>

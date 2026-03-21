@@ -86,7 +86,7 @@ const RatingStars = React.memo(function RatingStars({ value, onRate, dimension }
         {/* Background (empty) heart */}
         <Heart
           size={32}
-          className="absolute inset-0 text-slate-300 fill-transparent transition-all duration-200"
+          className="absolute inset-0 text-slate-500 fill-transparent transition-all duration-200"
         />
         {/* Filled heart with clip for half-heart support */}
         <div
