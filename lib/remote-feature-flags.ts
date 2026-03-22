@@ -7,6 +7,7 @@ interface RemoteFeatureFlags {
   commenting_enabled: boolean;
   send_enabled: boolean;
   show_grok_costs: boolean;
+  discovery_swipe: boolean;
 }
 
 const DEFAULTS: RemoteFeatureFlags = {
@@ -16,6 +17,7 @@ const DEFAULTS: RemoteFeatureFlags = {
   commenting_enabled: false,
   send_enabled: false,
   show_grok_costs: false,
+  discovery_swipe: false,
 };
 
 // In development, enable all features locally without needing the DB
@@ -26,6 +28,7 @@ const DEV_OVERRIDES: RemoteFeatureFlags = {
   commenting_enabled: true,
   send_enabled: true,
   show_grok_costs: false,
+  discovery_swipe: true,
 };
 
 let cachedFlags: RemoteFeatureFlags | null = null;

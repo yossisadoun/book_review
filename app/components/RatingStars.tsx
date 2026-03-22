@@ -133,12 +133,6 @@ const RatingStars = React.memo(function RatingStars({ value, onRate, dimension }
           </motion.button>
         ))}
       </div>
-      <button
-        onClick={handleSkip}
-        className="px-3 py-0.5 text-xs font-medium text-slate-950 hover:text-slate-700 active:scale-95 transition-all"
-      >
-        {value ? 'Clear' : 'Dismiss'}
-      </button>
     </div>
   );
 });

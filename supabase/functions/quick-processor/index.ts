@@ -32,6 +32,7 @@ async function logUsage(req: Request, functionName: string, usage: any, model: s
     await supabase.from('grok_usage_logs').insert({
       user_id: user.id,
       function_name: functionName,
+      feature: 'chat',
       prompt_tokens: promptTokens,
       completion_tokens: completionTokens,
       total_tokens: usage.total_tokens || (promptTokens + completionTokens),

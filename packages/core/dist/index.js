@@ -20,6 +20,7 @@ __exportStar(require("./types/book"), exports);
 // Supabase
 __exportStar(require("./supabase/client"), exports);
 __exportStar(require("./supabase/queries"), exports);
+__exportStar(require("./supabase/feed"), exports);
 // API
 __exportStar(require("./api/wikipedia"), exports);
 __exportStar(require("./api/apple-books"), exports);

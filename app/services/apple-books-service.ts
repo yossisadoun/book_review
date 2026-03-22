@@ -2,6 +2,20 @@ import type { Book } from '../types';
 import { fetchWithRetry } from './api-utils';
 import { isHebrew } from '../components/utils';
 
+// Canonical book ID for deduplicating search results
+function canonicalBookId(title: string, author: string): string {
+  const strip = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const primaryAuthor = (a: string) => {
+    let p = a.split(/\s+&\s+|\s+and\s+/i)[0];
+    const parts = p.split(',');
+    if (parts.length > 1 && parts[0].trim().includes(' ')) p = parts[0];
+    return p.trim();
+  };
+  const t = strip(title.toLowerCase().trim()).replace(/\s+/g, ' ').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+  const a = primaryAuthor(strip(author.toLowerCase().trim())).replace(/\s+/g, ' ').replace(/\.\s+/g, '.').replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+  return `${t}|${a}`;
+}
+
 export async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>[]> {
   try {
     // Use iTunes Search API to search for books (ebooks)
@@ -105,8 +119,17 @@ export async function lookupBooksOnAppleBooks(query: string): Promise<Omit<Book,
       };
     });
 
-    console.log(`[lookupBooksOnAppleBooks] ✅ Found ${books.length} books`);
-    return books;
+    // Deduplicate by canonical book ID (iTunes returns editions as separate results)
+    const seen = new Set<string>();
+    const deduped = books.filter(b => {
+      const key = canonicalBookId(b.title, b.author || '');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    console.log(`[lookupBooksOnAppleBooks] ✅ Found ${deduped.length} books (${books.length - deduped.length} duplicates removed)`);
+    return deduped;
   } catch (err) {
     console.error('[lookupBooksOnAppleBooks] ❌ Error searching Apple Books:', err);
     return [];

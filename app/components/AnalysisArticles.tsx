@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, MessageCircle, Send, Bookmark } from 'lucide-react';
+import { FileText, MessageCircle, Send, Bookmark, ChevronLeft, ChevronRight } from 'lucide-react';
 import { decodeHtmlEntities } from './utils';
 import { openSystemBrowser } from '@/lib/capacitor';
 import { analytics } from '../services/analytics-service';
@@ -170,9 +170,11 @@ const AnalysisArticles = React.memo(function AnalysisArticles({ articles, bookId
                   <p className="text-xs text-slate-500 dark:text-slate-400">Academic article about this book</p>
                 </div>
                 {articles.length > 1 && (
-                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex-shrink-0">
-                    {currentIndex + 1}/{articles.length}
-                  </span>
+                  <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={handlePrev} style={{ color: "#FF007B" }} className="p-0.5 rounded-full active:scale-90 transition-transform"><ChevronLeft size={14} /></button>
+                    <span style={{ color: "#FF007B" }} className="text-[11px] font-semibold">{currentIndex + 1}/{articles.length}</span>
+                    <button onClick={handleNext} style={{ color: "#FF007B" }} className="p-0.5 rounded-full active:scale-90 transition-transform"><ChevronRight size={14} /></button>
+                  </div>
                 )}
               </div>
 

@@ -8,6 +8,7 @@ import {
   Target, Zap, ArrowRight, Globe, Sparkles, Eye, Brain, Flame,
   Tag,
   Bookmark,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { analytics } from '../services/analytics-service';
 const frostedGlassStyle: React.CSSProperties = {
@@ -423,10 +424,10 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
                 {infoCard}
               </div>
               {totalCards > 1 && (
-                <div className="absolute top-3 right-4">
-                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                    {currentIndex + 1}/{totalCards}
-                  </span>
+                <div className="absolute top-3 right-4 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={handlePrev} style={{ color: "#FF007B" }} className="p-0.5 rounded-full active:scale-90 transition-transform"><ChevronLeft size={14} /></button>
+                  <span style={{ color: "#FF007B" }} className="text-[11px] font-semibold">{currentIndex + 1}/{totalCards}</span>
+                  <button onClick={handleNext} style={{ color: "#FF007B" }} className="p-0.5 rounded-full active:scale-90 transition-transform"><ChevronRight size={14} /></button>
                 </div>
               )}
             </motion.div>
@@ -454,9 +455,11 @@ function BookSummaryComponent({ summary, bookId, isLoading = false, infoCard, fi
                   <p className="text-xs text-slate-500 dark:text-slate-400">{card.subtitle}</p>
                 </div>
                 {totalCards > 1 && (
-                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex-shrink-0">
-                    {currentIndex + 1}/{totalCards}
-                  </span>
+                  <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={handlePrev} style={{ color: "#FF007B" }} className="p-0.5 rounded-full active:scale-90 transition-transform"><ChevronLeft size={14} /></button>
+                    <span style={{ color: "#FF007B" }} className="text-[11px] font-semibold">{currentIndex + 1}/{totalCards}</span>
+                    <button onClick={handleNext} style={{ color: "#FF007B" }} className="p-0.5 rounded-full active:scale-90 transition-transform"><ChevronRight size={14} /></button>
+                  </div>
                 )}
                 {onPin && (() => {
                   let pinContent = '';

@@ -19,6 +19,7 @@ function convertBookToApp(book) {
         podcast_episodes_grok: book.podcast_episodes_grok || undefined,
         podcast_episodes_apple: book.podcast_episodes_apple || undefined,
         podcast_episodes_curated: book.podcast_episodes_curated || undefined,
+        lists: book.lists || [],
     };
 }
 function convertBookToDb(book) {
@@ -46,6 +47,7 @@ function convertBookToDb(book) {
         podcast_episodes_apple: book.podcast_episodes_apple || null,
         podcast_episodes_curated: book.podcast_episodes_curated || null,
         notes: book.notes || null,
+        lists: book.lists || null,
     };
 }
 function calculateAvg(ratings) {

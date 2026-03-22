@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Film, Play, Disc3, MessageCircle, Send, X, Bookmark } from 'lucide-react';
+import { Film, Play, Disc3, MessageCircle, Send, X, Bookmark, ChevronLeft, ChevronRight } from 'lucide-react';
 import { decodeHtmlEntities, getAssetPath } from './utils';
 import { analytics } from '../services/analytics-service';
 import { isNativePlatform } from '@/lib/capacitor';
@@ -237,9 +237,11 @@ const RelatedMovies = React.memo(function RelatedMovies({ movies, bookId, isLoad
                   <p className="text-xs text-slate-500 dark:text-slate-400">Movies, shows & music related to this book</p>
                 </div>
                 {shuffledMovies.length > 1 && (
-                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex-shrink-0">
-                    {currentIndex + 1}/{shuffledMovies.length}
-                  </span>
+                  <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <button onClick={handlePrev} style={{ color: "#FF007B" }} className="p-0.5 rounded-full active:scale-90 transition-transform"><ChevronLeft size={14} /></button>
+                    <span style={{ color: "#FF007B" }} className="text-[11px] font-semibold">{currentIndex + 1}/{shuffledMovies.length}</span>
+                    <button onClick={handleNext} style={{ color: "#FF007B" }} className="p-0.5 rounded-full active:scale-90 transition-transform"><ChevronRight size={14} /></button>
+                  </div>
                 )}
               </div>
 

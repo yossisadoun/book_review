@@ -9,6 +9,20 @@ import { featureFlags } from '@/lib/feature-flags';
 import { isHebrew, getAssetPath } from './utils';
 import { isAndroid } from '@/lib/capacitor';
 
+// Canonical book ID for deduplicating search results
+function canonicalBookId(title: string, author: string): string {
+  const strip = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const primaryAuthor = (a: string) => {
+    let p = a.split(/\s+&\s+|\s+and\s+/i)[0];
+    const parts = p.split(',');
+    if (parts.length > 1 && parts[0].trim().includes(' ')) p = parts[0];
+    return p.trim();
+  };
+  const t = strip(title.toLowerCase().trim()).replace(/\s+/g, ' ').replace(/\s*\([^)]*\)\s*/g, ' ').replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+  const a = primaryAuthor(strip(author.toLowerCase().trim())).replace(/\s+/g, ' ').replace(/\.\s+/g, '.').replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+  return `${t}|${a}`;
+}
+
 interface PodcastEpisode {
   title: string;
   length?: string;
@@ -189,14 +203,15 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
           results.slice(0, 7).map(book => ({ ...book, source: 'apple_books' as const }))
         ).catch(() => []);
         if (controller.signal.aborted) return;
-        if (appleResults.length > 0) setSearchResults(appleResults);
-
-        const wikiResults = await onSearchWikipedia(query).then(results =>
-          results.slice(0, 7).map(book => ({ ...book, source: 'wikipedia' as const }))
-        ).catch(() => []);
-        if (controller.signal.aborted) return;
-        if (wikiResults.length > 0) {
-          setSearchResults(prev => [...prev, ...wikiResults]);
+        if (appleResults.length > 0) {
+          setSearchResults(appleResults);
+        } else {
+          // Fallback to Wikipedia only when Apple returns no results
+          const wikiResults = await onSearchWikipedia(query).then(results =>
+            results.slice(0, 7).map(book => ({ ...book, source: 'wikipedia' as const }))
+          ).catch(() => []);
+          if (controller.signal.aborted) return;
+          if (wikiResults.length > 0) setSearchResults(wikiResults);
         }
       } finally {
         if (!controller.signal.aborted) setLoading(false);
@@ -369,14 +384,17 @@ function AddBookSheet({ isOpen, onClose, onAdd, books, onSelectBook, onSelectGen
         results.slice(0, 7).map(book => ({ ...book, source: 'apple_books' as const }))
       ).catch(() => []);
       if (controller.signal.aborted) return;
-      if (appleResults.length > 0) setSearchResults(appleResults);
 
-      const wikiResults = await onSearchWikipedia(titleToSearch).then(results =>
-        results.slice(0, 7).map(book => ({ ...book, source: 'wikipedia' as const }))
-      ).catch(() => []);
-      if (controller.signal.aborted) return;
-      if (wikiResults.length > 0) {
-        setSearchResults(prev => [...prev, ...wikiResults]);
+      let wikiResults: typeof searchResults = [];
+      if (appleResults.length > 0) {
+        setSearchResults(appleResults);
+      } else {
+        // Fallback to Wikipedia only when Apple returns no results
+        wikiResults = await onSearchWikipedia(titleToSearch).then(results =>
+          results.slice(0, 7).map(book => ({ ...book, source: 'wikipedia' as const }))
+        ).catch(() => []);
+        if (controller.signal.aborted) return;
+        if (wikiResults.length > 0) setSearchResults(wikiResults);
       }
 
       const combinedResults = [...appleResults, ...wikiResults];

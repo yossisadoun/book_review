@@ -1,6 +1,7 @@
 export * from './types/book';
 export * from './supabase/client';
 export * from './supabase/queries';
+export * from './supabase/feed';
 export * from './api/wikipedia';
 export * from './api/apple-books';
 export * from './api/grok';

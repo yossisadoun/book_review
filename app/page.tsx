@@ -737,6 +737,7 @@ export default function App() {
   const headerPullRef = useRef<HTMLDivElement | null>(null);
   const [showAboutScreen, setShowAboutScreen] = useState(false);
   const [showDiscoverySwipe, setShowDiscoverySwipe] = useState(false);
+  const [discoveryToast, setDiscoveryToast] = useState<string | null>(null);
   const [showBookPageOnboarding, setShowBookPageOnboarding] = useState(() => {
     if (typeof window === 'undefined') return false;
     return !localStorage.getItem('hasSeenBookPageOnboarding');
@@ -775,7 +776,7 @@ export default function App() {
   const [createPostText, setCreatePostText] = useState('');
 
   // Remote feature flags
-  const [remoteFlags, setRemoteFlags] = useState<RemoteFeatureFlags>({ chat_enabled: false, create_post_enabled: false, related_work_play_buttons: false, commenting_enabled: false, send_enabled: false, show_grok_costs: false });
+  const [remoteFlags, setRemoteFlags] = useState<RemoteFeatureFlags>({ chat_enabled: false, create_post_enabled: false, related_work_play_buttons: false, commenting_enabled: false, send_enabled: false, show_grok_costs: false, discovery_swipe: false });
   useEffect(() => { getRemoteFeatureFlags().then(setRemoteFlags); }, []);
 
   // Book discussion state
@@ -2382,10 +2383,35 @@ export default function App() {
     }
   }, [user?.id]);
 
-  // Helper function to generate canonical book ID (matches database function)
+  // Helper function to generate canonical book ID (matches edge function)
   function generateCanonicalBookId(title: string, author: string): string {
-    const normalizedTitle = (title || '').toLowerCase().trim().replace(/\s+/g, ' ');
-    const normalizedAuthor = (author || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    const stripDiacritics = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    // Extract primary author only (before & / "and" / co-author comma)
+    const primaryAuthor = (a: string) => {
+      let primary = a.split(/\s+&\s+|\s+and\s+/i)[0];
+      const commaParts = primary.split(',');
+      if (commaParts.length > 1 && commaParts[0].trim().includes(' ')) {
+        primary = commaParts[0];
+      }
+      return primary.trim();
+    };
+
+    let normalizedTitle = stripDiacritics((title || '').toLowerCase().trim())
+      .replace(/\s+/g, ' ')
+      .replace(/\s*\([^)]*\)\s*/g, ' ')  // strip parentheticals
+      .replace(/-/g, ' ')                 // hyphens → spaces
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    let normalizedAuthor = stripDiacritics((author || '').toLowerCase().trim());
+    normalizedAuthor = primaryAuthor(normalizedAuthor)
+      .replace(/\s+/g, ' ')
+      .replace(/\.\s+/g, '.')             // collapse initial spacing
+      .replace(/-/g, ' ')                 // hyphens → spaces
+      .replace(/\s+/g, ' ')
+      .trim();
+
     return `${normalizedTitle}|${normalizedAuthor}`;
   }
 
@@ -2516,19 +2542,26 @@ export default function App() {
       // Check if user already has this book
       const { data: existingBook, error: checkError } = await supabase
         .from('books')
-        .select('id, title, author')
+        .select('id, title, author, cover_url')
         .eq('user_id', user.id)
         .eq('canonical_book_id', canonicalBookId)
         .maybeSingle();
       
       if (existingBook) {
+        // Update cover if the search result has a different one (user expects the cover they clicked)
+        if (meta.cover_url && meta.cover_url !== existingBook.cover_url) {
+          await supabase.from('books').update({ cover_url: meta.cover_url }).eq('id', existingBook.id);
+        }
+
         // Find the book in the current books array and navigate to it
         const existingBookIndex = books.findIndex(book => book.id === existingBook.id);
         if (existingBookIndex !== -1) {
-          // Book is already loaded, just navigate to it
+          // Update cover in local state too
+          if (meta.cover_url && meta.cover_url !== books[existingBookIndex].cover_url) {
+            setBooks(prev => prev.map((b, i) => i === existingBookIndex ? { ...b, cover_url: meta.cover_url! } : b));
+          }
           setSelectedIndex(existingBookIndex);
           setPendingBookMeta(null);
-          // Make sure we're on the books view (not bookshelf/notes)
           setShowBookshelfCovers(false);
           setShowNotesView(false);
         } else {
@@ -2538,7 +2571,7 @@ export default function App() {
             .select('*')
             .eq('user_id', user.id)
             .order('created_at', { ascending: false });
-          
+
           if (allBooks) {
             const appBooks = allBooks.map(convertBookToApp);
             setBooks(appBooks);
@@ -4202,6 +4235,7 @@ export default function App() {
             setShowBookshelfCovers={setShowBookshelfCovers}
             onDeleteBooks={handleBatchDeleteBooks}
             onShowDiscoverySwipe={() => setShowDiscoverySwipe(true)}
+            remoteFlags={remoteFlags}
           />
         ) : (
           <BookDetailView
@@ -4420,6 +4454,21 @@ export default function App() {
           >
             <Bookmark size={14} className="text-white fill-white flex-shrink-0" />
             <span className="text-xs text-white font-medium">Saved to For later</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Discovery swipe toast */}
+      <AnimatePresence>
+        {discoveryToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 rounded-full shadow-lg flex items-center gap-2"
+            style={{ background: 'rgba(30, 30, 30, 0.85)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
+          >
+            <span className="text-xs text-white font-medium whitespace-nowrap">{discoveryToast}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -4664,7 +4713,7 @@ export default function App() {
       )}
 
       {/* Unread chat badge — rendered outside glassmorphic nav to avoid blur */}
-      {unreadChatCounts.size > 0 && !viewingBookFromOtherUser && !(showChatPage && chatBookSelected) && chatNavButtonRef.current && createPortal(
+      {unreadChatCounts.size > 0 && !viewingBookFromOtherUser && !(showChatPage && chatBookSelected) && !showDiscoverySwipe && chatNavButtonRef.current && createPortal(
         <div
           className="pointer-events-none"
           style={{
@@ -5954,7 +6003,17 @@ export default function App() {
           <Suspense fallback={null}>
             <BookDiscoverySwipe
               isOpen={showDiscoverySwipe}
-              onClose={() => setShowDiscoverySwipe(false)}
+              onClose={(booksAdded) => {
+                setShowDiscoverySwipe(false);
+                if (booksAdded && booksAdded > 0) {
+                  setDiscoveryToast(`${booksAdded} book${booksAdded !== 1 ? 's' : ''} added`);
+                  setTimeout(() => setDiscoveryToast(null), 3000);
+                }
+              }}
+              onNotEnoughBooks={() => {
+                setDiscoveryToast('Not enough new books to sort right now');
+                setTimeout(() => setDiscoveryToast(null), 3000);
+              }}
               existingBookKeys={existingBookKeys}
               onAddBook={handleDiscoveryAddBook}
             />

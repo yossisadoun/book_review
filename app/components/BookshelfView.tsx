@@ -26,6 +26,7 @@ import ArrowAnimation from './ArrowAnimation';
 import { calculateAvg, calculateScore, getGradient } from '../services/book-utils';
 import { analytics } from '../services/analytics-service';
 import type { BookWithRatings } from '../types';
+import type { RemoteFeatureFlags } from '@/lib/remote-feature-flags';
 
 // --- Avatar gradient (duplicated from page.tsx to avoid import coupling) ---
 const AVATAR_GRADIENTS = [
@@ -145,6 +146,7 @@ export interface BookshelfViewProps {
 
   // Discovery swipe
   onShowDiscoverySwipe: () => void;
+  remoteFlags: RemoteFeatureFlags;
 }
 
 export default function BookshelfView({
@@ -191,6 +193,7 @@ export default function BookshelfView({
   setShowBookshelfCovers,
   onDeleteBooks,
   onShowDiscoverySwipe,
+  remoteFlags,
 }: BookshelfViewProps) {
   // --- State moved from page.tsx ---
   const [bookshelfGrouping, setBookshelfGrouping] = useState<'reading_status' | 'added' | 'rating' | 'title' | 'author' | 'genre' | 'publication_year' | 'list'>(() => {
@@ -837,12 +840,14 @@ export default function BookshelfView({
               {/* Discovery + Select / Done buttons */}
               {!viewingUserId && (
                 <div className="flex items-center gap-1">
-                  <button
-                    onClick={onShowDiscoverySwipe}
-                    className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
-                  >
-                    <BookCopy size={17} className="text-slate-600 dark:text-slate-400" />
-                  </button>
+                  {remoteFlags.discovery_swipe && (
+                    <button
+                      onClick={onShowDiscoverySwipe}
+                      className="w-8 h-8 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+                    >
+                      <BookCopy size={17} className="text-slate-600 dark:text-slate-400" />
+                    </button>
+                  )}
                   <button
                     onClick={() => {
                       if (isSelectMode) {
@@ -1461,62 +1466,50 @@ export default function BookshelfView({
       {/* Batch Delete Confirmation */}
       <AnimatePresence>
         {showDeleteConfirm && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm px-6"
-            onClick={() => { if (!isDeleting) setShowDeleteConfirm(false); }}
-          >
+          <>
             <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="w-full max-w-sm rounded-2xl overflow-hidden"
-              style={deleteConfirmBgStyle}
-              onClick={(e) => e.stopPropagation()}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[99]"
+              onClick={() => { if (!isDeleting) setShowDeleteConfirm(false); }}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 10 }}
+              transition={{ duration: 0.2 }}
+              className="fixed right-4 z-[100] rounded-xl overflow-hidden"
+              style={{ ...deleteConfirmBgStyle, bottom: 'calc(64px + var(--safe-area-bottom, 0px))' }}
             >
-              <div className="px-6 pt-6 pb-4 text-center">
-                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">
-                  <Trash2 size={22} className="text-red-500" />
-                </div>
-                <p className="text-base font-bold text-slate-950">
-                  Delete {selectedBookIds.size} book{selectedBookIds.size !== 1 ? 's' : ''}?
-                </p>
-                <p className="text-sm text-slate-500 mt-1">
-                  This will permanently remove {selectedBookIds.size === 1 ? 'this book' : 'these books'} from your bookshelf.
-                </p>
-              </div>
-              <div className="flex border-t border-slate-200/50 divide-x divide-slate-200/50">
-                <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  disabled={isDeleting}
-                  className="flex-1 py-3 text-sm font-semibold text-slate-600 active:bg-slate-100/50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={async () => {
-                    setIsDeleting(true);
-                    try {
-                      await onDeleteBooks(Array.from(selectedBookIds));
-                      setShowDeleteConfirm(false);
-                      setIsSelectMode(false);
-                      setSelectedBookIds(new Set());
-                    } finally {
-                      setIsDeleting(false);
-                    }
-                  }}
-                  disabled={isDeleting}
-                  className="flex-1 py-3 text-sm font-bold text-red-500 active:bg-red-50/50 transition-colors"
-                >
-                  {isDeleting ? 'Deleting...' : 'Delete'}
-                </button>
-              </div>
+              <button
+                onClick={async () => {
+                  setIsDeleting(true);
+                  try {
+                    await onDeleteBooks(Array.from(selectedBookIds));
+                    setShowDeleteConfirm(false);
+                    setIsSelectMode(false);
+                    setSelectedBookIds(new Set());
+                  } finally {
+                    setIsDeleting(false);
+                  }
+                }}
+                disabled={isDeleting}
+                className="flex items-center gap-2 px-4 py-3 w-full text-left text-red-600 font-semibold text-sm hover:bg-white/30 active:scale-95 transition-all"
+              >
+                <Trash2 size={16} />
+                {isDeleting ? 'Deleting...' : `Delete ${selectedBookIds.size} Book${selectedBookIds.size !== 1 ? 's' : ''}`}
+              </button>
+              <div className="h-px bg-slate-200/50" />
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={isDeleting}
+                className="flex items-center gap-2 px-4 py-3 w-full text-left text-slate-700 font-medium text-sm hover:bg-white/30 active:scale-95 transition-all"
+              >
+                Cancel
+              </button>
             </motion.div>
-          </motion.div>
+          </>
         )}
       </AnimatePresence>
 

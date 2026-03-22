@@ -96,6 +96,7 @@ export interface Book {
     podcast_episodes_apple?: PodcastEpisode[] | null;
     podcast_episodes_curated?: PodcastEpisode[] | null;
     notes?: string | null;
+    lists?: string[] | null;
     created_at: string;
     updated_at: string;
 }
@@ -114,5 +115,6 @@ export interface BookWithRatings extends Omit<Book, 'rating_writing' | 'rating_i
     podcast_episodes_apple?: PodcastEpisode[];
     podcast_episodes_curated?: PodcastEpisode[];
     notes?: string | null;
+    lists?: string[] | null;
 }
 export type BookInput = Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at'>;

@@ -2,63 +2,20 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { X, BookOpen, Check, BookmarkPlus, SkipForward } from 'lucide-react';
-import Lottie from 'lottie-react';
-import refreshAnimation from '@/public/refresh.json';
 import { triggerLightHaptic, triggerMediumHaptic, triggerSuccessHaptic } from '@/lib/capacitor';
 import { getGradient } from '../services/book-utils';
 import RatingStars from './RatingStars';
+import TransitionScreen from './TransitionScreen';
 import { DISCOVERY_BOOKS, type DiscoveryBook } from '../data/discovery-books';
+import { grokApiKey } from '../services/api-utils';
 import type { ReadingStatus, Book } from '../types';
 
 export type BookMeta = Omit<Book, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'rating_writing' | 'rating_insights' | 'rating_flow' | 'rating_world' | 'rating_characters'>;
 
-/** Full-screen glassmorphic overlay with centered Lottie loader. Reusable transition screen. Stays visible for at least 0.5s. */
-export function LoadingOverlay({ visible, fadingOut }: { visible: boolean; fadingOut?: boolean }) {
-  const [show, setShow] = useState(false);
-  const showAtRef = useRef(0);
-
-  const [exiting, setExiting] = useState(false);
-
-  useEffect(() => {
-    if (visible) {
-      setShow(true);
-      setExiting(false);
-      showAtRef.current = Date.now();
-    } else if (show && !exiting) {
-      const elapsed = Date.now() - showAtRef.current;
-      const remaining = Math.max(0, 500 - elapsed);
-      const t = setTimeout(() => {
-        setExiting(true);
-        // Remove after slide-up animation completes
-        setTimeout(() => { setShow(false); setExiting(false); }, 400);
-      }, remaining);
-      return () => clearTimeout(t);
-    }
-  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!show) return null;
-  return (
-    <div
-      className="fixed inset-0 z-[80] flex items-center justify-center transition-transform duration-400"
-      style={{
-        background: 'rgba(255, 255, 255, 0.6)',
-        backdropFilter: 'blur(9.4px)',
-        WebkitBackdropFilter: 'blur(9.4px)',
-        border: '1px solid rgba(255, 255, 255, 0.3)',
-        transform: exiting ? 'translateY(-100%)' : 'translateY(0)',
-        transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-      }}
-    >
-      <div style={{ animation: 'discoveryFadeIn 0.3s ease-out' }}>
-        <Lottie animationData={refreshAnimation} loop autoplay style={{ width: 80, height: 80 }} />
-      </div>
-    </div>
-  );
-}
-
 export interface BookDiscoverySwipeProps {
   isOpen: boolean;
-  onClose: () => void;
+  onClose: (booksAdded?: number) => void;
+  onNotEnoughBooks?: () => void;
   existingBookKeys: Set<string>;
   onAddBook: (meta: BookMeta, readingStatus: ReadingStatus, rating?: number | null) => Promise<void>;
 }
@@ -127,7 +84,6 @@ const KEYFRAMES_CSS = `
   100% { transform: translateY(0) rotate(0deg); }
 }
 .shelf-celebrate .shelf-book { animation: shelfBounceLoop 1.3s ease infinite; }
-.shelf-celebrate .shelf-board { animation: shelfTiltLoop 1.3s ease infinite; transform-origin: 50% 50%; }
 @keyframes shelfTilt {
   0% { transform: translateY(0) rotate(0deg); }
   20% { transform: translateY(-4px) rotate(10deg); }
@@ -149,13 +105,109 @@ const KEYFRAMES_CSS = `
   from { opacity: 0; transform: scale(0.9); }
   to { opacity: 1; transform: scale(1); }
 }
+@keyframes markerPop {
+  0% { transform: scale(0) translate(-50%, -50%); opacity: 0; }
+  60% { transform: scale(1.4) translate(-50%, -50%); opacity: 1; }
+  100% { transform: scale(1) translate(-50%, -50%); opacity: 1; }
+}
+@keyframes markerFlash {
+  0% { width: 10px; height: 10px; }
+  40% { width: 26px; height: 26px; }
+  100% { width: 20px; height: 20px; }
+}
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
 .shelf-book-newest { animation-name: bookBounceIn; animation-duration: 0.4s; animation-timing-function: ease; }
 .shelf-tapped .shelf-book { animation-name: shelfBookBounce; animation-duration: 0.4s; animation-timing-function: ease; }
-.shelf-tapped .shelf-board { animation-name: shelfTilt; animation-duration: 0.4s; animation-timing-function: ease; transform-origin: 50% 50%; }
 `;
 
 // Number of images to render in the DOM stack (pre-decoded and ready)
 const STACK_SIZE = 5;
+const ANALYSIS_GOAL_HIGH = 13;
+const ANALYSIS_GOAL_LOW = 10;
+
+interface SortedChoice {
+  title: string;
+  author: string;
+  action: 'read' | 'want' | 'skip';
+  rating?: number | null;
+}
+
+interface TasteAnalysisResult {
+  summary: string;
+  recommendation: { title: string; author: string };
+}
+
+async function fetchTasteAnalysis(choices: SortedChoice[]): Promise<TasteAnalysisResult | null> {
+  if (!grokApiKey) return null;
+  const lines = choices.map(c => {
+    if (c.action === 'read') return `"${c.title}" by ${c.author} → read it, rated ${c.rating ?? 'no rating'}/5`;
+    if (c.action === 'want') return `"${c.title}" by ${c.author} → want to read`;
+    return `"${c.title}" by ${c.author} → not added to reading list`;
+  }).join('\n');
+
+  const systemPrompt = `You are a literary expert with strong taste in books, able to quickly identify patterns in reading preferences and express them in a sharp, human, editorial voice.`;
+
+  const userPrompt = `Here are a user's book sorting choices:\n${lines}\n\nYour task:
+- Infer 1 clear taste pattern and 1 contrast (what they like vs avoid)
+- Optionally anchor it with:
+  (a) a short quote (5–12 words) from a highly rated book, OR
+  (b) a reference like "very {author/character} energy"
+- Recommend exactly 1 book that feels adjacent to their taste
+
+Constraints:
+- 1–2 sentences total
+- under 60 words
+- natural, casual, perceptive (not robotic, not generic)
+
+Required format (strict JSON, no extra text):
+
+{
+  "summary": "Based on your picks, you {pattern} more than {contrast}—{quote or voice reference}. You should really try {BOOK} by {AUTHOR}.",
+  "recommendation": {
+    "title": "string",
+    "author": "string"
+  }
+}
+
+Guidelines:
+- Do not restate genres plainly
+- Prefer tone, pacing, emotional depth, accessibility, ambition
+- Use "you seem to" / "you lean toward" (not absolute claims)
+- Only use quotes from 4–5★ books
+- If no good quote exists, use author/character voice instead
+- Recommendation must clearly connect to the pattern
+- Output must be valid JSON only (no markdown, no explanation)`;
+
+  try {
+    const res = await fetch('https://api.x.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${grokApiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'grok-3-fast',
+        stream: false,
+        temperature: 0.8,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+    });
+    const data = await res.json();
+    const raw = data?.choices?.[0]?.message?.content?.trim();
+    if (!raw) return null;
+    // Strip markdown code fences if present
+    const cleaned = raw.replace(/^```json?\s*/i, '').replace(/\s*```$/i, '');
+    return JSON.parse(cleaned) as TasteAnalysisResult;
+  } catch {
+    return null;
+  }
+}
 
 type PileTarget = 'skip' | 'read' | 'want';
 // "no" pause mode: user said No, we ask "Add to bookshelf?"
@@ -249,7 +301,8 @@ const BookPile = React.memo(function BookPile({ count, books, celebrate }: { pil
 
   const handleTap = () => {
     setTapped(true);
-    setTimeout(() => setTapped(false), 450);
+    const duration = 400 + visible.length * 40;
+    setTimeout(() => setTapped(false), duration);
   };
 
   const hasNewest = books.length > animatedCount;
@@ -335,6 +388,7 @@ function CountUp({ target, duration = 1000 }: { target: number; duration?: numbe
 const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
   isOpen,
   onClose,
+  onNotEnoughBooks,
   existingBookKeys,
   onAddBook,
 }: BookDiscoverySwipeProps) {
@@ -350,11 +404,23 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
   const [showIntro, setShowIntro] = useState(true);
   const [introExiting, setIntroExiting] = useState(false);
   const [firstCardEntrance, setFirstCardEntrance] = useState(true);
+  const [revealPhase, setRevealPhase] = useState<'idle' | 'elements-in' | 'done'>('idle');
+  const [barTooltip, setBarTooltip] = useState<string | null>(null);
   const [showSummary, setShowSummary] = useState(false);
   const [showDoneMessage, setShowDoneMessage] = useState(false);
   const [closing, setClosing] = useState(false);
   const [showClosingLoader, setShowClosingLoader] = useState(false);
   const [fadingOut, setFadingOut] = useState(false);
+  const [sortedChoices, setSortedChoices] = useState<SortedChoice[]>([]);
+  const [tasteAnalysis, setTasteAnalysis] = useState<TasteAnalysisResult | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [canUndo, setCanUndo] = useState(false);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastActionRef = useRef<{ target: PileTarget; book: DiscoveryBook } | null>(null);
+  const [swipeHighlight, setSwipeHighlight] = useState<'yes' | 'no' | null>(null);
+  const [swipeX, setSwipeX] = useState(0);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const swipingRef = useRef(false);
 
   const noBtnRef = useRef<HTMLButtonElement>(null);
   const yesBtnRef = useRef<HTMLButtonElement>(null);
@@ -371,6 +437,12 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
         const key = generateCanonicalBookId(book.title, book.author);
         return !existingBookKeys.has(key);
       });
+      if (filtered.length < 5) {
+        onClose();
+        onNotEnoughBooks?.();
+        prevIsOpenRef.current = isOpen;
+        return;
+      }
       setSessionBooks(filtered.slice(0, MAX_ROUND_BOOKS));
       setProcessedCount(0);
       setPileCounts({ skip: 0, read: 0, want: 0 });
@@ -388,6 +460,9 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
       setClosing(false);
       setShowClosingLoader(false);
       setFadingOut(false);
+      setSortedChoices([]);
+      setTasteAnalysis(null);
+      setAnalysisLoading(false);
 
       // Preload first 5 covers (3 for explainer fan + first stack cards), then mark ready
       const urlsToPreload = filtered.slice(0, 5)
@@ -411,10 +486,42 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
 
   const currentBook = sessionBooks[processedCount] || null;
   const remainingCount = sessionBooks.length - processedCount;
+  const ratedCount = sortedChoices.length;
+  const totalBooks = sessionBooks.length;
+  const ANALYSIS_GOAL = totalBooks < 15 ? ANALYSIS_GOAL_LOW : ANALYSIS_GOAL_HIGH;
+  const goalReached = ratedCount >= ANALYSIS_GOAL;
+
+  // Show bar tooltip every 3 books
+  useEffect(() => {
+    if (ratedCount === 0 || revealPhase !== 'done') return;
+    if (ratedCount === ANALYSIS_GOAL && totalBooks >= ANALYSIS_GOAL) {
+      setBarTooltip('Taste profile unlocked!');
+      const t = setTimeout(() => setBarTooltip(null), 2500);
+      return () => clearTimeout(t);
+    }
+    if (ratedCount >= totalBooks) {
+      setBarTooltip('All sorted!');
+      const t = setTimeout(() => setBarTooltip(null), 2500);
+      return () => clearTimeout(t);
+    }
+    if (ratedCount % 3 === 0) {
+      const remaining = totalBooks - ratedCount;
+      const toMilestone = ANALYSIS_GOAL - ratedCount;
+      let msg: string;
+      if (!goalReached && totalBooks >= ANALYSIS_GOAL && toMilestone > 0) {
+        msg = `${toMilestone} more to unlock your taste profile`;
+      } else {
+        msg = `${remaining} to go!`;
+      }
+      setBarTooltip(msg);
+      const t = setTimeout(() => setBarTooltip(null), 2500);
+      return () => clearTimeout(t);
+    }
+  }, [ratedCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show "done" message then transition to summary when all books are processed
   useEffect(() => {
-    if (sessionBooks.length > 0 && processedCount >= sessionBooks.length && !showIntro && !pendingBook && !showSummary && !showDoneMessage) {
+    if (sessionBooks.length > 0 && processedCount >= sessionBooks.length && !showIntro && !pendingBook && !showSummary && !showDoneMessage && !showClosingLoader && !closing) {
       // Phase 1: show "ALL DONE SORTING!" message
       const t1 = setTimeout(() => setShowDoneMessage(true), 400);
       return () => clearTimeout(t1);
@@ -423,7 +530,7 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
 
   // Transition from done message to summary
   useEffect(() => {
-    if (showDoneMessage && !showSummary) {
+    if (showDoneMessage && !showSummary && !showClosingLoader && !closing) {
       const t = setTimeout(() => {
         setShowDoneMessage(false);
         setShowSummary(true);
@@ -431,6 +538,17 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
       return () => clearTimeout(t);
     }
   }, [showDoneMessage, showSummary]);
+
+  // Fetch taste analysis when summary shows and goal reached
+  useEffect(() => {
+    if (showSummary && sortedChoices.length >= ANALYSIS_GOAL && !tasteAnalysis && !analysisLoading) {
+      setAnalysisLoading(true);
+      fetchTasteAnalysis(sortedChoices).then(result => {
+        setTasteAnalysis(result);
+        setAnalysisLoading(false);
+      });
+    }
+  }, [showSummary, sortedChoices, tasteAnalysis, analysisLoading]);
 
   // Build the pre-rendered image stack
   const stackBooks: (DiscoveryBook | null)[] = [];
@@ -466,7 +584,37 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
     }
     setFlyingBook(null);
     setProcessedCount(prev => prev + 1);
+    // Enable undo
+    lastActionRef.current = { target, book };
+    setCanUndo(true);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    undoTimerRef.current = setTimeout(() => setCanUndo(false), 4000);
   }, [addBookToPile]);
+
+  const handleUndo = useCallback(() => {
+    const last = lastActionRef.current;
+    if (!last) return;
+    // Revert processedCount
+    setProcessedCount(prev => Math.max(0, prev - 1));
+    // Remove from sortedChoices
+    setSortedChoices(prev => prev.slice(0, -1));
+    // Remove from pile
+    if (last.target !== 'skip') {
+      setPileCounts(prev => ({ ...prev, [last.target]: Math.max(0, prev[last.target] - 1) }));
+      setPileBooks(prev => ({
+        ...prev,
+        [last.target]: prev[last.target].slice(0, -1),
+      }));
+    }
+    // Clear undo state
+    lastActionRef.current = null;
+    setCanUndo(false);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    // Reset any pending/done states that may have triggered
+    setShowDoneMessage(false);
+    setPendingBook(null);
+    setPauseMode(null);
+  }, []);
 
   const animateAndAdvance = useCallback((target: PileTarget, book: DiscoveryBook, onDone?: () => void) => {
     setFlyingBook(book);
@@ -481,6 +629,7 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
   // "Yes" — user read it, show rating
   const handleYes = useCallback((book: DiscoveryBook) => {
     triggerSuccessHaptic();
+    setCanUndo(false);
     setPendingBook(book);
     setPauseMode('rating');
   }, []);
@@ -488,6 +637,7 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
   // "No" — user didn't read it, ask "Add to bookshelf?"
   const handleNo = useCallback((book: DiscoveryBook) => {
     triggerLightHaptic();
+    setCanUndo(false);
     setPendingBook(book);
     setPauseMode('save_for_later');
   }, []);
@@ -496,6 +646,7 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
   const handleRatingComplete = useCallback(async (_dimension: string, value: number | null) => {
     if (!pendingBook) return;
     const book = pendingBook;
+    setSortedChoices(prev => [...prev, { title: book.title, author: book.author, action: 'read', rating: value }]);
     setPauseMode(null);
     setFlyingBook(book);
     setAnimatingTo('read');
@@ -511,6 +662,7 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
   const handleSaveForLater = useCallback(async () => {
     if (!pendingBook) return;
     const book = pendingBook;
+    setSortedChoices(prev => [...prev, { title: book.title, author: book.author, action: 'want' }]);
     setPauseMode(null);
     triggerMediumHaptic();
     setFlyingBook(book);
@@ -527,6 +679,7 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
   const handleSkipFromSave = useCallback(() => {
     if (!pendingBook) return;
     const book = pendingBook;
+    setSortedChoices(prev => [...prev, { title: book.title, author: book.author, action: 'skip' }]);
     setPauseMode(null);
     setFlyingBook(book);
     setAnimatingTo('skip');
@@ -548,14 +701,15 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
       setTimeout(() => {
         // Phase 3: fade out entire overlay
         setFadingOut(true);
-        setTimeout(onClose, 500);
+        const added = pileCounts.want + pileCounts.read;
+        setTimeout(() => onClose(added), 500);
       }, 1200);
     }, 500);
-  }, [onClose]);
+  }, [onClose, pileCounts]);
 
   const handleCloseNoBooks = useCallback(() => {
     setFadingOut(true);
-    setTimeout(onClose, 500);
+    setTimeout(() => onClose(0), 500);
   }, [onClose]);
 
   const getAnimationTarget = useCallback((target: PileTarget) => {
@@ -577,6 +731,51 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
   const displayBook = flyingBook || (isPaused ? (pendingBook || currentBook) : currentBook);
   const isInteractive = !animatingTo && !isPaused;
 
+  const SWIPE_THRESHOLD = 80;
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!isInteractive || !currentBook) return;
+    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    swipingRef.current = false;
+    setSwipeX(0);
+    setSwipeHighlight(null);
+  }, [isInteractive, currentBook]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current || !isInteractive) return;
+    const dx = e.touches[0].clientX - touchStartRef.current.x;
+    const dy = e.touches[0].clientY - touchStartRef.current.y;
+    // Only swipe if horizontal movement dominates
+    if (!swipingRef.current && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+      swipingRef.current = true;
+    }
+    if (!swipingRef.current) return;
+    e.preventDefault();
+    setSwipeX(dx);
+    if (dx > SWIPE_THRESHOLD) setSwipeHighlight('yes');
+    else if (dx < -SWIPE_THRESHOLD) setSwipeHighlight('no');
+    else setSwipeHighlight(null);
+  }, [isInteractive]);
+
+  const handleTouchEnd = useCallback(() => {
+    if (!swipingRef.current || !currentBook) {
+      touchStartRef.current = null;
+      setSwipeX(0);
+      setSwipeHighlight(null);
+      return;
+    }
+    if (swipeX > SWIPE_THRESHOLD) {
+      handleYes(currentBook);
+    } else if (swipeX < -SWIPE_THRESHOLD) {
+      handleNo(currentBook);
+    }
+    touchStartRef.current = null;
+    swipingRef.current = false;
+    setSwipeX(0);
+    // Keep highlight briefly for visual feedback
+    setTimeout(() => setSwipeHighlight(null), 300);
+  }, [swipeX, currentBook, handleYes, handleNo]);
+
   // Card transform for the top card only
   let topCardTransform = 'translate3d(0, 0, 0) scale(1)';
   let topCardOpacity = 1;
@@ -592,8 +791,11 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
   } else if (isPaused) {
     const pauseTarget = pauseMode === 'save_for_later' ? 'want' : 'read';
     const target = getAnimationTarget(pauseTarget);
-    topCardTransform = `translate3d(${target.x * 0.15}px, ${target.y * 0.12}px, 0) scale(0.55)`;
+    topCardTransform = `translate3d(0, ${target.y * 0.12}px, 0) scale(0.55)`;
     topCardOpacity = 1;
+  } else if (swipeX !== 0) {
+    const rotation = swipeX * 0.08;
+    topCardTransform = `translate3d(${swipeX}px, 0, 0) rotate(${rotation}deg) scale(1)`;
   }
 
   return (
@@ -611,29 +813,87 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
         <link key={url} rel="preload" as="image" href={url} />
       ))}
 
-      <div className="fixed inset-0" style={overlayBgStyle} />
+      {!showClosingLoader && <div className="fixed inset-0" style={overlayBgStyle} />}
+
+      {/* Close button */}
+      {!showSummary && !showIntro && !showDoneMessage && !showClosingLoader && (revealPhase === 'elements-in' || revealPhase === 'done') && (
+        <button
+          onClick={() => {
+            if (pileCounts.want > 0 || pileCounts.read > 0) {
+              setShowSummary(true);
+            } else {
+              handleCloseNoBooks();
+            }
+          }}
+          className="absolute right-4 z-20 w-8 h-8 rounded-full bg-white/80 backdrop-blur-md border border-white/30 active:scale-95 transition-all flex items-center justify-center shadow-sm"
+          style={{ top: 55, animation: 'ratingFadeUp 0.3s ease-out' }}
+        >
+          <X size={16} className="text-slate-700" />
+        </button>
+      )}
+
+      {/* Goal bar or simple counter */}
+      {!showSummary && !showIntro && !showDoneMessage && !showClosingLoader && (revealPhase === 'elements-in' || revealPhase === 'done') && (
+        totalBooks >= 5 ? (
+          <div className="relative z-10 px-16" style={{ paddingTop: 93 }}>
+            {/* Tooltip above bar — absolutely positioned so it doesn't push bar down */}
+            {barTooltip && (
+              <div
+                className="absolute left-0 right-0 flex justify-center"
+                style={{ top: 55, animation: 'ratingFadeUp 0.25s ease-out' }}
+              >
+                <div
+                  className="px-4 py-1.5 rounded-full shadow-lg text-xs text-white font-medium whitespace-nowrap"
+                  style={{
+                    background: 'rgba(30, 30, 30, 0.85)',
+                    backdropFilter: 'blur(12px)',
+                    WebkitBackdropFilter: 'blur(12px)',
+                  }}
+                >
+                  {barTooltip}
+                </div>
+              </div>
+            )}
+            <div className="flex justify-center">
+              <div className="relative h-1.5 rounded-full bg-white overflow-visible" style={{ width: 200 }}>
+                <div
+                  className="h-full rounded-full transition-all duration-500 ease-out"
+                  style={{
+                    width: `${Math.min(100, (ratedCount / totalBooks) * 100)}%`,
+                    background: '#FF007B',
+                  }}
+                />
+                {totalBooks >= ANALYSIS_GOAL && (
+                  <div key={goalReached ? 'reached' : 'pending'} className={`absolute top-0 left-0 rounded-full border-2 border-white`} style={{ left: `${(ANALYSIS_GOAL / totalBooks) * 100}%`, top: '50%', transformOrigin: '0 0', background: '#FF007B', width: 10, height: 10, animation: goalReached ? 'markerPop 0.4s ease-out forwards, markerFlash 0.5s ease-out 0.1s forwards' : 'markerPop 0.4s ease-out forwards' }} />
+                )}
+              </div>
+            </div>
+          </div>
+        ) : remainingCount > 0 ? (
+          <p className="relative z-10 text-[10px] text-slate-400 font-semibold text-center" style={{ paddingTop: 80 }}>
+            {remainingCount} book{remainingCount !== 1 ? 's' : ''} left to sort
+          </p>
+        ) : null
+      )}
 
       {/* Header — centered with close button absolutely positioned */}
-      {!showSummary && !showIntro && !showDoneMessage && (
-        <div className="relative z-10 flex items-center justify-center px-4" style={{ paddingBottom: 0, paddingTop: 80 }}>
-          <div className="text-center">
-            <h2 className="text-lg font-bold text-slate-950 uppercase">Have You Read It?</h2>
-            {!showIntro && remainingCount > 0 && (
-              <p className="text-xs text-slate-500">{remainingCount} books left</p>
+      {!showSummary && !showIntro && !showDoneMessage && !showClosingLoader && (revealPhase === 'elements-in' || revealPhase === 'done') && (
+        <div className="relative z-10 flex items-center justify-center px-4 mt-10" style={{ animation: 'ratingFadeUp 0.4s ease-out 0.1s both' }}>
+          <div className="text-center max-w-[272px]">
+            {displayBook ? (
+              <>
+                <h2 className="text-lg font-bold text-slate-950 truncate">{displayBook.title}</h2>
+                <p className="text-sm text-slate-800 mt-1 truncate">{displayBook.author}</p>
+                {displayBook.publish_year && (
+                  <p className="text-xs text-slate-500 mt-0.5">{displayBook.publish_year}</p>
+                )}
+              </>
+            ) : (
+              <>
+                <h2 className="text-lg font-bold text-slate-950 uppercase">Have You Read It?</h2>
+              </>
             )}
           </div>
-          <button
-            onClick={() => {
-              if (pileCounts.want > 0 || pileCounts.read > 0) {
-                setShowSummary(true);
-              } else {
-                handleCloseNoBooks();
-              }
-            }}
-            className="absolute right-4 top-14 w-8 h-8 rounded-full bg-white/80 backdrop-blur-md border border-white/30 active:scale-95 transition-all flex items-center justify-center shadow-sm"
-          >
-            <X size={16} className="text-slate-700" />
-          </button>
         </div>
       )}
 
@@ -686,7 +946,14 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
             </p>
 
             <button
-              onClick={() => { setIntroExiting(true); setTimeout(() => setShowIntro(false), 300); }}
+              onClick={() => {
+                setIntroExiting(true);
+                setTimeout(() => {
+                  setShowIntro(false);
+                  setRevealPhase('elements-in');
+                  setTimeout(() => setRevealPhase('done'), 600);
+                }, 300);
+              }}
               className="mt-8 px-10 py-3 rounded-full font-bold text-sm text-white active:scale-95 transition-all"
               style={{
                 background: 'rgba(59, 130, 246, 0.85)',
@@ -703,19 +970,19 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
 
 
         {/* "All done" transition message */}
-        {showDoneMessage && (
+        {showDoneMessage && !showClosingLoader && (
           <div
-            className="flex flex-col items-center text-center"
+            className="absolute inset-0 flex items-center justify-center"
             style={{ animation: 'ratingFadeUp 0.4s ease-out' }}
           >
             <h3 className="text-xl font-bold text-slate-950 uppercase tracking-wide">
-              All done sorting!
+              Great job sorting!
             </h3>
           </div>
         )}
 
         {/* Summary screen */}
-        {showSummary && (
+        {showSummary && !showClosingLoader && (
           <div
             className="flex flex-col items-center text-center transition-all duration-500"
             style={{
@@ -724,26 +991,45 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
               transform: closing ? 'scale(0.95)' : undefined,
             }}
           >
-            <h3 className="text-xl font-bold text-slate-950 mb-1">Your bookshelf is ready!</h3>
-            <p className="text-sm text-slate-500 mb-8">Here's what we added</p>
+            <h3 className="text-xl font-bold text-slate-950 mb-1 uppercase tracking-wide">Your Bookshelf Is Ready!</h3>
 
+            {/* Taste analysis — always reserve space when goal reached */}
+            {goalReached && (
+              <div className="mb-6 mt-4 mx-4 max-w-[300px] min-h-[60px]" style={{ animation: 'ratingFadeUp 0.4s ease-out 0.2s both' }}>
+                <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-widest mb-2 text-center">Your Reading Taste</p>
+                {analysisLoading && !tasteAnalysis && (
+                  <div className="flex flex-col items-center gap-2 w-full">
+                    <div className="w-full h-3 bg-slate-300/50 rounded-full" style={{ animation: 'skeletonPulse 2s ease-in-out infinite' }} />
+                    <div className="w-[80%] h-3 bg-slate-300/50 rounded-full" style={{ animation: 'skeletonPulse 2s ease-in-out infinite 0.3s' }} />
+                    <div className="w-[60%] h-3 bg-slate-300/50 rounded-full" style={{ animation: 'skeletonPulse 2s ease-in-out infinite 0.6s' }} />
+                  </div>
+                )}
+                {tasteAnalysis && (
+                  <div className="flex flex-col items-center gap-2">
+                    <p className="text-sm text-slate-700 leading-relaxed italic">
+                      {tasteAnalysis.summary}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p className="text-sm text-slate-500 mb-4">Here's what we added</p>
             <div className="flex items-end justify-center gap-8">
               {pileCounts.want > 0 && (
-                <div className="flex flex-col items-center" style={{ animation: 'ratingFadeUp 0.4s ease-out 0.2s both' }}>
-                  <p className="text-6xl font-bold text-slate-950 leading-none">
-                    <CountUp target={pileCounts.want} />
-                  </p>
-                  <p className="text-[10px] text-slate-400 -mb-8">{pileCounts.want === 1 ? 'book' : 'books'}</p>
+                <div className="relative flex flex-col items-center" style={{ animation: 'ratingFadeUp 0.4s ease-out 0.4s both' }}>
+                  <div className="absolute bottom-[140px] left-1/2 -translate-x-1/2 w-10 h-10 rounded-full flex items-center justify-center z-10" style={{ background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255,255,255,0.4)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                    <span className="text-lg font-bold text-slate-950">{pileCounts.want}</span>
+                  </div>
                   <BookPile pile="want" count={pileCounts.want} books={pileBooks.want} celebrate />
                   <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-widest mt-1 whitespace-nowrap">Want to read</p>
                 </div>
               )}
               {pileCounts.read > 0 && (
-                <div className="flex flex-col items-center" style={{ animation: 'ratingFadeUp 0.4s ease-out 0.4s both' }}>
-                  <p className="text-6xl font-bold text-slate-950 leading-none">
-                    <CountUp target={pileCounts.read} duration={1200} />
-                  </p>
-                  <p className="text-[10px] text-slate-400 -mb-8">{pileCounts.read === 1 ? 'book' : 'books'}</p>
+                <div className="relative flex flex-col items-center" style={{ animation: 'ratingFadeUp 0.4s ease-out 0.6s both' }}>
+                  <div className="absolute bottom-[140px] left-1/2 -translate-x-1/2 w-10 h-10 rounded-full flex items-center justify-center z-10" style={{ background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255,255,255,0.4)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                    <span className="text-lg font-bold text-slate-950">{pileCounts.read}</span>
+                  </div>
                   <BookPile pile="read" count={pileCounts.read} books={pileBooks.read} celebrate />
                   <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-widest mt-1 whitespace-nowrap">Read already</p>
                 </div>
@@ -770,13 +1056,19 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
         )}
 
         {/* Card stack — ALL images pre-rendered in DOM, stacked via z-index */}
-        {!showIntro && !showSummary && !showClosingLoader && coversReady && displayBook && (
+        {!showIntro && !showSummary && !showClosingLoader && coversReady && displayBook && (revealPhase === 'elements-in' || revealPhase === 'done') && (
           <div
             className="relative z-20 flex flex-col items-center"
-            style={firstCardEntrance ? { animation: 'ratingFadeUp 0.5s ease-out' } : undefined}
+            style={firstCardEntrance ? { animation: 'ratingFadeUp 0.5s ease-out 0.2s both' } : undefined}
             onAnimationEnd={firstCardEntrance ? () => setFirstCardEntrance(false) : undefined}
           >
-            <div className="relative w-[200px] h-[300px]" ref={cardRef}>
+            <div
+              className="relative w-[200px] h-[300px]"
+              ref={cardRef}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
               {stackBooks.map((book, i) => {
                 if (!book) return null;
                 const isTop = i === 0;
@@ -836,15 +1128,23 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
                 );
               })}
             </div>
+            {/* Undo pill — overlaid at bottom of cover */}
+            {isPaused && pendingBook && (
+              <div className="w-[200px] flex justify-center" style={{ marginTop: -40, zIndex: STACK_SIZE + 1, position: 'relative' }}>
+                <button
+                  onClick={() => { setPauseMode(null); setPendingBook(null); }}
+                  className="px-4 py-1.5 rounded-full text-xs font-bold text-slate-700 active:scale-95 transition-all"
+                  style={{ background: 'rgba(255, 255, 255, 0.6)', backdropFilter: 'blur(9.4px)', WebkitBackdropFilter: 'blur(9.4px)', border: '1px solid rgba(255, 255, 255, 0.3)', animation: 'ratingFadeUp 0.25s ease-out 0.35s both' }}
+                >
+                  Undo
+                </button>
+              </div>
+            )}
 
-            {/* Title + Author */}
+            {/* "Have You Read It?" */}
             {!isPaused && (
-              <div className="mt-4 text-center max-w-[272px]">
-                <h2 className="text-lg font-bold text-slate-950 line-clamp-2">{displayBook.title}</h2>
-                <p className="text-sm text-slate-800 mt-1">{displayBook.author}</p>
-                {displayBook.publish_year && (
-                  <p className="text-xs text-slate-500 mt-0.5">{displayBook.publish_year}</p>
-                )}
+              <div className="mt-4 text-center">
+                <h2 className="text-lg font-bold text-slate-950 uppercase">Have You Read It?</h2>
               </div>
             )}
 
@@ -854,8 +1154,8 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
                 <button
                   ref={noBtnRef}
                   onClick={() => isInteractive && currentBook && handleNo(currentBook)}
-                  className="flex items-center justify-center gap-1.5 px-8 py-2.5 rounded-full active:scale-95 transition-all text-slate-700 font-bold text-sm"
-                  style={glassBtnStyle}
+                  className={`flex items-center justify-center gap-1.5 px-8 py-2.5 rounded-full active:scale-95 transition-all font-bold text-sm ${swipeHighlight === 'no' ? 'text-white scale-95' : 'text-slate-700'}`}
+                  style={swipeHighlight === 'no' ? { ...glassBtnStyle, background: '#FF007B', border: '1px solid #FF007B' } : glassBtnStyle}
                 >
                   <X size={16} />
                   <span>No</span>
@@ -863,8 +1163,8 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
                 <button
                   ref={yesBtnRef}
                   onClick={() => isInteractive && currentBook && handleYes(currentBook)}
-                  className="flex items-center justify-center gap-1.5 px-8 py-2.5 rounded-full active:scale-95 transition-all text-slate-700 font-bold text-sm"
-                  style={glassBtnStyle}
+                  className={`flex items-center justify-center gap-1.5 px-8 py-2.5 rounded-full active:scale-95 transition-all font-bold text-sm ${swipeHighlight === 'yes' ? 'text-white scale-95' : 'text-slate-700'}`}
+                  style={swipeHighlight === 'yes' ? { ...glassBtnStyle, background: '#FF007B', border: '1px solid #FF007B' } : glassBtnStyle}
                 >
                   <Check size={16} />
                   <span>Yes</span>
@@ -880,12 +1180,17 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
             className="mt-4 flex flex-col items-center"
             style={{ animation: 'ratingFadeUp 0.25s ease-out 0.2s both' }}
           >
-            <p className="text-xs text-slate-500 mb-2">{pendingBook.title}</p>
             <RatingStars
               value={null}
               onRate={handleRatingComplete}
               dimension="overall"
             />
+            <button
+              onClick={() => handleRatingComplete('overall', null)}
+              className="mt-2 text-xs font-medium text-slate-400 active:scale-95 transition-all"
+            >
+              Not sure
+            </button>
           </div>
         )}
 
@@ -895,17 +1200,8 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
             className="mt-4 flex flex-col items-center"
             style={{ animation: 'ratingFadeUp 0.25s ease-out 0.2s both' }}
           >
-            <p className="text-sm font-semibold text-slate-800 mb-1">Add to bookshelf?</p>
-            <p className="text-xs text-slate-500 mb-4">{pendingBook.title}</p>
+            <p className="text-sm font-semibold text-slate-800 mb-4">Add to bookshelf?</p>
             <div className="flex gap-3">
-              <button
-                onClick={handleSaveForLater}
-                className="flex items-center gap-1.5 px-5 py-2.5 rounded-full active:scale-95 transition-all text-slate-700 font-bold text-sm"
-                style={glassBtnStyle}
-              >
-                <BookmarkPlus size={16} />
-                <span>Add</span>
-              </button>
               <button
                 onClick={handleSkipFromSave}
                 className="flex items-center gap-1.5 px-5 py-2.5 rounded-full active:scale-95 transition-all text-slate-700 font-bold text-sm"
@@ -914,14 +1210,22 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
                 <SkipForward size={16} />
                 <span>Skip</span>
               </button>
+              <button
+                onClick={handleSaveForLater}
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-full active:scale-95 transition-all text-slate-700 font-bold text-sm"
+                style={glassBtnStyle}
+              >
+                <BookmarkPlus size={16} />
+                <span>Add</span>
+              </button>
             </div>
           </div>
         )}
       </div>
 
       {/* Bottom section: shelves with labels */}
-      {!showIntro && !showSummary && !showClosingLoader && coversReady && (displayBook || isPaused || showDoneMessage) && (
-        <div className="relative z-0 pb-10 pt-4 px-6 -mt-[100px]">
+      {!showIntro && !showSummary && !showClosingLoader && coversReady && (displayBook || isPaused || showDoneMessage) && (revealPhase === 'elements-in' || revealPhase === 'done') && (
+        <div className="relative z-0 pb-10 pt-4 px-6 -mt-[100px]" style={{ animation: 'ratingFadeUp 0.4s ease-out 0.3s both' }}>
           <div className="flex items-end justify-center gap-4">
             <div ref={wantShelfRef} className="flex flex-col items-center">
               <BookPile pile="want" count={pileCounts.want} books={pileBooks.want} />
@@ -936,7 +1240,7 @@ const BookDiscoverySwipe = React.memo(function BookDiscoverySwipe({
       )}
 
       {/* Reusable loading overlay — sits above everything */}
-      <LoadingOverlay visible={showClosingLoader || (!coversReady && sessionBooks.length > 0)} fadingOut={fadingOut} />
+      <TransitionScreen visible={showClosingLoader || (!coversReady && sessionBooks.length > 0)} />
     </div>
   );
 });

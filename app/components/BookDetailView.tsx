@@ -394,6 +394,40 @@ const formatNotesForDisplay = (notes: string | null): string => {
   return sections.map(section => `{${section.timestamp}}\n${section.content}`).join('\n\n');
 };
 
+const ROTATING_WORDS = [
+  { text: 'Characters', color: '#8b5cf6' },
+  { text: 'Book.luver', color: '#3b82f6' },
+  { text: 'Readers', color: '#10b981' },
+];
+
+function RotatingWord() {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setIndex(prev => (prev + 1) % ROTATING_WORDS.length);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <span className="inline-block relative" style={{ width: '5.5em', height: '1.2em' }}>
+      <AnimatePresence mode="wait">
+        <motion.span
+          key={ROTATING_WORDS[index].text}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.3, ease: 'easeInOut' }}
+          className="absolute left-0 top-0"
+          style={{ color: ROTATING_WORDS[index].color }}
+        >
+          {ROTATING_WORDS[index].text}
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  );
+}
 
 export default function BookDetailView({
   activeBook,
@@ -1300,7 +1334,7 @@ export default function BookDetailView({
                         setLoadingCharacterChat(false);
                       }
                     }}
-                    className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
+                    className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform w-[72px]"
                   >
                     <div className="relative">
                       {isThisLoading && (
@@ -1314,14 +1348,14 @@ export default function BookDetailView({
                       <div
                         className="w-14 h-14 rounded-full overflow-hidden"
                         style={{
-                          border: isThisLoading ? '2px solid rgba(59, 130, 246, 0.4)' : '2px solid rgba(255, 255, 255, 0.5)',
+                          border: isThisLoading ? '2px solid rgba(59, 130, 246, 0.4)' : '2px solid #8b5cf6',
                           boxShadow: isThisLoading ? '0 0 12px rgba(59, 130, 246, 0.3)' : '0 2px 8px rgba(0,0,0,0.08)',
                         }}
                       >
                         <img src={avatar.image_url} alt={avatar.character} className="w-full h-full object-cover" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).parentElement!.parentElement!.parentElement!.style.display = 'none'; }} />
                       </div>
                     </div>
-                    <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">{avatar.character.split(' ')[0]}</span>
+                    <span className="text-[11px] font-semibold text-slate-500 max-w-[72px] text-center leading-tight line-clamp-2">{avatar.character}</span>
                   </motion.button>
                 );
               };
@@ -1352,7 +1386,7 @@ export default function BookDetailView({
                     finally { setIsLoadingTelegramTopic(false); }
                   }}
                   disabled={isLoadingTelegramTopic || !activeBook?.canonical_book_id}
-                  className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform disabled:opacity-50"
+                  className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform disabled:opacity-50 w-[72px]"
                 >
                   <div className="h-14 flex items-center">
                     <div className="flex items-center">
@@ -1362,15 +1396,15 @@ export default function BookDetailView({
                             key={reader.id}
                             src={reader.avatar}
                             alt={reader.name}
-                            className="w-14 h-14 shrink-0 rounded-full border-2 border-white object-cover"
-                            style={{ zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0 }}
+                            className="w-14 h-14 shrink-0 rounded-full object-cover"
+                            style={{ border: '2px solid #10b981', zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0 }}
                             referrerPolicy="no-referrer"
                           />
                         ) : (
                           <div
                             key={reader.id}
-                            className="w-14 h-14 shrink-0 rounded-full border-2 border-white flex items-center justify-center text-sm font-bold text-white"
-                            style={{ zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0, background: avatarGradient(reader.id) }}
+                            className="w-14 h-14 shrink-0 rounded-full flex items-center justify-center text-sm font-bold text-white"
+                            style={{ border: '2px solid #10b981', zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0, background: avatarGradient(reader.id) }}
                           >
                             {reader.name.charAt(0).toUpperCase()}
                           </div>
@@ -1379,7 +1413,7 @@ export default function BookDetailView({
                       {bookReaders.length === 0 && (
                         <div
                           className="w-14 h-14 shrink-0 rounded-full flex items-center justify-center"
-                          style={{ background: 'linear-gradient(135deg, #dbeafe, #c7d2fe)', border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
+                          style={{ background: 'linear-gradient(135deg, #dbeafe, #c7d2fe)', border: '2px solid #10b981', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
                         >
                           <MessagesSquare size={22} className="text-indigo-500" />
                         </div>
@@ -1394,8 +1428,11 @@ export default function BookDetailView({
 
               return (
                 <div className="w-full mt-3 px-2">
-                  <p className="text-[12px] uppercase tracking-[0.15em] font-bold text-slate-500 mb-2.5 text-center">Chat about it with</p>
-                  <div className="flex items-center justify-center gap-2.5">
+                  <div className="flex items-baseline justify-center gap-[0.4em] text-[12px] uppercase tracking-[0.15em] font-bold text-slate-500 mb-2.5" style={{ marginLeft: -10 }}>
+                    <span>Chat with</span>
+                    <RotatingWord />
+                  </div>
+                  <div className="flex items-start justify-center gap-2.5">
                     {/* 1. General book chatbot */}
                     <button
                       ref={(el) => { if (el) avatarButtonRefs.current.set('__bookluver__', el); }}
@@ -1413,9 +1450,9 @@ export default function BookDetailView({
                           setShowChatPage(true);
                         }
                       }}
-                      className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
+                      className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform w-[72px]"
                     >
-                      <div className="w-14 h-14 rounded-full overflow-hidden" style={{ border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                      <div className="w-14 h-14 rounded-full overflow-hidden" style={{ border: '2px solid #3b82f6', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
                         <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
                       </div>
                       <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">Book.luver</span>
@@ -1440,7 +1477,7 @@ export default function BookDetailView({
                       /* No avatars found — show retry button */
                       <button
                         onClick={() => retryCharacterAvatars()}
-                        className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform opacity-50 hover:opacity-80"
+                        className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform opacity-50 hover:opacity-80 w-[72px]"
                       >
                         <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ border: '2px dashed rgba(148, 163, 184, 0.5)' }}>
                           <RefreshCw size={18} className="text-slate-400" />
@@ -1454,7 +1491,7 @@ export default function BookDetailView({
                   </div>
                   {/* Row 2: overflow character avatars + readers */}
                   {needsTwoRows && row2Avatars.length > 0 && !isLoadingAvatars && (
-                    <div className="flex items-center justify-center gap-2.5 mt-2">
+                    <div className="flex items-start justify-center gap-2.5 mt-2">
                       {row2Avatars.map((avatar, i) => renderCharacterAvatar(avatar, row1Avatars.length + i))}
                       {readersButton}
                     </div>

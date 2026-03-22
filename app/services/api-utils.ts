@@ -177,6 +177,33 @@ export const GROK_INPUT_PRICE_PER_M = 0.20;  // $0.20 per million input tokens
 export const GROK_OUTPUT_PRICE_PER_M = 0.50;  // $0.50 per million output tokens
 export const GROK_WEB_SEARCH_PRICE_PER_CALL = 0.005;  // $0.005 per web search call (estimate)
 
+const FUNCTION_TO_FEATURE: Record<string, string> = {
+  getGrokSuggestions: 'search',
+  getBookSummary: 'book_details',
+  getRelatedBooks: 'book_details',
+  getGrokDiscussionQuestions: 'book_details',
+  getRelatedMovies: 'book_details',
+  getGrokPodcastEpisodes: 'book_details',
+  getGrokBookInfographic: 'book_details',
+  getGrokAuthorFacts: 'book_details',
+  getFirstIssueYear: 'book_details',
+  getGrokBookInfluences: 'book_details',
+  getGrokBookDomain: 'book_details',
+  getGrokBookContext: 'book_details',
+  getGrokDidYouKnow: 'book_details',
+  getGrokDidYouKnowWithSearch: 'book_details',
+  getCharacterAvatars: 'chat',
+  generateSingleCharacterAvatar: 'chat',
+  getCharacterContext: 'chat',
+  character_chat: 'chat',
+  generateTriviaQuestionsForBook: 'trivia',
+  generateTriviaQuestions: 'trivia',
+};
+
+export function getFeatureForFunction(functionName: string): string {
+  return FUNCTION_TO_FEATURE[functionName] || 'other';
+}
+
 export async function logGrokUsage(
   functionName: string,
   usage: GrokUsageInput | undefined,
@@ -212,6 +239,7 @@ export async function logGrokUsage(
       .insert({
         user_id: user.id,
         function_name: functionName,
+        feature: getFeatureForFunction(functionName),
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,
         total_tokens: totalTokens,
@@ -249,6 +277,7 @@ export async function logImageGeneration(functionName: string, imageCount: numbe
       .insert({
         user_id: user.id,
         function_name: functionName,
+        feature: getFeatureForFunction(functionName),
         prompt_tokens: 0,
         completion_tokens: 0,
         total_tokens: 0,

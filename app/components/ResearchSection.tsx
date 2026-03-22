@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
 import { glassmorphicStyle } from './utils';
 
 interface ResearchContentItem {
@@ -188,9 +188,11 @@ function ResearchSection({ research, bookId, isLoading = false }: ResearchSectio
             )}
 
             {allContentItems.length > 1 && (
-              <p className="text-xs text-slate-600 dark:text-slate-400 text-center mt-3 font-bold uppercase tracking-wider">
-                Tap for next ({currentIndex + 1}/{allContentItems.length})
-              </p>
+              <div className="flex items-center justify-center gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+                <button onClick={handlePrev} style={{ color: "#FF007B" }} className="p-0.5 rounded-full active:scale-90 transition-transform"><ChevronLeft size={14} /></button>
+                <span style={{ color: "#FF007B" }} className="text-xs font-bold uppercase tracking-wider">{currentIndex + 1}/{allContentItems.length}</span>
+                <button onClick={handleNext} style={{ color: "#FF007B" }} className="p-0.5 rounded-full active:scale-90 transition-transform"><ChevronRight size={14} /></button>
+              </div>
             )}
           </motion.div>
         )}
