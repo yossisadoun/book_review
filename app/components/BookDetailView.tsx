@@ -20,6 +20,7 @@ import {
   Info,
   Bookmark,
   RefreshCw,
+  Settings2,
   type LucideIcon,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -304,7 +305,7 @@ export interface BookDetailViewProps {
   viewingUserIsPrivate: boolean;
 
   // Remote flags
-  remoteFlags: { related_work_play_buttons: boolean; send_enabled: boolean };
+  remoteFlags: { related_work_play_buttons: boolean; send_enabled: boolean; daily_spotlight: boolean };
 
   // Content preferences
   contentPreferences: Record<string, any>;
@@ -395,9 +396,9 @@ const formatNotesForDisplay = (notes: string | null): string => {
 };
 
 const ROTATING_WORDS = [
-  { text: 'Characters', color: '#8b5cf6' },
-  { text: 'Book.luver', color: '#3b82f6' },
-  { text: 'Readers', color: '#10b981' },
+  { text: 'Book Characters', color: '#FF007B' },
+  { text: 'Our Book Expert', color: '#FF007B' },
+  { text: 'Fellow Readers', color: '#FF007B' },
 ];
 
 function RotatingWord() {
@@ -411,7 +412,7 @@ function RotatingWord() {
   }, []);
 
   return (
-    <span className="inline-block relative" style={{ width: '5.5em', height: '1.2em' }}>
+    <span className="inline-block relative" style={{ width: '9em', height: '1.2em' }}>
       <AnimatePresence mode="wait">
         <motion.span
           key={ROTATING_WORDS[index].text}
@@ -419,7 +420,7 @@ function RotatingWord() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.3, ease: 'easeInOut' }}
-          className="absolute left-0 top-0"
+          className="absolute left-0 top-0 whitespace-nowrap"
           style={{ color: ROTATING_WORDS[index].color }}
         >
           {ROTATING_WORDS[index].text}
@@ -1348,7 +1349,7 @@ export default function BookDetailView({
                       <div
                         className="w-14 h-14 rounded-full overflow-hidden"
                         style={{
-                          border: isThisLoading ? '2px solid rgba(59, 130, 246, 0.4)' : '2px solid #8b5cf6',
+                          border: isThisLoading ? '2px solid rgba(59, 130, 246, 0.4)' : '2px solid rgba(255, 255, 255, 0.5)',
                           boxShadow: isThisLoading ? '0 0 12px rgba(59, 130, 246, 0.3)' : '0 2px 8px rgba(0,0,0,0.08)',
                         }}
                       >
@@ -1397,14 +1398,14 @@ export default function BookDetailView({
                             src={reader.avatar}
                             alt={reader.name}
                             className="w-14 h-14 shrink-0 rounded-full object-cover"
-                            style={{ border: '2px solid #10b981', zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0 }}
+                            style={{ border: '2px solid rgba(255, 255, 255, 0.5)', zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0 }}
                             referrerPolicy="no-referrer"
                           />
                         ) : (
                           <div
                             key={reader.id}
                             className="w-14 h-14 shrink-0 rounded-full flex items-center justify-center text-sm font-bold text-white"
-                            style={{ border: '2px solid #10b981', zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0, background: avatarGradient(reader.id) }}
+                            style={{ border: '2px solid rgba(255, 255, 255, 0.5)', zIndex: 4 - index, marginLeft: index > 0 ? -46 : 0, background: avatarGradient(reader.id) }}
                           >
                             {reader.name.charAt(0).toUpperCase()}
                           </div>
@@ -1413,7 +1414,7 @@ export default function BookDetailView({
                       {bookReaders.length === 0 && (
                         <div
                           className="w-14 h-14 shrink-0 rounded-full flex items-center justify-center"
-                          style={{ background: 'linear-gradient(135deg, #dbeafe, #c7d2fe)', border: '2px solid #10b981', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
+                          style={{ background: 'linear-gradient(135deg, #dbeafe, #c7d2fe)', border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
                         >
                           <MessagesSquare size={22} className="text-indigo-500" />
                         </div>
@@ -1428,7 +1429,7 @@ export default function BookDetailView({
 
               return (
                 <div className="w-full mt-3 px-2">
-                  <div className="flex items-baseline justify-center gap-[0.4em] text-[12px] uppercase tracking-[0.15em] font-bold text-slate-500 mb-2.5" style={{ marginLeft: -10 }}>
+                  <div className="flex items-baseline justify-center gap-[0.4em] text-[12px] uppercase tracking-[0.15em] font-bold text-slate-500 mb-2.5">
                     <span>Chat with</span>
                     <RotatingWord />
                   </div>
@@ -1452,7 +1453,7 @@ export default function BookDetailView({
                       }}
                       className="flex flex-col items-center gap-1.5 active:scale-95 transition-transform w-[72px]"
                     >
-                      <div className="w-14 h-14 rounded-full overflow-hidden" style={{ border: '2px solid #3b82f6', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
+                      <div className="w-14 h-14 rounded-full overflow-hidden" style={{ border: '2px solid rgba(255, 255, 255, 0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
                         <img src={getAssetPath('/avatars/bookluver.webp')} alt="Book.luver" className="w-full h-full object-cover" />
                       </div>
                       <span className="text-[11px] font-semibold text-slate-500 max-w-[64px] truncate">Book.luver</span>
@@ -1731,7 +1732,7 @@ export default function BookDetailView({
             })()}
 
             {/* Spotlight recommendation */}
-            {!showRatingOverlay && spotlightRecommendation && (
+            {!showRatingOverlay && spotlightRecommendation && remoteFlags.daily_spotlight && (
               <SpotlightSection
                 spotlightRecommendation={spotlightRecommendation}
                 didYouKnow={didYouKnow}
@@ -1760,14 +1761,23 @@ export default function BookDetailView({
               />
             )}
 
-            {/* Second "more below" animation */}
-            {!showRatingOverlay && spotlightRecommendation && (
-              <div className="flex justify-center -mt-4 -mb-4">
+            {/* "More below" animation — with settings button when spotlight is hidden */}
+            {!showRatingOverlay && (remoteFlags.daily_spotlight ? spotlightRecommendation : true) && (
+              <div className="relative flex justify-center -mt-4 -mb-4">
                 <Lottie
                   animationData={bookPageOnboardingAnimation}
                   loop={false}
                   style={{ width: 200, height: 88 }}
                 />
+                {!remoteFlags.daily_spotlight && (
+                  <button
+                    onClick={() => { capturePreviousView(); setShowAccountPage(true); }}
+                    className="absolute active:scale-90 transition-transform"
+                    style={{ right: -33, top: 'calc(50% - 10px)', transform: 'translateY(-50%)' }}
+                  >
+                    <Settings2 size={18} className="text-white" />
+                  </button>
+                )}
               </div>
             )}
 

@@ -776,7 +776,7 @@ export default function App() {
   const [createPostText, setCreatePostText] = useState('');
 
   // Remote feature flags
-  const [remoteFlags, setRemoteFlags] = useState<RemoteFeatureFlags>({ chat_enabled: false, create_post_enabled: false, related_work_play_buttons: false, commenting_enabled: false, send_enabled: false, show_grok_costs: false, discovery_swipe: false });
+  const [remoteFlags, setRemoteFlags] = useState<RemoteFeatureFlags>({ chat_enabled: false, create_post_enabled: false, related_work_play_buttons: false, commenting_enabled: false, send_enabled: false, show_grok_costs: false, discovery_swipe: false, daily_spotlight: false });
   useEffect(() => { getRemoteFeatureFlags().then(setRemoteFlags); }, []);
 
   // Book discussion state
